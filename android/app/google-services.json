@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "850445794682",
+    "project_id": "syana-ea75a",
+    "storage_bucket": "syana-ea75a.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:850445794682:android:939801eab95f35165caac3",
+        "android_client_info": {
+          "package_name": "com.example.flutter_projects"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "850445794682-2vhn8p19vq351hq8ec7ijo8187qqnbdd.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBTbeOPmTf2fZL6N1P6toutrj5i7qWp80I"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "850445794682-2vhn8p19vq351hq8ec7ijo8187qqnbdd.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
