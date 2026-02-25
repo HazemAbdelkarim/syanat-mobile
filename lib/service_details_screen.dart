@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import '../glass_card.dart';
 import 'technicians_list_screen.dart';
 import '../firebase_service.dart';
+import 'services_integration.dart';
+import 'models/service.dart';
 
 const Color syanatBlue = Color(0xFF3C21C8);
 
@@ -21,6 +23,43 @@ class ServiceDetailsScreen extends StatefulWidget {
 
 class _ServiceDetailsScreenState extends State<ServiceDetailsScreen> {
   Locale _locale = const Locale('en');
+  late ServiceIntegration _serviceIntegration;
+  List<Service> _services = [];
+  List<String> _subcategories = [];
+  bool _isLoading = true;
+  String? _selectedSubcategory;
+  String _errorMessage = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _serviceIntegration = ServiceIntegration();
+    _loadServices();
+  }
+
+  Future<void> _loadServices() async {
+    setState(() => _isLoading = true);
+    try {
+      final services = await _serviceIntegration.getServicesByKey(widget.serviceKey);
+      final subcatsSet = <String>{};
+      
+      for (final service in services) {
+        subcatsSet.add(service.subcategoryEn);
+      }
+      
+      setState(() {
+        _services = services;
+        _subcategories = subcatsSet.toList()..sort();
+        _selectedSubcategory = _subcategories.isNotEmpty ? _subcategories.first : null;
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'Error loading services: $e';
+        _isLoading = false;
+      });
+    }
+  }
 
   void _switchLanguage() {
     setState(() {
@@ -28,28 +67,8 @@ class _ServiceDetailsScreenState extends State<ServiceDetailsScreen> {
     });
   }
 
-  List<Map<String, String>> _commonProblems() {
-    final isPlumbing = widget.serviceKey.toLowerCase().contains('plumb') ||
-        widget.serviceKey.toLowerCase().contains('سباك');
-    final isEn = _locale.languageCode == 'en';
-
-    if (isPlumbing) {
-      return [
-        {'en': 'Leak under sink', 'ar': 'تسريب تحت البانيو'},
-        {'en': 'Clogged drain', 'ar': 'الصرف مسدود'},
-        {'en': 'Toilet not flushing', 'ar': 'الحمام مش بيشتغل'},
-        {'en': 'Low water pressure', 'ar': 'المية ضعيفة'},
-        {'en': 'Water heater not working', 'ar': 'الغاز مش شغال'},
-      ];
-    } else {
-      return [
-        {'en': 'No electricity in room', 'ar': 'الكهربا مقطوعة في الأوضة'},
-        {'en': 'Circuit breaker tripping', 'ar': 'الجريب يقفّل لوحده'},
-        {'en': 'Lights flickering', 'ar': 'اللمبات بتومض'},
-        {'en': 'Outlet not working', 'ar': 'الموصلا مش شغال'},
-        {'en': 'Install new light/fan', 'ar': 'تركيب لمبة/مروحة جديدة'},
-      ];
-    }
+  List<Service> _getServicesForSubcategory(String subcategory) {
+    return _services.where((s) => s.subcategoryEn == subcategory).toList();
   }
 
   Future<void> _showQuickOrderDialog(BuildContext context) async {
@@ -85,29 +104,36 @@ class _ServiceDetailsScreenState extends State<ServiceDetailsScreen> {
         await FirebaseService.createJob(
           customerId: FirebaseService.getCurrentUser()!.uid,
           serviceKey: widget.serviceKey,
-          description: 'طلب سريع - فحص ميداني',
+          description: 'Quick inspection request',
           price: 200.0,
         );
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(isEn ? 'Quick order sent!' : 'الطلب السريع اتبعت!')),
-        );
-        Navigator.pop(context);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(_locale.languageCode == 'en' ? 'Quick order sent!' : 'الطلب السريع اتبعت!')),
+          );
+          Navigator.pop(context);
+        }
       } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('خطأ: $e')),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error: $e')),
+          );
+        }
       }
     }
   }
 
-  void _openProblemTechnicians(String problem) {
+  void _openServiceTechnicians(Service service) {
+    final isEn = _locale.languageCode == 'en';
+    final label = isEn ? service.serviceNameEn : service.serviceNameAr;
+    
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => TechniciansListScreen(
           serviceKey: widget.serviceKey,
-          serviceLabel: problem,
-          preSelectedDescription: problem,
+          serviceLabel: label,
+          preSelectedDescription: label,
         ),
       ),
     );
@@ -116,7 +142,6 @@ class _ServiceDetailsScreenState extends State<ServiceDetailsScreen> {
   @override
   Widget build(BuildContext context) {
     final isEn = _locale.languageCode == 'en';
-    final problems = _commonProblems();
 
     return Directionality(
       textDirection: isEn ? TextDirection.ltr : TextDirection.rtl,
@@ -214,102 +239,187 @@ class _ServiceDetailsScreenState extends State<ServiceDetailsScreen> {
 
                     const SizedBox(height: 32),
 
-                    // Common problems section
-                    Row(
-                      children: [
-                        Icon(Icons.warning_amber_rounded, color: syanatBlue, size: 28),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                isEn ? 'Common Problems' : 'المشاكل الشائعة',
-                                style: const TextStyle(
-                                  fontSize: 22,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.black87,
+                    // Services/Subcategories section
+                    if (!_isLoading)
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (_subcategories.isNotEmpty)
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  isEn ? 'Service Types' : 'أنواع الخدمة',
+                                  style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.black87,
+                                  ),
                                 ),
-                              ),
-                              Text(
-                                isEn
-                                    ? 'Tap any problem to find the right technician'
-                                    : 'اضغط على المشكلة وهتلاقي الفني المناسب',
-                                style: const TextStyle(fontSize: 15, color: Colors.black54),
+                                const SizedBox(height: 12),
+                                Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: _subcategories.map((subcat) {
+                                    final isSelected = subcat == _selectedSubcategory;
+                                    return FilterChip(
+                                      label: Text(subcat),
+                                      selected: isSelected,
+                                      onSelected: (_) {
+                                        setState(() => _selectedSubcategory = subcat);
+                                      },
+                                      backgroundColor: Colors.grey.shade100,
+                                      selectedColor: syanatBlue.withOpacity(0.3),
+                                      side: BorderSide(
+                                        color: isSelected ? syanatBlue : Colors.grey.shade300,
+                                        width: isSelected ? 2 : 1,
+                                      ),
+                                    );
+                                  }).toList(),
+                                ),
+                                const SizedBox(height: 24),
+                              ],
+                            ),
+                          // Available services
+                          Row(
+                            children: [
+                              Icon(Icons.build, color: syanatBlue, size: 28),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      isEn ? 'Available Services' : 'الخدمات المتاحة',
+                                      style: const TextStyle(
+                                        fontSize: 22,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.black87,
+                                      ),
+                                    ),
+                                    Text(
+                                      isEn
+                                          ? 'Choose a service to find the right technician'
+                                          : 'اختر خدمة وجد الفني المناسب',
+                                      style: const TextStyle(fontSize: 15, color: Colors.black54),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ],
                           ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 20),
-
-                    // Problems list
-                    ..._commonProblems().map(
-                      (problemMap) {
-                        final problem = isEn ? problemMap['en']! : problemMap['ar']!;
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 14),
-                          child: GestureDetector(
-                            onTap: () => _openProblemTechnicians(problem),
-                            child: Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.all(18),
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  colors: [
-                                    Colors.white,
-                                    Colors.grey.shade50,
-                                  ],
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                ),
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(color: Colors.grey.shade200),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.05),
-                                    blurRadius: 12,
-                                    offset: const Offset(0, 4),
-                                  ),
-                                ],
-                              ),
-                              child: Row(
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.all(10),
-                                    decoration: BoxDecoration(
-                                      color: syanatBlue.withOpacity(0.1),
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    child: Icon(
-                                      Icons.build_circle,
-                                      color: syanatBlue,
-                                      size: 28,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 16),
-                                  Expanded(
-                                    child: Text(
-                                      problem,
-                                      style: const TextStyle(
-                                        fontSize: 17,
-                                        fontWeight: FontWeight.w500,
+                          const SizedBox(height: 20),
+                          // Services list filtered by subcategory
+                          if (_selectedSubcategory != null)
+                            ..._getServicesForSubcategory(_selectedSubcategory!).map(
+                              (service) {
+                                final label = isEn ? service.serviceNameEn : service.serviceNameAr;
+                                return Padding(
+                                  padding: const EdgeInsets.only(bottom: 14),
+                                  child: GestureDetector(
+                                    onTap: () => _openServiceTechnicians(service),
+                                    child: Container(
+                                      width: double.infinity,
+                                      padding: const EdgeInsets.all(18),
+                                      decoration: BoxDecoration(
+                                        gradient: LinearGradient(
+                                          colors: [
+                                            Colors.white,
+                                            Colors.grey.shade50,
+                                          ],
+                                          begin: Alignment.topLeft,
+                                          end: Alignment.bottomRight,
+                                        ),
+                                        borderRadius: BorderRadius.circular(16),
+                                        border: Border.all(color: Colors.grey.shade200),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Colors.black.withOpacity(0.05),
+                                            blurRadius: 12,
+                                            offset: const Offset(0, 4),
+                                          ),
+                                        ],
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          Container(
+                                            padding: const EdgeInsets.all(10),
+                                            decoration: BoxDecoration(
+                                              color: syanatBlue.withOpacity(0.1),
+                                              borderRadius: BorderRadius.circular(12),
+                                            ),
+                                            child: Icon(
+                                              Icons.build_circle,
+                                              color: syanatBlue,
+                                              size: 28,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 16),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  label,
+                                                  style: const TextStyle(
+                                                    fontSize: 17,
+                                                    fontWeight: FontWeight.w500,
+                                                  ),
+                                                ),
+                                                if (service.price != null)
+                                                  Padding(
+                                                    padding: const EdgeInsets.only(top: 4),
+                                                    child: Text(
+                                                      '${isEn ? 'Price: ' : 'السعر: '}${service.price?.toStringAsFixed(2)} EGP',
+                                                      style: const TextStyle(
+                                                        fontSize: 13,
+                                                        color: Colors.green,
+                                                        fontWeight: FontWeight.w600,
+                                                      ),
+                                                    ),
+                                                  ),
+                                              ],
+                                            ),
+                                          ),
+                                          Icon(
+                                            Icons.arrow_forward_ios,
+                                            color: Colors.grey.shade600,
+                                            size: 18,
+                                          ),
+                                        ],
                                       ),
                                     ),
                                   ),
-                                  Icon(
-                                    Icons.arrow_forward_ios,
-                                    color: Colors.grey.shade600,
-                                    size: 18,
-                                  ),
-                                ],
+                                );
+                              },
+                            )
+                          else
+                            Center(
+                              child: Text(
+                                isEn ? 'No services available' : 'لا توجد خدمات متاحة',
+                                style: const TextStyle(color: Colors.black54),
                               ),
                             ),
+                        ],
+                      )
+                    else
+                      const Center(child: CircularProgressIndicator()),
+                    
+                    if (_errorMessage.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.red.shade100,
+                            borderRadius: BorderRadius.circular(8),
                           ),
-                        );
-                      },
-                    ),
+                          child: Text(
+                            _errorMessage,
+                            style: TextStyle(color: Colors.red.shade900),
+                          ),
+                        ),
+                      ),
                   ],
                 ),
               ),
