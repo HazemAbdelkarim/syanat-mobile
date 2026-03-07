@@ -23,6 +23,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _usernameController = TextEditingController();
+  final _phoneController = TextEditingController();
   final _cityController = TextEditingController();
   final _picker = ImagePicker();
 
@@ -53,6 +54,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
     _emailController.dispose();
     _passwordController.dispose();
     _usernameController.dispose();
+    _phoneController.dispose();
     _cityController.dispose();
     super.dispose();
   }
@@ -73,9 +75,10 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
   }
 
   Future<void> _pickProfileImage() async {
+    // No imageQuality here — compression is applied in FirebaseService.uploadPhoto()
+    // (max 512 px · JPEG quality 70) so we pick at full quality for best source data.
     final picked = await _picker.pickImage(
       source: ImageSource.gallery,
-      imageQuality: 30,
     );
     if (picked != null) {
       setState(() => _profileImage = picked);
@@ -88,6 +91,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
     final email = _emailController.text.trim();
     final password = _passwordController.text.trim();
     final username = _usernameController.text.trim();
+    final phone = _phoneController.text.trim();
     final city = _cityController.text.trim();
     final isEn = Localizations.localeOf(context).languageCode == 'en';
     final lang = isEn ? 'en' : 'ar';
@@ -95,9 +99,21 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
     if (email.isEmpty ||
         password.isEmpty ||
         username.isEmpty ||
+        phone.isEmpty ||
         city.isEmpty) {
       _showSnack(
         isEn ? "Please fill all fields" : "يرجى ملء جميع الحقول",
+      );
+      setState(() => _isLoading = false);
+      return;
+    }
+
+    final egyptPhoneRegex = RegExp(r'^\+201[0125]\d{8}$');
+    if (!egyptPhoneRegex.hasMatch(phone)) {
+      _showSnack(
+        isEn
+            ? "Invalid phone number. Use format: +201XXXXXXXXX"
+            : "رقم الهاتف غير صحيح. استخدم الصيغة: +201XXXXXXXXX",
       );
       setState(() => _isLoading = false);
       return;
@@ -138,6 +154,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
           uid: user.uid,
           email: email,
           username: username,
+          phone: phone,
           serviceId: _service!,
           city: city,
           language: lang,
@@ -164,6 +181,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
           email: email,
           username: username,
           role: 'customer',
+          phone: phone,
           city: city,
           language: lang,
           photoUrl: photoUrl ?? '',
@@ -278,6 +296,13 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                                 _usernameController,
                                 isEn ? "Full Name" : "الاسم الكامل",
                                 Icons.person,
+                              ),
+                              const SizedBox(height: 16),
+                              _buildModernTextField(
+                                _phoneController,
+                                isEn ? "Phone Number" : "رقم الهاتف",
+                                Icons.phone,
+                                keyboardType: TextInputType.phone,
                               ),
                               const SizedBox(height: 16),
                               _buildModernTextField(

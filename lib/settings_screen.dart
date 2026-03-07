@@ -7,7 +7,8 @@ import 'login_screen.dart';
 const Color syanatBlue = Color(0xFF3C21C8);
 
 class SettingsScreen extends StatelessWidget {
-  const SettingsScreen({super.key});
+  final Function(Locale) setLocale;
+  const SettingsScreen({required this.setLocale, super.key});
 
   Future<void> _logout(BuildContext context) async {
     await FirebaseAuth.instance.signOut();
@@ -15,11 +16,7 @@ class SettingsScreen extends StatelessWidget {
     Navigator.pushAndRemoveUntil(
       context,
       MaterialPageRoute(
-        builder: (_) => LoginScreen(
-          setLocale: (locale) {
-            // login screen will handle locale through MaterialApp
-          },
-        ),
+        builder: (_) => LoginScreen(setLocale: setLocale),
       ),
       (route) => false,
     );

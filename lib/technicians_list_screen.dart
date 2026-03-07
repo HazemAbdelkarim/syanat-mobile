@@ -52,7 +52,8 @@ class _TechniciansListScreenState extends State<TechniciansListScreen> {
         .collection('users')
         .where('role', isEqualTo: 'technician')
         .where('service', isEqualTo: widget.serviceKey)
-        .where('available', isEqualTo: true);
+        .where('available', isEqualTo: true)
+        .limit(20); // consistent cap with home screen — prevents unbounded reads
 
     if (cityFilter.isNotEmpty) {
       q = q.where('city', isEqualTo: cityFilter);

@@ -41,15 +41,24 @@ class _ServiceDetailsScreenState extends State<ServiceDetailsScreen> {
     setState(() => _isLoading = true);
     try {
       final services = await _serviceIntegration.getServicesByKey(widget.serviceKey);
+      // Collect unique subcategory English keys (stable internal keys regardless of locale)
       final subcatsSet = <String>{};
-      
       for (final service in services) {
-        subcatsSet.add(service.subcategoryEn);
+        if (service.subcategoryEn.trim().isNotEmpty) {
+          subcatsSet.add(service.subcategoryEn);
+        }
       }
       
       setState(() {
         _services = services;
-        _subcategories = subcatsSet.toList()..sort();
+        _subcategories = subcatsSet.toList()..sort((a, b) {
+          // "Other / Others" always goes last
+          final aIsOther = a.trim().toLowerCase().contains('other');
+          final bIsOther = b.trim().toLowerCase().contains('other');
+          if (aIsOther && !bIsOther) return 1;
+          if (!aIsOther && bIsOther) return -1;
+          return a.compareTo(b);
+        });
         _selectedSubcategory = _subcategories.isNotEmpty ? _subcategories.first : null;
         _isLoading = false;
       });
@@ -67,8 +76,25 @@ class _ServiceDetailsScreenState extends State<ServiceDetailsScreen> {
     });
   }
 
-  List<Service> _getServicesForSubcategory(String subcategory) {
-    return _services.where((s) => s.subcategoryEn == subcategory).toList();
+  /// Always filters by the English key, which is the stable internal identifier.
+  List<Service> _getServicesForSubcategory(String subcategoryEnKey) {
+    return _services.where((s) => s.subcategoryEn == subcategoryEnKey).toList();
+  }
+
+  /// Returns the display label for a subcategory English key based on current locale.
+  String _subcategoryLabel(String subcategoryEnKey, bool isEn) {
+    if (isEn) return subcategoryEnKey;
+    // Find matching Arabic label from services data
+    final match = _services.firstWhere(
+      (s) => s.subcategoryEn == subcategoryEnKey,
+      orElse: () => Service(
+        categoryEn: '', categoryAr: '',
+        subcategoryEn: subcategoryEnKey, subcategoryAr: subcategoryEnKey,
+        serviceNameEn: '', serviceNameAr: '',
+      ),
+    );
+    final ar = match.subcategoryAr.trim();
+    return ar.isNotEmpty ? ar : subcategoryEnKey;
   }
 
   Future<void> _showQuickOrderDialog(BuildContext context) async {
@@ -260,13 +286,15 @@ class _ServiceDetailsScreenState extends State<ServiceDetailsScreen> {
                                 Wrap(
                                   spacing: 8,
                                   runSpacing: 8,
-                                  children: _subcategories.map((subcat) {
-                                    final isSelected = subcat == _selectedSubcategory;
+                                  children: _subcategories.map((subcatKey) {
+                                    final isSelected = subcatKey == _selectedSubcategory;
                                     return FilterChip(
-                                      label: Text(subcat),
+                                      // Display label is locale-aware; internal key is always English
+                                      label: Text(_subcategoryLabel(subcatKey, isEn)),
                                       selected: isSelected,
                                       onSelected: (_) {
-                                        setState(() => _selectedSubcategory = subcat);
+                                        // Store the English key as the selected value
+                                        setState(() => _selectedSubcategory = subcatKey);
                                       },
                                       backgroundColor: Colors.grey.shade100,
                                       selectedColor: syanatBlue.withOpacity(0.3),

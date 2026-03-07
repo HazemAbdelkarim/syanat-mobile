@@ -53,15 +53,26 @@ class ServiceIntegration {
     return subcategories.toList()..sort();
   }
 
-  /// Get all services for a specific subcategory
+  /// Get all services for a specific subcategory.
+  /// Uses a compound Firestore query instead of a double-fetch.
   Future<List<Service>> getServicesBySubcategory(
     String serviceKey,
     String subcategoryEn,
   ) async {
-    final services = await getServicesByKey(serviceKey);
-    return services
-        .where((s) => s.subcategoryEn == subcategoryEn)
-        .toList();
+    final categoryName = keyToCategoryMap[serviceKey];
+    if (categoryName == null) {
+      throw Exception('Unknown service key: $serviceKey');
+    }
+    try {
+      final snapshot = await _firestore
+          .collection('services')
+          .where('category_en', isEqualTo: categoryName)
+          .where('subcategoryEn', isEqualTo: subcategoryEn)
+          .get();
+      return snapshot.docs.map((doc) => Service.fromFirestore(doc)).toList();
+    } catch (e) {
+      throw Exception('Failed to fetch subcategory services: $e');
+    }
   }
 
   /// Stream all services for real-time updates
@@ -79,12 +90,39 @@ class ServiceIntegration {
             snapshot.docs.map((doc) => Service.fromFirestore(doc)).toList());
   }
 
-  /// Get services matching a search query
+  /// Get services matching a search query.
+  /// When the query matches a known category key, queries Firestore directly.
+  /// Otherwise fetches with a .limit(100) safety cap and filters client-side,
+  /// since Firestore does not support native full-text search.
   Future<List<Service>> searchServices(String query) async {
-    try {
-      final lowerQuery = query.toLowerCase();
-      final snapshot = await _firestore.collection('services').get();
+    if (query.trim().isEmpty) return [];
+    final lowerQuery = query.toLowerCase().trim();
 
+    // Check if the query matches a known category — use a direct Firestore filter.
+    final matchedKey = keyToCategoryMap.entries
+        .where((e) =>
+            e.key.contains(lowerQuery) ||
+            e.value.toLowerCase().contains(lowerQuery))
+        .map((e) => e.value)
+        .toList();
+
+    try {
+      if (matchedKey.isNotEmpty) {
+        // Targeted read: only fetch the matching category.
+        final snapshot = await _firestore
+            .collection('services')
+            .where('category_en', isEqualTo: matchedKey.first)
+            .get();
+        return snapshot.docs
+            .map((doc) => Service.fromFirestore(doc))
+            .toList();
+      }
+
+      // Free-text fallback: cap at 100 docs to avoid unbounded full-collection reads.
+      final snapshot = await _firestore
+          .collection('services')
+          .limit(100)
+          .get();
       return snapshot.docs
           .map((doc) => Service.fromFirestore(doc))
           .where((service) =>

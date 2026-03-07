@@ -23,7 +23,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   int customers = 0;
   int technicians = 0;
 
-  double totalRevenue = 0.0; // platform fee revenue (15%)
+  double totalRevenue = 0.0;
 
   int jobsRequested = 0;
   int jobsOngoing = 0;
@@ -32,7 +32,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   int activeChats = 0;
 
   Set<Marker> markers = {};
-  DateTime? _selectedDate; // kept for later filters
+  DateTime? _selectedDate;
   bool _loading = true;
 
   @override
@@ -54,54 +54,82 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     setState(() => _loading = true);
 
     try {
-      // Users stats
-      final usersSnap =
-          await FirebaseService.firestore.collection('users').get();
-      int c = 0, t = 0;
-      for (var d in usersSnap.docs) {
-        final role = d.data()['role'];
-        if (role == 'customer') c++;
-        if (role == 'technician') t++;
-      }
+      final firestore = FirebaseService.firestore;
 
-      // Jobs stats + revenue
-      final jobsSnap = await FirebaseService.firestore.collection('jobs').get();
-      int req = 0, ong = 0, fin = 0;
-      double revenue = 0.0;
+      final statsSnap = await firestore.doc('stats/global').get();
+      final totalEarnings =
+          (statsSnap.data()?['totalEarnings'] as num?)?.toDouble() ?? 0.0;
+      final revenue = totalEarnings * 0.15;
 
-      for (var d in jobsSnap.docs) {
-        final data = d.data();
-        final status = (data['status'] ?? 'requested').toString();
-        final price = (data['price'] as num?)?.toDouble() ?? 0.0;
+      final futures = await Future.wait([
+        firestore.collection('users').count().get(),
+        firestore
+            .collection('users')
+            .where('role', isEqualTo: 'customer')
+            .count()
+            .get(),
+        firestore
+            .collection('users')
+            .where('role', isEqualTo: 'technician')
+            .count()
+            .get(),
+        firestore
+            .collection('jobs')
+            .where('status', isEqualTo: 'requested')
+            .count()
+            .get(),
+        firestore
+            .collection('jobs')
+            .where('status', isEqualTo: 'accepted')
+            .count()
+            .get(),
+        firestore
+            .collection('jobs')
+            .where('status', isEqualTo: 'in_progress')
+            .count()
+            .get(),
+        firestore
+            .collection('jobs')
+            .where('status', isEqualTo: 'inprogress')
+            .count()
+            .get(),
+        firestore
+            .collection('jobs')
+            .where('status', isEqualTo: 'completed')
+            .count()
+            .get(),
+        firestore.collectionGroup('messages').count().get(),
+      ]);
 
-        switch (status) {
-          case 'requested':
-            req++;
-            break;
-          case 'accepted':
-          case 'inprogress':
-            ong++;
-            break;
-          case 'completed':
-            fin++;
-            revenue += price * 0.15; // 15% platform fee
-            break;
-        }
-      }
+      final totalUsersCount =
+          (futures[0] as AggregateQuerySnapshot).count ?? 0;
+      final customersCount =
+          (futures[1] as AggregateQuerySnapshot).count ?? 0;
+      final techniciansCount =
+          (futures[2] as AggregateQuerySnapshot).count ?? 0;
+      final requestedCount =
+          (futures[3] as AggregateQuerySnapshot).count ?? 0;
+      final acceptedCount =
+          (futures[4] as AggregateQuerySnapshot).count ?? 0;
+      final inProgressCount =
+          (futures[5] as AggregateQuerySnapshot).count ?? 0;
+      final inprogressLegacyCount =
+          (futures[6] as AggregateQuerySnapshot).count ?? 0;
+      final completedCount =
+          (futures[7] as AggregateQuerySnapshot).count ?? 0;
+      final chatsCount =
+          (futures[8] as AggregateQuerySnapshot).count ?? 0;
 
-      // Active chats (count all message docs)
-      final chatsSnap = await FirebaseService.firestore
-          .collectionGroup('messages')
-          .get();
-      final chatsCount = chatsSnap.docs.length;
+      final int req = requestedCount;
+      final int ong = acceptedCount + inProgressCount + inprogressLegacyCount;
+      final int fin = completedCount;
 
-      // Technician locations
       await _loadTechnicianLocations();
 
       setState(() {
-        totalUsers = usersSnap.size;
-        customers = c;
-        technicians = t;
+        totalUsers = totalUsersCount;
+        customers = customersCount;
+        technicians = techniciansCount;
         totalRevenue = revenue;
         jobsRequested = req;
         jobsOngoing = ong;
@@ -114,17 +142,19 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       if (mounted) {
         final isEn = Localizations.localeOf(context).languageCode == 'en';
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(_t(isEn, 'Error loading stats: $e', 'حصل خطأ في تحميل الإحصائيات: $e'))),
+          SnackBar(
+            content: Text(
+              _t(isEn, 'Error loading stats: $e', 'حصل خطأ في تحميل الإحصائيات: $e'),
+            ),
+          ),
         );
       }
     }
   }
 
   Future<void> _loadTechnicianLocations() async {
-    // Use current locale for marker strings (safe with mounted checks)
-    final bool isEn = mounted
-        ? Localizations.localeOf(context).languageCode == 'en'
-        : true;
+    final bool isEn =
+        mounted ? Localizations.localeOf(context).languageCode == 'en' : true;
 
     final snap = await FirebaseService.firestore
         .collection('users')
@@ -133,10 +163,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         .get();
 
     final Set<Marker> temp = {};
-    for (var d in snap.docs) {
+    for (final d in snap.docs) {
       final data = d.data();
-      if (data.containsKey('location')) {
-        final GeoPoint gp = data['location'];
+      if (data.containsKey('location') && data['location'] is GeoPoint) {
+        final GeoPoint gp = data['location'] as GeoPoint;
         final rating = (data['rating'] as num?)?.toDouble() ?? 0.0;
 
         temp.add(
@@ -160,7 +190,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       }
     }
 
-    if (mounted) setState(() => markers = temp);
+    if (mounted) {
+      setState(() => markers = temp);
+    }
   }
 
   Future<void> _refreshStats() async {
@@ -169,7 +201,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
 
     final isEn = Localizations.localeOf(context).languageCode == 'en';
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(_t(isEn, 'Dashboard refreshed!', 'تم تحديث لوحة التحكم!'))),
+      SnackBar(
+        content: Text(
+          _t(isEn, 'Dashboard refreshed!', 'تم تحديث لوحة التحكم!'),
+        ),
+      ),
     );
   }
 
@@ -177,12 +213,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     await FirebaseService.auth.signOut();
     if (!mounted) return;
 
-    // If your LoginScreen requires setLocale, pass a no-op
-    Navigator.pushReplacement(
+    // Navigate all the way back to root so MyApp rebuilds SplashScreen
+    // with the real setLocale — avoids needing to thread setLocale into
+    // AdminDashboardScreen (which is pushed without it from LoginScreen).
+    Navigator.pushAndRemoveUntil(
       context,
       MaterialPageRoute(
         builder: (_) => LoginScreen(setLocale: (locale) {}),
       ),
+      (route) => false,
     );
   }
 
@@ -244,7 +283,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                   return;
                 }
 
-                // TODO: implement other actions
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: Text(
@@ -447,12 +485,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 16),
-
-            // TODO: Replace with real Firestore recent users list
             ListTile(
               leading: const CircleAvatar(child: Icon(Icons.person)),
               title: Text(_t(isEn, 'ahmed@example.com', 'ahmed@example.com')),
-              subtitle: Text(_t(isEn, 'Customer - Joined today', 'عميل - انضم النهاردة')),
+              subtitle: Text(
+                _t(isEn, 'Customer - Joined today', 'عميل - انضم النهاردة'),
+              ),
               trailing: const Icon(Icons.edit),
               onTap: () {},
             ),
@@ -517,13 +555,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               alignment: isEn ? Alignment.centerLeft : Alignment.centerRight,
               child: Text(
                 _t(isEn, 'Recent Jobs', 'آخر الطلبات'),
-                style:
-                    const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
               ),
             ),
             const SizedBox(height: 16),
-
-            // TODO: Replace with real Firestore recent jobs list
             ListTile(
               leading: const Icon(Icons.work, color: syanatBlue),
               title: Text(_t(isEn, 'Plumbing - Ahmed St.', 'سباكة - شارع أحمد')),
@@ -540,7 +575,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   Widget _mapTab(bool isEn) {
     return GoogleMap(
       initialCameraPosition: const CameraPosition(
-        target: LatLng(30.0444, 31.2357), // Cairo
+        target: LatLng(30.0444, 31.2357),
         zoom: 11,
       ),
       markers: markers,
@@ -575,8 +610,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         children: [
           Container(
             padding: const EdgeInsets.all(16),
-            decoration:
-                BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.1),
+              shape: BoxShape.circle,
+            ),
             child: Icon(icon, color: color, size: 32),
           ),
           const SizedBox(height: 12),
@@ -616,8 +653,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         children: [
           Container(
             padding: const EdgeInsets.all(12),
-            decoration:
-                BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.1),
+              shape: BoxShape.circle,
+            ),
             child: Icon(icon, color: color, size: 26),
           ),
           const SizedBox(width: 12),
@@ -663,9 +702,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+          Text(
+            title,
+            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          ),
           const SizedBox(height: 10),
-          Text(subtitle, style: TextStyle(fontSize: 15, color: Colors.grey.shade600)),
+          Text(
+            subtitle,
+            style: TextStyle(fontSize: 15, color: Colors.grey.shade600),
+          ),
           const SizedBox(height: 18),
           Container(
             height: 200,

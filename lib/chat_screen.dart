@@ -47,6 +47,7 @@ class _ChatScreenState extends State<ChatScreen> {
         .doc(widget.chatId)
         .collection('messages')
         .where('senderId', isEqualTo: user.uid)
+        .limit(2)
         .get();
 
     setState(() {

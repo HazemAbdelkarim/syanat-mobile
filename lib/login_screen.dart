@@ -34,7 +34,7 @@ class _LoginScreenState extends State<LoginScreen> {
     final newLocale = Localizations.localeOf(context).languageCode == 'en'
         ? const Locale('ar')
         : const Locale('en');
-    widget.setLocale(newLocale);
+    Future.microtask(() => widget.setLocale(newLocale));
   }
 
   Future<void> _login() async {

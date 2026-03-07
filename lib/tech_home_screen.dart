@@ -1,6 +1,4 @@
-// tech_home_screen.dart - COMPLETE FIXED VERSION (NO OVERFLOW)
-
-import 'dart:async';
+﻿import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../firebase_service.dart';
@@ -25,18 +23,62 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
   int _activeCount = 0;
   double _earnings = 0.0;
   double _rating = 0.0;
-  StreamSubscription? _jobsSub;
+
+  final Map<String, Map<String, dynamic>> _customerCache = {};
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _jobsSub;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _profileSub;
 
   @override
   void initState() {
     super.initState();
+    _subscribeProfile();
     _loadJobsRealtime();
   }
 
   @override
   void dispose() {
     _jobsSub?.cancel();
+    _profileSub?.cancel();
     super.dispose();
+  }
+
+  String _t(bool isEn, String en, String ar) => isEn ? en : ar;
+
+  void _subscribeProfile() {
+    final user = FirebaseService.getCurrentUser();
+    if (user == null) return;
+
+    _profileSub = FirebaseService.firestore
+        .collection('users')
+        .doc(user.uid)
+        .snapshots()
+        .listen((doc) {
+      final rating = (doc.data()?['rating'] as num?)?.toDouble() ?? 0.0;
+      if (!mounted) return;
+      setState(() => _rating = rating);
+    });
+  }
+
+  Future<void> _primeCustomerCache(List<Map<String, dynamic>> jobs) async {
+    final missingIds = jobs
+        .map((j) => (j['customerId'] as String?) ?? '')
+        .where((id) => id.isNotEmpty && !_customerCache.containsKey(id))
+        .toSet()
+        .toList();
+
+    if (missingIds.isEmpty) return;
+
+    for (var i = 0; i < missingIds.length; i += 10) {
+      final chunk = missingIds.skip(i).take(10).toList();
+      final snap = await FirebaseService.firestore
+          .collection('users')
+          .where(FieldPath.documentId, whereIn: chunk)
+          .get();
+
+      for (final doc in snap.docs) {
+        _customerCache[doc.id] = doc.data();
+      }
+    }
   }
 
   void _loadJobsRealtime() {
@@ -50,46 +92,55 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
         .where('technicianId', isEqualTo: user.uid)
         .snapshots()
         .listen((snapshot) async {
-      final jobs =
-          snapshot.docs.map((d) => d.data()..['id'] = d.id).toList();
+      final jobs = snapshot.docs.map((d) {
+        final data = Map<String, dynamic>.from(d.data());
+        data['id'] = d.id;
+        return data;
+      }).toList();
 
       final active = jobs
-          .where((j) =>
-              j['status'] == 'accepted' || j['status'] == 'in_progress')
+          .where(
+            (j) =>
+                j['status'] == 'accepted' ||
+                j['status'] == 'in_progress' ||
+                j['status'] == 'inprogress',
+          )
           .length;
+
       final earnings = jobs
           .where((j) => j['status'] == 'completed')
           .fold<double>(
-              0.0, (sum, j) => sum + (j['price'] as num? ?? 0).toDouble());
+            0.0,
+            (sum, j) => sum + (j['price'] as num? ?? 0).toDouble(),
+          );
 
-      final profile =
-          await FirebaseService.getProfile(user.uid);
-      final rating = (profile?['rating'] as num?)?.toDouble() ?? 0.0;
+      await _primeCustomerCache(jobs);
+      if (!mounted) return;
 
       setState(() {
         _jobs = jobs;
         _activeCount = active;
         _earnings = earnings;
-        _rating = rating;
         _loading = false;
       });
     });
   }
 
   void _switchLanguage() {
-    final newLocale =
-        Localizations.localeOf(context).languageCode == 'en'
-            ? const Locale('ar')
-            : const Locale('en');
-    widget.setLocale(newLocale);
+    final newLocale = Localizations.localeOf(context).languageCode == 'en'
+        ? const Locale('ar')
+        : const Locale('en');
+    // Defer past the current frame so the tap animation completes
+    // before the full-app rebuild triggered by setLocale.
+    Future.microtask(() => widget.setLocale(newLocale));
   }
 
   Future<void> _acceptJob(String jobId) async {
     try {
-      await FirebaseService.firestore
-          .collection('jobs')
-          .doc(jobId)
-          .update({'status': 'accepted'});
+      await FirebaseService.firestore.collection('jobs').doc(jobId).update({
+        'status': 'accepted',
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error accepting: $e')),
@@ -99,12 +150,9 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
 
   Future<void> _rejectJob(String jobId) async {
     try {
-      await FirebaseService.firestore
-          .collection('jobs')
-          .doc(jobId)
-          .delete();
+      await FirebaseService.firestore.collection('jobs').doc(jobId).delete();
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Request rejected')),
+        const SnackBar(content: Text('Request rejected')),
       );
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -120,18 +168,18 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(isEn ? 'Complete Job' : 'إنهاء المهمة'),
+        title: Text(isEn ? 'Complete Job' : 'Complete Job'),
         content: TextField(
           controller: priceController,
-          keyboardType: TextInputType.number,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
           decoration: InputDecoration(
-            hintText: isEn ? 'Final price' : 'السعر النهائي',
+            hintText: isEn ? 'Final price' : 'Final price',
           ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: Text(isEn ? 'Cancel' : 'إلغاء'),
+            child: Text(isEn ? 'Cancel' : 'Cancel'),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
@@ -139,7 +187,7 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
               backgroundColor: syanatBlue,
               foregroundColor: Colors.white,
             ),
-            child: Text(isEn ? 'Complete' : 'إنهاء'),
+            child: Text(isEn ? 'Complete' : 'Complete'),
           ),
         ],
       ),
@@ -149,12 +197,18 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
     final price = double.tryParse(priceController.text.trim()) ?? 0.0;
 
     try {
-      await FirebaseService.firestore
-          .collection('jobs')
-          .doc(jobId)
-          .update({'status': 'completed', 'price': price});
       final user = FirebaseService.getCurrentUser();
       if (user != null) {
+        await FirebaseService.firestore
+            .collection('jobs')
+            .doc(jobId)
+            .update({
+          'status': 'completed',
+          'price': price,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+        // addEarnings atomically increments both
+        // users/{uid}.earnings and stats/global.totalEarnings.
         await FirebaseService.addEarnings(user.uid, price);
       }
     } catch (e) {
@@ -178,17 +232,16 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
             body: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Blue header with settings
                 Container(
                   color: syanatBlue,
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 12, vertical: 14),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Expanded(
                         child: Text(
-                          isEn ? 'Welcome Technician' : 'مرحباً أيها الفني',
+                          isEn ? 'Welcome Technician' : 'Welcome Technician',
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 22,
@@ -203,14 +256,13 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
                               Navigator.push(
                                 context,
                                 MaterialPageRoute(
-                                  builder: (_) => const SettingsScreen(),
+                                  builder: (_) => SettingsScreen(
+                                    setLocale: widget.setLocale),
                                 ),
                               );
                             },
-                            icon: const Icon(Icons.settings,
-                                color: Colors.white),
-                            tooltip:
-                                isEn ? 'Settings' : 'الإعدادات',
+                            icon: const Icon(Icons.settings, color: Colors.white),
+                            tooltip: isEn ? 'Settings' : 'Settings',
                           ),
                           IconButton(
                             onPressed: () => Navigator.push(
@@ -220,62 +272,55 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
                                     const TechnicianInventoryScreen(),
                               ),
                             ),
-                            icon: const Icon(Icons.inventory,
-                                color: Colors.white),
-                            tooltip: isEn
-                                ? 'Manage Inventory'
-                                : 'إدارة المخزون',
+                            icon: const Icon(Icons.inventory, color: Colors.white),
+                            tooltip:
+                                isEn ? 'Manage Inventory' : 'Manage Inventory',
                           ),
                           IconButton(
                             onPressed: _switchLanguage,
-                            icon: const Icon(Icons.language,
-                                color: Colors.white),
+                            icon: const Icon(Icons.language, color: Colors.white),
                           ),
                         ],
                       ),
                     ],
                   ),
                 ),
-
-                // White content
                 Expanded(
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 14),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Quick Stats
                         Row(
                           children: [
                             Expanded(
                               child: _buildStatCard(
-                                isEn ? 'Active Jobs' : 'الطلبات النشطة',
+                                isEn ? 'Active Jobs' : 'Active Jobs',
                                 '$_activeCount',
                               ),
                             ),
                             const SizedBox(width: 10),
                             Expanded(
                               child: _buildStatCard(
-                                isEn ? 'Earnings Today' : 'أرباح اليوم',
+                                isEn ? 'Earnings Today' : 'Earnings Today',
                                 '${_earnings.toStringAsFixed(2)} EGP',
                               ),
                             ),
                             const SizedBox(width: 10),
                             Expanded(
                               child: _buildStatCard(
-                                isEn ? 'Rating' : 'التقييم',
+                                isEn ? 'Rating' : 'Rating',
                                 _rating > 0
-                                    ? '⭐ ${_rating.toStringAsFixed(2)}'
+                                    ? '★ ${_rating.toStringAsFixed(2)}'
                                     : '—',
                               ),
                             ),
                           ],
                         ),
                         const SizedBox(height: 24),
-
                         Text(
-                          isEn ? 'Active Jobs' : 'الطلبات الحالية',
+                          isEn ? 'Active Jobs' : 'Active Jobs',
                           style: const TextStyle(
                             color: Colors.black,
                             fontSize: 20,
@@ -283,7 +328,6 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
                           ),
                         ),
                         const SizedBox(height: 12),
-
                         Expanded(
                           child: _loading
                               ? const Center(
@@ -294,9 +338,7 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
                               : _jobs.isEmpty
                                   ? Center(
                                       child: Text(
-                                        isEn
-                                            ? 'No jobs yet'
-                                            : 'لا يوجد مهام',
+                                        isEn ? 'No jobs yet' : 'No jobs yet',
                                         style: const TextStyle(
                                           color: Colors.black54,
                                         ),
@@ -307,206 +349,247 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
                                       itemBuilder: (context, index) {
                                         final j = _jobs[index];
                                         final status =
-                                            j['status'] as String? ??
-                                                'requested';
+                                            j['status'] as String? ?? 'requested';
                                         final customerId =
-                                            j['customerId'] as String? ??
-                                                '';
+                                            j['customerId'] as String? ?? '';
+                                        final customer =
+                                            _customerCache[customerId] ?? const {};
+                                        final username = customer['username'] ??
+                                            customer['email'] ??
+                                            'Customer';
+                                        final description = j['description'] ?? '';
+                                        final price = j['price'] ?? 0;
 
-                                        return FutureBuilder<
-                                            Map<String, dynamic>?>(
-                                          future:
-                                              FirebaseService.getProfile(
-                                                  customerId),
-                                          builder:
-                                              (context, snapshot) {
-                                            final customer =
-                                                snapshot.data ?? {};
-                                            final username =
-                                                customer['username'] ??
-                                                    customer['email'] ??
-                                                    'Customer';
-                                            final description =
-                                                j['description'] ??
-                                                    '';
-                                            final price =
-                                                j['price'] ?? 0;
-
-                                            return Padding(
-                                              padding:
-                                                  const EdgeInsets.only(
-                                                      bottom: 10),
-                                              child: GlassCard(
-                                                padding: const EdgeInsets
-                                                    .fromLTRB(12, 8, 4, 8),
-                                                child: ListTile(
-                                                  dense: true,
-                                                  visualDensity:
-                                                      VisualDensity.compact,
-                                                  contentPadding:
-                                                      const EdgeInsets
-                                                          .symmetric(
-                                                              horizontal: 12,
-                                                              vertical: 0),
-                                                  minVerticalPadding: 0,
-                                                  leading: CircleAvatar(
-                                                    backgroundColor:
-                                                        Colors.grey
-                                                            .shade300,
-                                                    child: const Icon(
-                                                      Icons.person,
-                                                      color: Colors
-                                                          .black54,
-                                                    ),
-                                                  ),
-                                                  title: Text(
-                                                    username,
-                                                    style:
-                                                        const TextStyle(
-                                                      color:
-                                                          Colors.black,
-                                                    ),
-                                                  ),
-                                                  subtitle: Column(
-                                                    crossAxisAlignment:
-                                                        CrossAxisAlignment
-                                                            .start,
-                                                    children: [
-                                                      if (description
-                                                          .toString()
-                                                          .isNotEmpty)
-                                                        Text(
-                                                          description,
-                                                          style:
-                                                              const TextStyle(
-                                                            color: Colors
-                                                                .black54,
-                                                          ),
-                                                        ),
-                                                      const SizedBox(
-                                                          height: 6),
-                                                      Text(
-                                                        isEn
-                                                            ? 'Status: $status'
-                                                            : 'الحالة: $status',
-                                                        style:
-                                                            const TextStyle(
-                                                          color: Colors
-                                                              .black54,
-                                                          fontSize: 12,
-                                                        ),
-                                                      ),
-                                                      const SizedBox(
-                                                          height: 4),
-                                                      Text(
-                                                        isEn
-                                                            ? 'Price: $price EGP'
-                                                            : 'السعر: $price ج.م',
-                                                        style:
-                                                            const TextStyle(
-                                                          color: Colors
-                                                              .black54,
-                                                          fontSize: 12,
-                                                        ),
-                                                      ),
-                                                    ],
-                                                  ),
-
-// FINAL PERFECT VERSION - Normal Chat button + Compact tick/X
-
-trailing: Row(
-  mainAxisSize: MainAxisSize.min,
-  mainAxisAlignment: MainAxisAlignment.end,
-  children: [
-    // NORMAL Chat button (back to original 72x32 size)
-    SizedBox(
-      width: 72,
-      child: ElevatedButton(
-        onPressed: () async {
-          final chatId = await FirebaseService.getOrCreateChat(
-            customerId,
-            FirebaseService.getCurrentUser()!.uid,
-            jobId: j['id'] as String,
-          );
-          if (!mounted) return;
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => ChatScreen(chatId: chatId, isTechnician: true),
-            ),
-          );
-        },
-        style: ElevatedButton.styleFrom(
-          backgroundColor: syanatBlue,
-          foregroundColor: Colors.white,
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-          textStyle: const TextStyle(fontSize: 13),
-          minimumSize: const Size(72, 32),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-        ),
-        child: Text(isEn ? 'Chat' : 'دردشة'),
-      ),
-    ),
-    const SizedBox(width: 6),
-
-    // Compact tick/X buttons (24x24) - SAME ROW
-    if (status == 'requested') ...[
-      // Accept ✅
-      Container(
-        width: 24,
-        height: 24,
-        decoration: BoxDecoration(
-          color: syanatBlue,
-          shape: BoxShape.circle,
-        ),
-        child: IconButton(
-          icon: const Icon(Icons.check, color: Colors.white, size: 14),
-          padding: EdgeInsets.zero,
-          constraints: const BoxConstraints(),
-          onPressed: () => _acceptJob(j['id'] as String),
-        ),
-      ),
-      const SizedBox(width: 4),
-      // Reject ❌
-      Container(
-        width: 24,
-        height: 24,
-        decoration: BoxDecoration(
-          color: syanatBlue.withOpacity(0.85),
-          shape: BoxShape.circle,
-        ),
-        child: IconButton(
-          icon: const Icon(Icons.close, color: Colors.white, size: 14),
-          padding: EdgeInsets.zero,
-          constraints: const BoxConstraints(),
-          onPressed: () => _rejectJob(j['id'] as String),
-        ),
-      ),
-    ] else if (status == 'accepted' || status == 'in_progress')
-      // Complete button - SAME ROW, normal size
-      SizedBox(
-        width: 72,
-        child: ElevatedButton(
-          onPressed: () => _completeJob(j['id'] as String),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: syanatBlue,
-            foregroundColor: Colors.white,
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-            textStyle: const TextStyle(fontSize: 13),
-            minimumSize: const Size(72, 32),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-          ),
-          child: Text(isEn ? 'Complete' : 'إنهاء'),
-        ),
-      ),
-  ],
-),
-
-
+                                        return Padding(
+                                          padding:
+                                              const EdgeInsets.only(bottom: 10),
+                                          child: GlassCard(
+                                            padding: const EdgeInsets.fromLTRB(
+                                              12,
+                                              8,
+                                              4,
+                                              8,
+                                            ),
+                                            child: ListTile(
+                                              dense: true,
+                                              visualDensity:
+                                                  VisualDensity.compact,
+                                              contentPadding:
+                                                  const EdgeInsets.symmetric(
+                                                horizontal: 12,
+                                                vertical: 0,
+                                              ),
+                                              minVerticalPadding: 0,
+                                              leading: CircleAvatar(
+                                                backgroundColor:
+                                                    Colors.grey.shade300,
+                                                child: const Icon(
+                                                  Icons.person,
+                                                  color: Colors.black54,
                                                 ),
                                               ),
-                                            );
-                                          },
+                                              title: Text(
+                                                username.toString(),
+                                                style: const TextStyle(
+                                                  color: Colors.black,
+                                                ),
+                                              ),
+                                              subtitle: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  if (description
+                                                      .toString()
+                                                      .isNotEmpty)
+                                                    Text(
+                                                      description.toString(),
+                                                      style: const TextStyle(
+                                                        color: Colors.black54,
+                                                      ),
+                                                    ),
+                                                  const SizedBox(height: 6),
+                                                  Text(
+                                                    isEn
+                                                        ? 'Status: $status'
+                                                        : 'Status: $status',
+                                                    style: const TextStyle(
+                                                      color: Colors.black54,
+                                                      fontSize: 12,
+                                                    ),
+                                                  ),
+                                                  const SizedBox(height: 4),
+                                                  Text(
+                                                    isEn
+                                                        ? 'Price: $price EGP'
+                                                        : 'Price: $price EGP',
+                                                    style: const TextStyle(
+                                                      color: Colors.black54,
+                                                      fontSize: 12,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                              trailing: Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                mainAxisAlignment:
+                                                    MainAxisAlignment.end,
+                                                children: [
+                                                  SizedBox(
+                                                    width: 72,
+                                                    child: ElevatedButton(
+                                                      onPressed: () async {
+                                                        final currentUser =
+                                                            FirebaseService
+                                                                .getCurrentUser();
+                                                        if (currentUser == null ||
+                                                            customerId.isEmpty) {
+                                                          return;
+                                                        }
+
+                                                        final chatId =
+                                                            await FirebaseService
+                                                                .getOrCreateChat(
+                                                          customerId,
+                                                          currentUser.uid,
+                                                          jobId: j['id'] as String,
+                                                        );
+
+                                                        if (!mounted) return;
+
+                                                        Navigator.push(
+                                                          context,
+                                                          MaterialPageRoute(
+                                                            builder: (_) =>
+                                                                ChatScreen(
+                                                              chatId: chatId,
+                                                              isTechnician: true,
+                                                            ),
+                                                          ),
+                                                        );
+                                                      },
+                                                      style: ElevatedButton
+                                                          .styleFrom(
+                                                        backgroundColor:
+                                                            syanatBlue,
+                                                        foregroundColor:
+                                                            Colors.white,
+                                                        padding:
+                                                            const EdgeInsets
+                                                                .symmetric(
+                                                          horizontal: 8,
+                                                          vertical: 6,
+                                                        ),
+                                                        textStyle:
+                                                            const TextStyle(
+                                                          fontSize: 13,
+                                                        ),
+                                                        minimumSize:
+                                                            const Size(72, 32),
+                                                        shape:
+                                                            RoundedRectangleBorder(
+                                                          borderRadius:
+                                                              BorderRadius
+                                                                  .circular(8),
+                                                        ),
+                                                      ),
+                                                      child: Text(
+                                                        isEn ? 'Chat' : 'Chat',
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  const SizedBox(width: 6),
+                                                  if (status == 'requested') ...[
+                                                    Container(
+                                                      width: 24,
+                                                      height: 24,
+                                                      decoration:
+                                                          const BoxDecoration(
+                                                        color: syanatBlue,
+                                                        shape: BoxShape.circle,
+                                                      ),
+                                                      child: IconButton(
+                                                        icon: const Icon(
+                                                          Icons.check,
+                                                          color: Colors.white,
+                                                          size: 14,
+                                                        ),
+                                                        padding: EdgeInsets.zero,
+                                                        constraints:
+                                                            const BoxConstraints(),
+                                                        onPressed: () => _acceptJob(
+                                                          j['id'] as String,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                    const SizedBox(width: 4),
+                                                    Container(
+                                                      width: 24,
+                                                      height: 24,
+                                                      decoration: BoxDecoration(
+                                                        color: syanatBlue
+                                                            .withOpacity(0.85),
+                                                        shape: BoxShape.circle,
+                                                      ),
+                                                      child: IconButton(
+                                                        icon: const Icon(
+                                                          Icons.close,
+                                                          color: Colors.white,
+                                                          size: 14,
+                                                        ),
+                                                        padding: EdgeInsets.zero,
+                                                        constraints:
+                                                            const BoxConstraints(),
+                                                        onPressed: () => _rejectJob(
+                                                          j['id'] as String,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  ] else if (status == 'accepted' ||
+                                                      status == 'in_progress' ||
+                                                      status == 'inprogress')
+                                                    SizedBox(
+                                                      width: 72,
+                                                      child: ElevatedButton(
+                                                        onPressed: () =>
+                                                            _completeJob(
+                                                          j['id'] as String,
+                                                        ),
+                                                        style: ElevatedButton
+                                                            .styleFrom(
+                                                          backgroundColor:
+                                                              syanatBlue,
+                                                          foregroundColor:
+                                                              Colors.white,
+                                                          padding:
+                                                              const EdgeInsets
+                                                                  .symmetric(
+                                                            horizontal: 8,
+                                                            vertical: 6,
+                                                          ),
+                                                          textStyle:
+                                                              const TextStyle(
+                                                            fontSize: 13,
+                                                          ),
+                                                          minimumSize:
+                                                              const Size(72, 32),
+                                                          shape:
+                                                              RoundedRectangleBorder(
+                                                            borderRadius:
+                                                                BorderRadius
+                                                                    .circular(8),
+                                                          ),
+                                                        ),
+                                                        child: Text(
+                                                          isEn
+                                                              ? 'Complete'
+                                                              : 'Complete',
+                                                        ),
+                                                      ),
+                                                    ),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
                                         );
                                       },
                                     ),
@@ -543,6 +626,7 @@ trailing: Row(
               color: Colors.black54,
               fontSize: 12,
             ),
+            textAlign: TextAlign.center,
           ),
         ],
       ),
