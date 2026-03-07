@@ -43,6 +43,7 @@ dependencies:
   flutter_localizations:
       sdk: flutter
   image_picker: ^1.0.7
+  flutter_image_compress: ^2.3.0
 
 
 
@@ -84,6 +85,7 @@ flutter:
     - assets/logo.jpeg
     - assets/syanat_banner.png
     - assets/syanat_banner.jpeg
+    - assets/syanat_banner_ar.png
 
     # - assets/videos/
     # - assets/fonts/

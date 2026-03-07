@@ -1,10 +1,11 @@
-import 'dart:io' show File;
+import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:flutter_image_compress/flutter_image_compress.dart';
 
 class FirebaseService {
   static FirebaseAuth auth = FirebaseAuth.instance;
@@ -49,6 +50,7 @@ class FirebaseService {
     required String username,
     required String role, // 'customer' | 'technician'
     String city = '',
+    String phone = '',
     String service = '',
     String language = 'en',
     bool featured = false,
@@ -70,6 +72,7 @@ class FirebaseService {
       'featured': featured,
       'createdAt': FieldValue.serverTimestamp(),
     };
+    if (phone.isNotEmpty) data['phone'] = phone;
     if (location != null) data['location'] = location;
     if (photoUrl.isNotEmpty) data['photoUrl'] = photoUrl;
 
@@ -85,6 +88,7 @@ class FirebaseService {
     String serviceNameEn = '',
     String serviceNameAr = '',
     String city = '',
+    String phone = '',
     String language = 'en',
     bool featured = false,
     GeoPoint? location,
@@ -96,6 +100,7 @@ class FirebaseService {
       username: username,
       role: 'technician',
       city: city,
+      phone: phone,
       service: serviceId,
       language: language,
       featured: featured,
@@ -104,22 +109,35 @@ class FirebaseService {
       photoUrl: photoUrl,
     );
 
-    // Ensure service document exists (merge so it doesn't overwrite)
+    // Ensure service document exists (merge so it doesn't overwrite existing data),
+    // then atomically increment the technician count for that service.
+    // FieldValue.increment is crash-safe and requires no prior read.
     final nameEn = serviceNameEn.trim().isNotEmpty ? serviceNameEn : _prettyServiceLabel(serviceId);
     final nameAr = serviceNameAr.trim().isNotEmpty ? serviceNameAr : nameEn;
     await ensureServiceExists(serviceId, nameEn, nameAr);
+    await firestore.collection('services').doc(serviceId).update({
+      'techCount': FieldValue.increment(1),
+    });
   }
 
   // ----------------------
   // SERVICES
   // ----------------------
-  static Future<void> ensureServiceExists(String serviceId, String nameEn, String nameAr, {String icon = ''}) async {
+  static Future<void> ensureServiceExists(
+    String serviceId,
+    String nameEn,
+    String nameAr, {
+    String icon = '',
+  }) async {
     if (serviceId.trim().isEmpty) return;
     final docRef = firestore.collection('services').doc(serviceId);
+    // merge: true so we never overwrite an existing techCount.
+    // techCount is only set here on first creation (when the field is absent).
     await docRef.set({
       'name_en': nameEn,
       'name_ar': nameAr,
       'icon': icon,
+      'techCount': 0, // initialised to 0; incremented by createTechnician()
     }, SetOptions(merge: true));
   }
 
@@ -128,49 +146,48 @@ class FirebaseService {
     return parts.map((p) => p.isEmpty ? '' : p[0].toUpperCase() + (p.length > 1 ? p.substring(1) : '')).join(' ');
   }
 
+  /// Reads the `services` collection directly — O(services), no technician scan.
+  /// Falls back to a pretty-printed key label when name fields are missing.
   static Future<List<Map<String, dynamic>>> getServices() async {
-    final techSnapshot = await firestore.collection('users').where('role', isEqualTo: 'technician').get();
-    final Set<String> serviceKeys = {};
-    for (final d in techSnapshot.docs) {
-      final s = d.data()['service'];
-      if (s != null) {
-        final val = s.toString().trim();
-        if (val.isNotEmpty) serviceKeys.add(val);
-      }
-    }
-
-    final servicesSnapshot = await firestore.collection('services').get();
-    final Map<String, Map<String, dynamic>> serviceDocs = {};
-    for (final d in servicesSnapshot.docs) {
-      serviceDocs[d.id] = Map<String, dynamic>.from(d.data());
-    }
-
-    final List<Map<String, dynamic>> result = [];
-    for (final key in serviceKeys) {
-      if (serviceDocs.containsKey(key)) {
-        final data = serviceDocs[key]!;
-        result.add({
-          'key': key,
-          'name_en': (data['name_en'] as String?)?.trim() ?? _prettyServiceLabel(key),
-          'name_ar': (data['name_ar'] as String?)?.trim() ?? _prettyServiceLabel(key),
-          'icon': (data['icon'] as String?) ?? '',
-        });
-      } else {
-        final pretty = _prettyServiceLabel(key);
-        result.add({'key': key, 'name_en': pretty, 'name_ar': pretty, 'icon': ''});
-      }
-    }
-
+    final snap = await firestore.collection('services').get();
+    final List<Map<String, dynamic>> result = snap.docs.map((d) {
+      final data = d.data();
+      return {
+        'key': d.id,
+        'name_en': (data['name_en'] as String?)?.trim().isNotEmpty == true
+            ? (data['name_en'] as String).trim()
+            : _prettyServiceLabel(d.id),
+        'name_ar': (data['name_ar'] as String?)?.trim().isNotEmpty == true
+            ? (data['name_ar'] as String).trim()
+            : _prettyServiceLabel(d.id),
+        'icon': (data['icon'] as String?) ?? '',
+        'techCount': (data['techCount'] as num?)?.toInt() ?? 0,
+      };
+    }).toList();
     result.sort((a, b) => (a['name_en'] as String).compareTo(b['name_en'] as String));
     return result;
   }
 
-  static Stream<List<Map<String, dynamic>>> streamServices() async* {
-    final usersStream = firestore.collection('users').where('role', isEqualTo: 'technician').snapshots();
-    await for (final _ in usersStream) {
-      final servicesList = await getServices();
-      yield servicesList;
-    }
+  /// Streams the `services` collection directly — no technician documents touched.
+  static Stream<List<Map<String, dynamic>>> streamServices() {
+    return firestore.collection('services').snapshots().map((snap) {
+      final result = snap.docs.map((d) {
+        final data = d.data();
+        return {
+          'key': d.id,
+          'name_en': (data['name_en'] as String?)?.trim().isNotEmpty == true
+              ? (data['name_en'] as String).trim()
+              : _prettyServiceLabel(d.id),
+          'name_ar': (data['name_ar'] as String?)?.trim().isNotEmpty == true
+              ? (data['name_ar'] as String).trim()
+              : _prettyServiceLabel(d.id),
+          'icon': (data['icon'] as String?) ?? '',
+          'techCount': (data['techCount'] as num?)?.toInt() ?? 0,
+        };
+      }).toList();
+      result.sort((a, b) => (a['name_en'] as String).compareTo(b['name_en'] as String));
+      return result;
+    });
   }
 
   // ----------------------
@@ -279,12 +296,46 @@ class FirebaseService {
   }
 
   // ----------------------
+  // IMAGE COMPRESSION
+  // ----------------------
+  /// Compresses [file] to JPEG with max dimension [maxDimension]px and
+  /// [quality] (0–100). Returns the compressed bytes, or falls back to the
+  /// original bytes if compression is unavailable (e.g. web).
+  static Future<List<int>> compressImage(
+    XFile file, {
+    int maxDimension = 512,
+    int quality = 70,
+  }) async {
+    // Web: flutter_image_compress is not supported — fall back to raw bytes.
+    if (kIsWeb) return await file.readAsBytes();
+
+    final rawBytes = await file.readAsBytes();
+    final compressed = await FlutterImageCompress.compressWithList(
+      rawBytes,
+      minWidth: maxDimension,
+      minHeight: maxDimension,
+      quality: quality,
+      format: CompressFormat.jpeg,
+    );
+    return compressed;
+  }
+
+  // ----------------------
   // UPLOAD PHOTO
   // ----------------------
+  /// Compresses [file] before uploading to Firebase Storage.
+  /// Max dimension: 512 px · JPEG quality: 70 → typical reduction ~90 %.
   static Future<String> uploadPhoto(XFile file, {String? folder}) async {
-    final ref = storage.ref().child('${folder ?? 'uploads'}/${DateTime.now().millisecondsSinceEpoch}');
-    final bytes = await file.readAsBytes();
-    await ref.putData(bytes).timeout(const Duration(seconds: 30));
+    final ref = storage.ref().child(
+      '${folder ?? 'uploads'}/${DateTime.now().millisecondsSinceEpoch}.jpg',
+    );
+    final compressed = await compressImage(file);
+    await ref
+        .putData(
+          Uint8List.fromList(compressed),
+          SettableMetadata(contentType: 'image/jpeg'),
+        )
+        .timeout(const Duration(seconds: 30));
     return await ref.getDownloadURL().timeout(const Duration(seconds: 10));
   }
 
@@ -299,6 +350,19 @@ class FirebaseService {
     await firestore.collection('users').doc(uid).update({'featured': featured});
   }
 
+  static Future<void> addEarnings(String uid, double amount) async {
+    // FieldValue.increment is atomic and requires no prior read.
+    await firestore.collection('users').doc(uid).update({
+      'earnings': FieldValue.increment(amount),
+    });
+    // Keep a global running total so the admin dashboard can read one doc
+    // instead of scanning all technician docs.
+    await firestore.doc('stats/global').set(
+      {'totalEarnings': FieldValue.increment(amount)},
+      SetOptions(merge: true),
+    );
+  }
+
   static Future<void> updateRating(String uid, double rating) async {
     final doc = firestore.collection('users').doc(uid);
     final snapshot = await doc.get();
@@ -309,14 +373,6 @@ class FirebaseService {
     final newCount = ratingCount + 1;
     final newRating = ((currentRating * ratingCount) + rating) / newCount;
     await doc.update({'rating': newRating, 'ratingCount': newCount});
-  }
-
-  static Future<void> addEarnings(String uid, double amount) async {
-    final doc = firestore.collection('users').doc(uid);
-    final snapshot = await doc.get();
-    if (!snapshot.exists) return;
-    final current = (snapshot.data()?['earnings'] as num?)?.toDouble() ?? 0.0;
-    await doc.update({'earnings': current + amount});
   }
 
   // ----------------------
