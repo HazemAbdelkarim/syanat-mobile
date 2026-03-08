@@ -1,0 +1,45 @@
+# Flutter/Dart/Pub
+.dart_tool/
+/.packages
+/.flutter-plugins
+/.flutter-plugins-dependencies
+/.metadata
+pubspec.lock
+
+# Build outputs
+/build/
+/**/build/
+
+# Android/IntelliJ
+.gradle/
+/.idea/
+*.iml
+
+# VS Code
+.vscode/
+
+# iOS
+ios/Pods/
+Runner.xcworkspace/
+Generated.xcconfig
+
+# macOS
+macos/Flutter/ephemeral/
+
+# Web
+.dart_tool/
+
+# Misc
+.DS_Store
+*.log
+*.lock
+
+# Firebase service account keys
+syana-ea75a-firebase-adminsdk-fbsvc-711e39baf6.json
+
+# Backup git data
+.git_backup/
+
+# Generated files
+*.class
+*.lock
