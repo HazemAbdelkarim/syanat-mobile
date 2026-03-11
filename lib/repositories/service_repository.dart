@@ -1,5 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'service.dart';
+import '../models/service.dart';
 
 /// Repository for managing Service data from Firestore.
 /// Provides clean data access patterns for the Flutter app.

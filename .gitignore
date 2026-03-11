@@ -1,45 +1,60 @@
-# Flutter/Dart/Pub
+# Miscellaneous
+*.class
+*.log
+*.lock
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.buildlog/
+.history
+.svn/
+migrate_working_dir/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# VS Code
+.vscode/
+
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
 .dart_tool/
 /.packages
 /.flutter-plugins
 /.flutter-plugins-dependencies
 /.metadata
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
 pubspec.lock
 
 # Build outputs
 /build/
 /**/build/
 
-# Android/IntelliJ
-.gradle/
-/.idea/
-*.iml
+# Symbolication/obfuscation related
+app.*.symbols
+app.*.map.json
 
-# VS Code
-.vscode/
+# Android Studio build artifacts
+/android/app/debug
+/android/app/profile
+/android/app/release
 
-# iOS
+# iOS/macOS generated files
 ios/Pods/
 Runner.xcworkspace/
 Generated.xcconfig
-
-# macOS
 macos/Flutter/ephemeral/
-
-# Web
-.dart_tool/
-
-# Misc
-.DS_Store
-*.log
-*.lock
 
 # Firebase service account keys
 syana-ea75a-firebase-adminsdk-fbsvc-711e39baf6.json
 
 # Backup git data
 .git_backup/
-
-# Generated files
-*.class
-*.lock

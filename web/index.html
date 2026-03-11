@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+
+<html>
+<head>
+  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCIMV8yPrDTviiXpqDeTdP-P6cnCn6em30"></script>
+  <base href="$FLUTTER_BASE_HREF">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="Fanni App Web">
+
+  <!-- iOS meta tags & icons -->
+
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="Fanni App">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+  <!-- Favicon -->
+
+  <link rel="icon" type="image/png" href="favicon.png"/>
+
+  <title>Fanni App</title>
+  <link rel="manifest" href="manifest.json">
+</head>
+<body>
+<!-- Firebase JS SDK -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js"></script>
+
+<!-- Initialize Firebase -->
+
+<script>
+  const firebaseConfig = {
+    apiKey: "AIzaSyBDZlSoKBy_MWYeCUc27PVxBH7KYAfKfZ0",
+    authDomain: "syana-ea75a.firebaseapp.com",
+    databaseURL: "https://syana-ea75a-default-rtdb.firebaseio.com",
+    projectId: "syana-ea75a",
+    storageBucket: "syana-ea75a.firebasestorage.app",
+    messagingSenderId: "850445794682",
+    appId: "1:850445794682:web:0a05be4e3e0ccb1d5caac3",
+    measurementId: "G-KYNSN89SZS"
+  };
+  firebase.initializeApp(firebaseConfig);
+</script>
+
+<!-- Flutter bootstrap -->
+
+<script src="flutter_bootstrap.js" async></script>
+
+</body>
+</html>
