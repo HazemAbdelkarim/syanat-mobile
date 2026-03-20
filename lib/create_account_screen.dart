@@ -33,6 +33,23 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
   Position? _currentPosition;
   XFile? _profileImage;
 
+  /// Maps Arabic service names to internal service keys for database queries
+  static const Map<String, String> arabicToServiceKey = {
+    'فني تكييف': 'ac',
+    'سباك': 'plumbing',
+    'كهربائي': 'electricity',
+    'نقاش': 'finishing',
+    'نجار': 'carpentry',
+    'تركيب ألوميتال / سلك': 'aluminum',
+    'فني غسلات': 'small_appliances',
+    'صيانة المسابح': 'pest_control',
+    'تصليح مواتير مياه': 'plumbing',
+    'صيانة خزانات المياه': 'plumbing',
+    'فني رخام': 'finishing',
+    'فني سخانات': 'small_appliances',
+    'فني دشات': 'plumbing',
+  };
+
   final List<String> technicianServices = [
     'سباك',
     'كهربائي',
@@ -150,12 +167,15 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
       }
 
       if (_role == 'technician') {
+        // Convert Arabic service name to internal service key
+        final serviceKey = arabicToServiceKey[_service!] ?? _service!;
+        
         await FirebaseService.createTechnician(
           uid: user.uid,
           email: email,
           username: username,
           phone: phone,
-          serviceId: _service!,
+          serviceId: serviceKey,
           city: city,
           language: lang,
           photoUrl: photoUrl ?? '',

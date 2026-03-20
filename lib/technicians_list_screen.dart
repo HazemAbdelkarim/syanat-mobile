@@ -10,6 +10,18 @@ import 'user_item_prices_screen.dart';
 
 const Color syanatBlue = Color(0xFF3C21C8);
 
+/// Maps service keys to Arabic names for backward compatibility with existing technicians
+const Map<String, List<String>> serviceKeyToArabicNames = {
+  'ac': ['فني تكييف'],
+  'plumbing': ['سباك', 'فني دشات', 'تصليح مواتير مياه', 'صيانة خزانات المياه'],
+  'electricity': ['كهربائي'],
+  'finishing': ['نقاش', 'فني رخام'],
+  'carpentry': ['نجار'],
+  'aluminum': ['تركيب ألوميتال / سلك'],
+  'small_appliances': ['فني غسلات', 'فني سخانات'],
+  'pest_control': ['صيانة المسابح'],
+};
+
 class TechniciansListScreen extends StatefulWidget {
   final String serviceKey;
   final String serviceLabel;
@@ -49,26 +61,38 @@ class _TechniciansListScreenState extends State<TechniciansListScreen> {
     _sub?.cancel();
     String cityFilter = _cityController.text.trim();
 
+    // Get both the service key and any Arabic names associated with it for backward compatibility
+    final arabicNames = serviceKeyToArabicNames[widget.serviceKey] ?? [];
+    final allServiceValues = [widget.serviceKey, ...arabicNames];
+
+    // Build query - filter by role and available, then filter by city if provided
     Query q = FirebaseService.firestore
         .collection('users')
         .where('role', isEqualTo: 'technician')
-        .where('service', isEqualTo: widget.serviceKey)
-        .where('available', isEqualTo: true)
-        .limit(20); // consistent cap with home screen — prevents unbounded reads
+        .where('available', isEqualTo: true);
 
     if (cityFilter.isNotEmpty) {
       q = q.where('city', isEqualTo: cityFilter);
     }
 
+    q = q.limit(100); // Fetch more docs to filter client-side
+
     setState(() => _loading = true);
 
     _sub = q.snapshots().listen((snapshot) {
-      final list = snapshot.docs.map((d) {
-        final data =
-            Map<String, dynamic>.from(d.data() as Map<String, dynamic>);
-        data['id'] = d.id;
-        return data;
-      }).toList();
+      // Filter client-side to match either service key or Arabic names
+      final list = snapshot.docs
+          .where((d) {
+            final service = (d.data() as Map<String, dynamic>)['service'] ?? '';
+            return allServiceValues.contains(service);
+          })
+          .map((d) {
+            final data =
+                Map<String, dynamic>.from(d.data() as Map<String, dynamic>);
+            data['id'] = d.id;
+            return data;
+          })
+          .toList();
 
       setState(() {
         technicians = list;
