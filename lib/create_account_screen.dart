@@ -188,6 +188,8 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
         );
       }
 
+      if (!mounted) return;
+
       if (_role == 'technician') {
         Navigator.pushReplacement(
           context,
@@ -204,9 +206,10 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
         );
       }
     } catch (e) {
+      if (!mounted) return;
       _showSnack(isEn ? "Error: $e" : "خطأ: $e");
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 

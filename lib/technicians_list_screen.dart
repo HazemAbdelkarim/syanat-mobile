@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../firebase_service.dart';
 import 'chat_screen.dart';
+import 'payment_screen.dart';
 import 'glass_card.dart';
 import 'user_item_prices_screen.dart';
 
@@ -148,24 +149,56 @@ class _TechniciansListScreenState extends State<TechniciansListScreen> {
         price: price,
       );
 
+      // Navigate to payment BEFORE creating chat
+      if (!mounted) return;
+      final paymentResult = await Navigator.push<PaymentResult>(
+        context,
+        MaterialPageRoute(
+          builder: (_) => PaymentScreen(
+            amount: price > 0 ? price : 200.0,
+            serviceKey: widget.serviceKey,
+            serviceLabel: widget.serviceLabel,
+          ),
+        ),
+      );
+
+      // If user cancelled payment, don't proceed
+      if (paymentResult == null) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Payment cancelled")),
+        );
+        return;
+      }
+
+      // Link payment to the job
+      await FirebaseService.firestore
+          .collection('payments')
+          .doc(paymentResult.paymentId)
+          .update({'orderId': jobId});
+
       final chatId = await FirebaseService.getOrCreateChat(
         user.uid,
         techId,
         jobId: jobId,
       );
+      
+      if (!mounted) return;
       Navigator.push(
         context,
         MaterialPageRoute(
           builder: (_) => ChatScreen(chatId: chatId, isTechnician: false),
         ),
       );
+      
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(isEn ? "Job requested" : "تم طلب الخدمة"),
+          content: Text(isEn ? "Job requested & payment confirmed" : "تم طلب الخدمة ودفع الخدمة"),
         ),
       );
     } catch (e) {
       debugPrint("request job error: $e");
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("Error: $e")),
       );

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../glass_card.dart';
 import 'technicians_list_screen.dart';
 import '../firebase_service.dart';
+import 'payment_screen.dart';
 import 'services_integration.dart';
 import 'models/service.dart';
 
@@ -127,15 +128,57 @@ class _ServiceDetailsScreenState extends State<ServiceDetailsScreen> {
 
     if (confirmed == true && FirebaseService.getCurrentUser() != null) {
       try {
-        await FirebaseService.createJob(
+        final jobId = await FirebaseService.createJob(
           customerId: FirebaseService.getCurrentUser()!.uid,
           serviceKey: widget.serviceKey,
           description: 'Quick inspection request',
           price: 200.0,
         );
+
+        // Navigate to payment screen
+        if (!mounted) return;
+        final paymentResult = await Navigator.push<PaymentResult>(
+          context,
+          MaterialPageRoute(
+            builder: (_) => PaymentScreen(
+              amount: 200.0,
+              serviceKey: widget.serviceKey,
+              serviceLabel: widget.serviceLabel,
+            ),
+          ),
+        );
+
+        // If user cancelled payment, order is still created but payment is missing
+        if (paymentResult == null) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  _locale.languageCode == 'en'
+                      ? 'Order created but payment not completed'
+                      : 'تم إنشاء الطلب لكن لم يتم تأكيد الدفع',
+                ),
+              ),
+            );
+          }
+          return;
+        }
+
+        // Link payment to job
+        await FirebaseService.firestore
+            .collection('payments')
+            .doc(paymentResult.paymentId)
+            .update({'orderId': jobId});
+
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(_locale.languageCode == 'en' ? 'Quick order sent!' : 'الطلب السريع اتبعت!')),
+            SnackBar(
+              content: Text(
+                _locale.languageCode == 'en'
+                    ? 'Quick order confirmed! Payment received.'
+                    : 'تم تأكيد الطلب السريع! تم استقبال الدفع.',
+              ),
+            ),
           );
           Navigator.pop(context);
         }

@@ -440,4 +440,99 @@ class FirebaseService {
       return data;
     }).toList();
   }
+
+  // ----------------------
+  // PAYMENTS
+  // ----------------------
+
+  /// Creates a payment document and returns its ID.
+  static Future<String> createPayment({
+    required String orderId,
+    required String userId,
+    required double amount,
+    required String method,
+    String transactionReference = '',
+    String screenshotUrl = '',
+  }) async {
+    final docRef = await firestore.collection('payments').add({
+      'orderId': orderId,
+      'userId': userId,
+      'amount': amount,
+      'method': method,
+      'status': 'PENDING',
+      'transactionReference': transactionReference,
+      'screenshotUrl': screenshotUrl,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+    return docRef.id;
+  }
+
+  /// Updates the screenshot URL on an existing payment (after upload).
+  static Future<void> updatePaymentScreenshot(
+      String paymentId, String screenshotUrl) async {
+    await firestore.collection('payments').doc(paymentId).update({
+      'screenshotUrl': screenshotUrl,
+    });
+  }
+
+  /// Admin: update payment status to CONFIRMED or REJECTED.
+  static Future<void> updatePaymentStatus(
+      String paymentId, String status) async {
+    await firestore.collection('payments').doc(paymentId).update({
+      'status': status,
+    });
+  }
+
+  /// Streams all payments (admin view).
+  static Stream<List<Map<String, dynamic>>> streamAllPayments() {
+    return firestore
+        .collection('payments')
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map((snap) => snap.docs.map((d) {
+              final data = Map<String, dynamic>.from(d.data());
+              data['id'] = d.id;
+              return data;
+            }).toList());
+  }
+
+  /// Streams payments for a specific user.
+  static Stream<List<Map<String, dynamic>>> streamUserPayments(String userId) {
+    return firestore
+        .collection('payments')
+        .where('userId', isEqualTo: userId)
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map((snap) => snap.docs.map((d) {
+              final data = Map<String, dynamic>.from(d.data());
+              data['id'] = d.id;
+              return data;
+            }).toList());
+  }
+
+  /// Gets the payment linked to a specific job/order.
+  static Future<Map<String, dynamic>?> getPaymentForOrder(String orderId) async {
+    final snap = await firestore
+        .collection('payments')
+        .where('orderId', isEqualTo: orderId)
+        .limit(1)
+        .get();
+    if (snap.docs.isEmpty) return null;
+    final data = Map<String, dynamic>.from(snap.docs.first.data());
+    data['id'] = snap.docs.first.id;
+    return data;
+  }
+
+  /// Uploads a payment proof screenshot and returns the download URL.
+  static Future<String> uploadPaymentProof(XFile file, String paymentId) async {
+    final ref = storage.ref().child('payment_proofs/$paymentId.jpg');
+    final compressed = await compressImage(file);
+    await ref
+        .putData(
+          Uint8List.fromList(compressed),
+          SettableMetadata(contentType: 'image/jpeg'),
+        )
+        .timeout(const Duration(seconds: 30));
+    return await ref.getDownloadURL().timeout(const Duration(seconds: 10));
+  }
 }

@@ -67,7 +67,7 @@ class ServiceIntegration {
       final snapshot = await _firestore
           .collection('services')
           .where('category_en', isEqualTo: categoryName)
-          .where('subcategoryEn', isEqualTo: subcategoryEn)
+          .where('subcategory_en', isEqualTo: subcategoryEn)
           .get();
       return snapshot.docs.map((doc) => Service.fromFirestore(doc)).toList();
     } catch (e) {

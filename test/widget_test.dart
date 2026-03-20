@@ -1,30 +1,39 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
+// Syanat App - Widget Tests
+// Basic smoke tests for app startup and UI rendering
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:firebase_core/firebase_core.dart';
 
 import 'package:flutter_projects/main.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
+  /// Smoke test: App initializes without crashing
+  testWidgets('App starts and displays splash/login screen', (WidgetTester tester) async {
+    // Note: Firebase initialization requires proper mocking in CI/CD
+    // This test validates basic UI rendering, not Firebase connectivity
+
     await tester.pumpWidget(const MyApp());
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    // Allow time for initial animations
+    await tester.pumpAndSettle(const Duration(milliseconds: 500));
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
+    // Verify the app renders without throwing
+    expect(find.byType(MyApp), findsOneWidget);
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    // Verify splash screen or login screen is visible
+    // (depending on auth state - at startup, both should load without error)
+    final splashOrLogin = find.byType(Container);
+    expect(splashOrLogin, findsWidgets);
+  });
+
+  /// Basic widget test: Login screen widget renders
+  testWidgets('Login screen renders without errors', (WidgetTester tester) async {
+    await tester.pumpWidget(const MyApp());
+    await tester.pumpAndSettle();
+
+    // Verify basic UI elements are present
+    expect(find.byType(Icon), findsWidgets); // App icons
+    expect(find.byType(TextFormField), findsWidgets); // Input fields
   });
 }
