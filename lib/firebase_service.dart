@@ -229,6 +229,15 @@ class FirebaseService {
     });
   }
 
+  /// Cancel a job by updating its status to 'cancelled'.
+  /// Visible to both customer and technician through streamJobs.
+  static Future<void> cancelJob(String jobId) async {
+    await firestore.collection('jobs').doc(jobId).update({
+      'status': 'cancelled',
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
   // ----------------------
   // CHATS & MESSAGES
   // ----------------------

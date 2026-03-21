@@ -362,6 +362,91 @@ class _OrdersScreenState extends State<OrdersScreen>
               ],
             ),
           ),
+
+          // ── Bottom action buttons ────────────────────────────────────
+          if (_ongoingStatuses.contains(status))
+            Container(
+              decoration: const BoxDecoration(
+                border: Border(top: BorderSide(color: Color(0xFFEEEEEE))),
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              child: SizedBox(
+                width: double.infinity,
+                height: 40,
+                child: ElevatedButton.icon(
+                  onPressed: () => _showCancelDialog(context, jobId, isEn),
+                  icon: const Icon(Icons.close, size: 18),
+                  label: Text(isEn ? 'Cancel Order' : 'إلغاء الطلب'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.red.shade400,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  // -----------------------------------------------------------------------
+  // Dialog for cancel confirmation
+  // -----------------------------------------------------------------------
+
+  void _showCancelDialog(BuildContext context, String jobId, bool isEn) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(isEn ? 'Cancel Order?' : 'إلغاء الطلب؟'),
+        content: Text(
+          isEn
+              ? 'Are you sure you want to cancel this order? This action cannot be undone.'
+              : 'هل أنت متأكد من إلغاء هذا الطلب؟ لا يمكن التراجع عن هذا الإجراء.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text(isEn ? 'Keep It' : 'الاحتفاظ به'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              try {
+                await FirebaseService.cancelJob(jobId);
+                if (mounted) {
+                  Navigator.pop(dialogContext);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        isEn ? 'Order cancelled successfully' : 'تم إلغاء الطلب بنجاح',
+                      ),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (mounted) {
+                  Navigator.pop(dialogContext);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        isEn ? 'Failed to cancel order: $e' : 'فشل إلغاء الطلب: $e',
+                      ),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red.shade600,
+              foregroundColor: Colors.white,
+            ),
+            child: Text(isEn ? 'Cancel Order' : 'إلغاء الطلب'),
+          ),
         ],
       ),
     );
