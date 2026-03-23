@@ -45,21 +45,9 @@ class _LoginScreenState extends State<LoginScreen> {
       final email = _emailController.text.trim();
       final pass = _passwordController.text.trim();
 
-      // ADMIN LOGIN - hardcoded (CHANGE THESE!)
-      const adminEmail = 'admin@syanat.com';
-      const adminPass = 'admin123';  // ← CHANGE THIS PASSWORD!
-
-      if (email == adminEmail && pass == adminPass) {
-        // Admin success
-        if (!mounted) return;
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const AdminDashboardScreen()),
-        );
-        return;
-      }
-
-      // Normal user login (Firebase)
+      // All users — including admin — authenticate through Firebase Auth.
+      // The admin account must exist in Firebase Auth with a Firestore
+      // users/{uid} document containing role: 'admin'.
       final cred = await FirebaseAuth.instance
           .signInWithEmailAndPassword(email: email, password: pass);
 
@@ -71,7 +59,12 @@ class _LoginScreenState extends State<LoginScreen> {
 
       if (!mounted) return;
 
-      if (role == 'technician') {
+      if (role == 'admin') {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const AdminDashboardScreen()),
+        );
+      } else if (role == 'technician') {
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
@@ -109,43 +102,43 @@ class _LoginScreenState extends State<LoginScreen> {
       child: Scaffold(
         backgroundColor: syanatBlue,
         body: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            child: Column(
-              children: [
-                // Language button
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
+          child: LayoutBuilder(
+            builder: (context, constraints) => SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                child: Column(
                   children: [
-                    IconButton(
-                      onPressed: _switchLanguage,
-                      icon: const Icon(Icons.language, color: Colors.white),
+                    // Language button
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        IconButton(
+                          onPressed: _switchLanguage,
+                          icon: const Icon(Icons.language, color: Colors.white),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
 
-                const SizedBox(height: 4),
+                    const SizedBox(height: 4),
 
-                // Logo
-                Center(
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(28),
-                    child: Image.asset(
-                      'assets/logo.jpeg',
-                      width: 260,
-                      height: 260,
-                      fit: BoxFit.cover,
+                    // Logo
+                    Center(
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(28),
+                        child: Image.asset(
+                          'assets/logo.jpeg',
+                          width: 260,
+                          height: 260,
+                          fit: BoxFit.cover,
+                        ),
+                      ),
                     ),
-                  ),
-                ),
 
-                const SizedBox(height: 8),
+                    const SizedBox(height: 8),
 
-                // Login card
-                Expanded(
-                  child: Align(
-                    alignment: Alignment.topCenter,
-                    child: SingleChildScrollView(
+                    // Login card
+                    Padding(
                       padding: const EdgeInsets.all(16),
                       child: Container(
                         padding: const EdgeInsets.all(24),
@@ -248,9 +241,9 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                       ),
                     ),
-                  ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
         ),
