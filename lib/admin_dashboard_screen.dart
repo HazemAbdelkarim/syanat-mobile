@@ -35,15 +35,31 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   DateTime? _selectedDate;
   bool _loading = true;
 
+  /// True while a stats fetch is already in-flight; prevents overlapping calls.
+  bool _fetching = false;
+
+  /// True once technician map markers have been loaded at least once.
+  bool _markersLoaded = false;
+
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 4, vsync: this);
+    // Lazy-load map markers only when the Map tab is first opened.
+    _tabController.addListener(_onTabChanged);
     _loadAllStats();
+  }
+
+  void _onTabChanged() {
+    if (_tabController.indexIsChanging) return;
+    if (_tabController.index == 3 && !_markersLoaded) {
+      _loadTechnicianLocations();
+    }
   }
 
   @override
   void dispose() {
+    _tabController.removeListener(_onTabChanged);
     _tabController.dispose();
     super.dispose();
   }
@@ -51,104 +67,101 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   String _t(bool isEn, String en, String ar) => isEn ? en : ar;
 
   Future<void> _loadAllStats() async {
-    setState(() => _loading = true);
+    // In-flight guard: drop concurrent calls caused by multiple RefreshIndicators
+    // or rapid refresh taps while a fetch is already running.
+    if (_fetching) return;
+    _fetching = true;
+    if (mounted) setState(() => _loading = true);
 
     try {
       final firestore = FirebaseService.firestore;
 
+      // ── Fast path: single document read ──────────────────────────────────
+      // When a Cloud Function (or admin write) keeps stats/global up-to-date,
+      // the entire dashboard costs exactly 1 Firestore read.
       final statsSnap = await firestore.doc('stats/global').get();
+      final statsData = statsSnap.data() ?? {};
+
       final totalEarnings =
-          (statsSnap.data()?['totalEarnings'] as num?)?.toDouble() ?? 0.0;
+          (statsData['totalEarnings'] as num?)?.toDouble() ?? 0.0;
       final revenue = totalEarnings * 0.15;
 
-      final futures = await Future.wait([
-        firestore.collection('users').count().get(),
-        firestore
-            .collection('users')
-            .where('role', isEqualTo: 'customer')
-            .count()
-            .get(),
-        firestore
-            .collection('users')
-            .where('role', isEqualTo: 'technician')
-            .count()
-            .get(),
-        firestore
-            .collection('jobs')
-            .where('status', isEqualTo: 'requested')
-            .count()
-            .get(),
-        firestore
-            .collection('jobs')
-            .where('status', isEqualTo: 'accepted')
-            .count()
-            .get(),
-        firestore
-            .collection('jobs')
-            .where('status', isEqualTo: 'in_progress')
-            .count()
-            .get(),
-        firestore
-            .collection('jobs')
-            .where('status', isEqualTo: 'inprogress')
-            .count()
-            .get(),
-        firestore
-            .collection('jobs')
-            .where('status', isEqualTo: 'completed')
-            .count()
-            .get(),
-        firestore.collectionGroup('messages').count().get(),
-      ]);
+      final int? aggUsers       = (statsData['totalUsers']    as num?)?.toInt();
+      final int? aggCustomers   = (statsData['customers']     as num?)?.toInt();
+      final int? aggTechnicians = (statsData['technicians']   as num?)?.toInt();
+      final int? aggRequested   = (statsData['jobsRequested'] as num?)?.toInt();
+      final int? aggOngoing     = (statsData['jobsOngoing']   as num?)?.toInt();
+      final int? aggCompleted   = (statsData['jobsCompleted'] as num?)?.toInt();
+      final int? aggChats       = (statsData['activeChats']   as num?)?.toInt();
 
-      final totalUsersCount =
-          (futures[0] as AggregateQuerySnapshot).count ?? 0;
-      final customersCount =
-          (futures[1] as AggregateQuerySnapshot).count ?? 0;
-      final techniciansCount =
-          (futures[2] as AggregateQuerySnapshot).count ?? 0;
-      final requestedCount =
-          (futures[3] as AggregateQuerySnapshot).count ?? 0;
-      final acceptedCount =
-          (futures[4] as AggregateQuerySnapshot).count ?? 0;
-      final inProgressCount =
-          (futures[5] as AggregateQuerySnapshot).count ?? 0;
-      final inprogressLegacyCount =
-          (futures[6] as AggregateQuerySnapshot).count ?? 0;
-      final completedCount =
-          (futures[7] as AggregateQuerySnapshot).count ?? 0;
-      final chatsCount =
-          (futures[8] as AggregateQuerySnapshot).count ?? 0;
+      int usersCount, custCount, techCount, reqCount, ongCount, finCount, chatCount;
 
-      final int req = requestedCount;
-      final int ong = acceptedCount + inProgressCount + inprogressLegacyCount;
-      final int fin = completedCount;
+      if (aggUsers != null &&
+          aggCustomers != null &&
+          aggTechnicians != null &&
+          aggRequested != null &&
+          aggOngoing != null &&
+          aggCompleted != null &&
+          aggChats != null) {
+        // All counters present in the aggregate doc — no extra reads needed.
+        usersCount = aggUsers;
+        custCount  = aggCustomers;
+        techCount  = aggTechnicians;
+        reqCount   = aggRequested;
+        ongCount   = aggOngoing;
+        finCount   = aggCompleted;
+        chatCount  = aggChats;
+      } else {
+        // ── Slow path: aggregate doc incomplete, fall back to count() queries ──
+        final results = await Future.wait([
+          firestore.collection('users').count().get(),
+          firestore.collection('users').where('role', isEqualTo: 'customer').count().get(),
+          firestore.collection('users').where('role', isEqualTo: 'technician').count().get(),
+          firestore.collection('jobs').where('status', isEqualTo: 'requested').count().get(),
+          firestore.collection('jobs').where('status', isEqualTo: 'accepted').count().get(),
+          firestore.collection('jobs').where('status', isEqualTo: 'in_progress').count().get(),
+          firestore.collection('jobs').where('status', isEqualTo: 'inprogress').count().get(),
+          firestore.collection('jobs').where('status', isEqualTo: 'completed').count().get(),
+          firestore.collectionGroup('messages').count().get(),
+        ]);
 
-      await _loadTechnicianLocations();
+        usersCount = (results[0] as AggregateQuerySnapshot).count ?? 0;
+        custCount  = (results[1] as AggregateQuerySnapshot).count ?? 0;
+        techCount  = (results[2] as AggregateQuerySnapshot).count ?? 0;
+        final accepted   = (results[4] as AggregateQuerySnapshot).count ?? 0;
+        final inProg     = (results[5] as AggregateQuerySnapshot).count ?? 0;
+        final inProgLeg  = (results[6] as AggregateQuerySnapshot).count ?? 0;
+        reqCount   = (results[3] as AggregateQuerySnapshot).count ?? 0;
+        ongCount   = accepted + inProg + inProgLeg;
+        finCount   = (results[7] as AggregateQuerySnapshot).count ?? 0;
+        chatCount  = (results[8] as AggregateQuerySnapshot).count ?? 0;
+      }
 
+      if (!mounted) return;
       setState(() {
-        totalUsers = totalUsersCount;
-        customers = customersCount;
-        technicians = techniciansCount;
-        totalRevenue = revenue;
-        jobsRequested = req;
-        jobsOngoing = ong;
-        jobsFinished = fin;
-        activeChats = chatsCount;
-        _loading = false;
+        totalUsers    = usersCount;
+        customers     = custCount;
+        technicians   = techCount;
+        totalRevenue  = revenue;
+        jobsRequested = reqCount;
+        jobsOngoing   = ongCount;
+        jobsFinished  = finCount;
+        activeChats   = chatCount;
+        _loading      = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() => _loading = false);
-      if (mounted) {
-        final isEn = Localizations.localeOf(context).languageCode == 'en';
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              _t(isEn, 'Error loading stats: $e', 'حصل خطأ في تحميل الإحصائيات: $e'),
-            ),
+      final isEn = Localizations.localeOf(context).languageCode == 'en';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _t(isEn, 'Error loading stats: $e', 'حصل خطأ في تحميل الإحصائيات: $e'),
           ),
-        );
-      }
+        ),
+      );
+    } finally {
+      _fetching = false;
     }
   }
 
@@ -191,12 +204,21 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     }
 
     if (mounted) {
-      setState(() => markers = temp);
+      setState(() {
+        markers = temp;
+        _markersLoaded = true;
+      });
     }
   }
 
   Future<void> _refreshStats() async {
+    // Allow map markers to reload on the next explicit refresh.
+    _markersLoaded = false;
     await _loadAllStats();
+    // Reload map data immediately if the map tab is currently visible.
+    if (mounted && _tabController.index == 3) {
+      await _loadTechnicianLocations();
+    }
     if (!mounted) return;
 
     final isEn = Localizations.localeOf(context).languageCode == 'en';

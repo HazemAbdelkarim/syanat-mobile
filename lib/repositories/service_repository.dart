@@ -163,6 +163,7 @@ class ServiceRepository {
   Stream<List<Service>> streamAllServices() {
     return _firestore
         .collection(_collectionName)
+        .limit(200)
         .snapshots()
         .map((snapshot) =>
             snapshot.docs.map((doc) => Service.fromFirestore(doc)).toList());
@@ -173,6 +174,7 @@ class ServiceRepository {
     return _firestore
         .collection(_collectionName)
         .where('category_en', isEqualTo: categoryEn)
+        .limit(100)
         .snapshots()
         .map((snapshot) =>
             snapshot.docs.map((doc) => Service.fromFirestore(doc)).toList());
@@ -187,6 +189,7 @@ class ServiceRepository {
         .collection(_collectionName)
         .where('category_en', isEqualTo: categoryEn)
         .where('subcategory_en', isEqualTo: subcategoryEn)
+        .limit(100)
         .snapshots()
         .map((snapshot) =>
             snapshot.docs.map((doc) => Service.fromFirestore(doc)).toList());

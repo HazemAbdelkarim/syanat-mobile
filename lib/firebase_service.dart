@@ -1,6 +1,7 @@
 import 'dart:typed_data';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, kDebugMode;
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_storage/firebase_storage.dart';
@@ -30,7 +31,25 @@ class FirebaseService {
       await Firebase.initializeApp(options: firebaseOptions);
     } else {
       await Firebase.initializeApp();
+      // Configure Firestore offline persistence for mobile.
+      // Must be set before any Firestore operation is issued.
+      firestore.settings = const Settings(
+        persistenceEnabled: true,
+        cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
+      );
     }
+
+    // App Check — blocks unauthorized clients from reaching Firebase APIs.
+    // Debug provider is used automatically on debug builds; swap in production
+    // providers before releasing. Replace the reCAPTCHA key with the real one
+    // from the Firebase console before deploying the web build.
+    await FirebaseAppCheck.instance.activate(
+      webProvider: ReCaptchaV3Provider('YOUR_RECAPTCHA_V3_SITE_KEY'),
+      androidProvider:
+          kDebugMode ? AndroidProvider.debug : AndroidProvider.playIntegrity,
+      appleProvider:
+          kDebugMode ? AppleProvider.debug : AppleProvider.appAttest,
+    );
   }
 
   // ----------------------
@@ -251,7 +270,7 @@ class FirebaseService {
     Query query = firestore.collection('chats');
     if (role == 'customer') query = query.where('customerId', isEqualTo: uid);
     if (role == 'technician') query = query.where('technicianId', isEqualTo: uid);
-    return query.orderBy('createdAt', descending: true).snapshots().map((snap) {
+    return query.orderBy('createdAt', descending: true).limit(20).snapshots().map((snap) {
       return snap.docs.map((d) {
         final data = Map<String, dynamic>.from(d.data() as Map<String, dynamic>);
 
@@ -302,8 +321,8 @@ class FirebaseService {
   /// original bytes if compression is unavailable (e.g. web).
   static Future<List<int>> compressImage(
     XFile file, {
-    int maxDimension = 512,
-    int quality = 70,
+    int maxDimension = 480,
+    int quality = 60,
   }) async {
     // Web: flutter_image_compress is not supported — fall back to raw bytes.
     if (kIsWeb) return await file.readAsBytes();
@@ -323,7 +342,7 @@ class FirebaseService {
   // UPLOAD PHOTO
   // ----------------------
   /// Compresses [file] before uploading to Firebase Storage.
-  /// Max dimension: 512 px · JPEG quality: 70 → typical reduction ~90 %.
+  /// Max dimension: 480 px · JPEG quality: 60 → typical reduction ~92 %.
   static Future<String> uploadPhoto(XFile file, {String? folder}) async {
     final ref = storage.ref().child(
       '${folder ?? 'uploads'}/${DateTime.now().millisecondsSinceEpoch}.jpg',
@@ -364,14 +383,20 @@ class FirebaseService {
 
   static Future<void> updateRating(String uid, double rating) async {
     final doc = firestore.collection('users').doc(uid);
-    final snapshot = await doc.get();
-    if (!snapshot.exists) return;
-    final data = snapshot.data()!;
-    final currentRating = (data['rating'] as num?)?.toDouble() ?? 0.0;
-    final ratingCount = (data['ratingCount'] as num?)?.toInt() ?? 0;
-    final newCount = ratingCount + 1;
-    final newRating = ((currentRating * ratingCount) + rating) / newCount;
-    await doc.update({'rating': newRating, 'ratingCount': newCount});
+    // Wrap in a transaction so the read-compute-write is atomic.
+    // Firestore retries the transaction automatically if the document is
+    // modified by another writer between the read and the commit, eliminating
+    // the race condition that would otherwise silently drop concurrent ratings.
+    await firestore.runTransaction((tx) async {
+      final snapshot = await tx.get(doc);
+      if (!snapshot.exists) return;
+      final data = snapshot.data()!;
+      final currentRating = (data['rating'] as num?)?.toDouble() ?? 0.0;
+      final ratingCount = (data['ratingCount'] as num?)?.toInt() ?? 0;
+      final newCount = ratingCount + 1;
+      final newRating = ((currentRating * ratingCount) + rating) / newCount;
+      tx.update(doc, {'rating': newRating, 'ratingCount': newCount});
+    });
   }
 
   // ----------------------
@@ -489,6 +514,7 @@ class FirebaseService {
     return firestore
         .collection('payments')
         .orderBy('createdAt', descending: true)
+        .limit(100)
         .snapshots()
         .map((snap) => snap.docs.map((d) {
               final data = Map<String, dynamic>.from(d.data());
@@ -503,6 +529,7 @@ class FirebaseService {
         .collection('payments')
         .where('userId', isEqualTo: userId)
         .orderBy('createdAt', descending: true)
+        .limit(50)
         .snapshots()
         .map((snap) => snap.docs.map((d) {
               final data = Map<String, dynamic>.from(d.data());

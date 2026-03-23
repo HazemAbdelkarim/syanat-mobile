@@ -85,6 +85,7 @@ class ServiceIntegration {
     return _firestore
         .collection('services')
         .where('category_en', isEqualTo: categoryName)
+        .limit(100)
         .snapshots()
         .map((snapshot) =>
             snapshot.docs.map((doc) => Service.fromFirestore(doc)).toList());
