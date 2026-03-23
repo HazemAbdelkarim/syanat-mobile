@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(flutter devices:*)",
+      "Bash(where flutter:*)",
+      "Read(//c/Users/LTC/AppData/Local/flutter/**)",
+      "Read(//c/flutter/**)",
+      "Read(//c/Users/LTC/**)",
+      "Bash(jobs -l)",
+      "Bash(curl -s http://localhost:8080)",
+      "Bash(find /c/Users/LTC/Syanat -name firestore.rules -o -name *firebase* -type f)"
+    ]
+  }
+}

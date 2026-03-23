@@ -1,0 +1,28 @@
+﻿Analyzing login_screen.dart...                                  
+
+warning - Unused import: 'dart:io' - lib\login_screen.dart:1:8 - unused_import
+warning - Unused import: 'package:flutter/foundation.dart' - lib\login_screen.dart:2:8 - unused_import
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\login_screen.dart:158:51 - deprecated_member_use
+   info - Use 'const' with the constructor to improve performance - lib\login_screen.dart:232:41 - prefer_const_constructors
+   info - Use 'const' with the constructor to improve performance - lib\login_screen.dart:239:42 - prefer_const_constructors
+
+flutter : 5 issues 
+found. (ran in 4.2s)
+At line:1 char:1
++ flutter analyze 
+lib/login_screen.dart 
+2>&1 | Out-File 
+-FilePath C:\Us ...
++ ~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo    
+          : 
+NotSpecified: (5     
+issues found. (ran i  
+  n 4.2s):String) [], 
+R    emoteException
+    + 
+FullyQualifiedError   
+ Id : 
+NativeCommandErr    or
+ 

@@ -1,0 +1,24 @@
+﻿Analyzing firebase_service.dart...                              
+
+   info - The import of 'package:image_picker/image_picker.dart' is unnecessary because all of the used elements are also provided by the import of 'package:flutter_image_compress/flutter_image_compress.dart' - lib\firebase_service.dart:7:8 - unnecessary_import
+
+flutter : 1 issue 
+found. (ran in 3.1s)
+At line:1 char:1
++ flutter analyze lib/
+firebase_service.dart 
+2>&1 | Out-File 
+-FilePath C ...
++ ~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~
+~~~~
+    + CategoryInfo    
+          : NotSpeci  
+  fied: (1 issue fo   
+ und. (ran in 3.1s    
+):String) [], Rem    
+oteException
+    + FullyQualifiedE 
+   rrorId : NativeCo  
+  mmandError
+ 

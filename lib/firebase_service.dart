@@ -277,7 +277,7 @@ class FirebaseService {
         .collection('chats')
         .doc(chatId)
         .collection('messages')
-        .orderBy('timestamp')
+        .orderBy('createdAt')
         .snapshots()
         .map((snap) {
       return snap.docs.map((d) {
@@ -290,17 +290,17 @@ class FirebaseService {
 
   static Future<void> sendMessage({
     required String chatId,
-    required String sender,
-    required String content,
+    required String senderId,
+    required String text,
     String type = 'text',
     String photoUrl = '',
   }) async {
     await firestore.collection('chats').doc(chatId).collection('messages').add({
-      'sender': sender,
-      'content': content,
+      'senderId': senderId,
+      'text': text,
       'type': type,
       'photoUrl': photoUrl,
-      'timestamp': FieldValue.serverTimestamp(),
+      'createdAt': FieldValue.serverTimestamp(),
     });
   }
 
