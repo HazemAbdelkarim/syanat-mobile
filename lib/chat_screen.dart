@@ -129,7 +129,8 @@ class _ChatScreenState extends State<ChatScreen> {
                     .collection('chats')
                     .doc(widget.chatId)
                     .collection('messages')
-                    .orderBy('createdAt') // real-time ordered stream
+                    .orderBy('createdAt')
+                    .limitToLast(50)
                     .snapshots(),
                 builder: (context, snapshot) {
                   if (!snapshot.hasData) {

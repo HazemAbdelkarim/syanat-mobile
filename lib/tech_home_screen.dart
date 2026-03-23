@@ -90,6 +90,8 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
     _jobsSub = FirebaseService.firestore
         .collection('jobs')
         .where('technicianId', isEqualTo: user.uid)
+        .orderBy('createdAt', descending: true)
+        .limit(50)
         .snapshots()
         .listen((snapshot) async {
       final jobs = snapshot.docs.map((d) {

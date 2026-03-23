@@ -1,5 +1,4 @@
 // technicians_list_screen.dart
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../firebase_service.dart';
@@ -42,24 +41,21 @@ class _TechniciansListScreenState extends State<TechniciansListScreen> {
   List<Map<String, dynamic>> technicians = [];
   bool _loading = true;
   final _cityController = TextEditingController();
-  StreamSubscription<QuerySnapshot>? _sub;
 
   @override
   void initState() {
     super.initState();
-    _subscribeTechs();
+    _fetchTechs();
   }
 
   @override
   void dispose() {
     _cityController.dispose();
-    _sub?.cancel();
     super.dispose();
   }
 
-  void _subscribeTechs() {
-    _sub?.cancel();
-    String cityFilter = _cityController.text.trim();
+  Future<void> _fetchTechs() async {
+    final cityFilter = _cityController.text.trim();
 
     // Get both the service key and any Arabic names associated with it for backward compatibility
     final arabicNames = serviceKeyToArabicNames[widget.serviceKey] ?? [];
@@ -75,11 +71,13 @@ class _TechniciansListScreenState extends State<TechniciansListScreen> {
       q = q.where('city', isEqualTo: cityFilter);
     }
 
-    q = q.limit(100); // Fetch more docs to filter client-side
+    // Cap server-side; client-side service filter reduces this further.
+    q = q.limit(20);
 
     setState(() => _loading = true);
 
-    _sub = q.snapshots().listen((snapshot) {
+    try {
+      final snapshot = await q.get();
       // Filter client-side to match either service key or Arabic names
       final list = snapshot.docs
           .where((d) {
@@ -94,14 +92,16 @@ class _TechniciansListScreenState extends State<TechniciansListScreen> {
           })
           .toList();
 
+      if (!mounted) return;
       setState(() {
         technicians = list;
         _loading = false;
       });
-    }, onError: (e) {
-      debugPrint('Technicians subscription error: $e');
+    } catch (e) {
+      debugPrint('Technicians fetch error: $e');
+      if (!mounted) return;
       setState(() => _loading = false);
-    });
+    }
   }
 
   Future<void> _requestJob(Map<String, dynamic> tech) async {
@@ -278,7 +278,7 @@ class _TechniciansListScreenState extends State<TechniciansListScreen> {
                     controller: _cityController,
                     decoration:
                         _searchDecoration(isEn ? "Search by name or service" : "ابحث بالاسم أو الخدمة"),
-                    onSubmitted: (_) => _subscribeTechs(),
+                    onSubmitted: (_) => _fetchTechs(),
                   ),
                 ),
 

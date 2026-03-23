@@ -168,26 +168,11 @@ class FirebaseService {
     return result;
   }
 
-  /// Streams the `services` collection directly — no technician documents touched.
+  /// Returns services as a single-emission stream backed by a one-time read.
+  /// Services data is semi-static; a permanent listener on the full collection
+  /// is wasteful. Callers that need live updates should schedule a manual refresh.
   static Stream<List<Map<String, dynamic>>> streamServices() {
-    return firestore.collection('services').snapshots().map((snap) {
-      final result = snap.docs.map((d) {
-        final data = d.data();
-        return {
-          'key': d.id,
-          'name_en': (data['name_en'] as String?)?.trim().isNotEmpty == true
-              ? (data['name_en'] as String).trim()
-              : _prettyServiceLabel(d.id),
-          'name_ar': (data['name_ar'] as String?)?.trim().isNotEmpty == true
-              ? (data['name_ar'] as String).trim()
-              : _prettyServiceLabel(d.id),
-          'icon': (data['icon'] as String?) ?? '',
-          'techCount': (data['techCount'] as num?)?.toInt() ?? 0,
-        };
-      }).toList();
-      result.sort((a, b) => (a['name_en'] as String).compareTo(b['name_en'] as String));
-      return result;
-    });
+    return Stream.fromFuture(getServices());
   }
 
   // ----------------------
@@ -219,7 +204,11 @@ class FirebaseService {
     Query query = firestore.collection('jobs');
     if (role == 'customer') query = query.where('customerId', isEqualTo: uid);
     if (role == 'technician') query = query.where('technicianId', isEqualTo: uid);
-    return query.orderBy('createdAt', descending: true).snapshots().map((snap) {
+    return query
+        .orderBy('createdAt', descending: true)
+        .limit(50)
+        .snapshots()
+        .map((snap) {
       return snap.docs.map((d) {
         final data = Map<String, dynamic>.from(d.data() as Map<String, dynamic>);
 
@@ -278,6 +267,7 @@ class FirebaseService {
         .doc(chatId)
         .collection('messages')
         .orderBy('createdAt')
+        .limitToLast(50)
         .snapshots()
         .map((snap) {
       return snap.docs.map((d) {
@@ -429,6 +419,7 @@ class FirebaseService {
         .collection('inventory')
         .where('technicianId', isEqualTo: technicianId)
         .orderBy('createdAt', descending: true)
+        .limit(100)
         .snapshots()
         .map((snap) => snap.docs.map((d) {
               final data = Map<String, dynamic>.from(d.data());
@@ -442,6 +433,7 @@ class FirebaseService {
         .collection('inventory')
         .where('technicianId', isEqualTo: technicianId)
         .orderBy('createdAt', descending: true)
+        .limit(100)
         .get();
     return snap.docs.map((d) {
       final data = Map<String, dynamic>.from(d.data());
