@@ -1,11 +1,11 @@
 {
-    "name": "flutter_projects",
-    "short_name": "flutter_projects",
+    "name": "Syanat",
+    "short_name": "Syanat",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "description": "Syanat — Home maintenance services.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

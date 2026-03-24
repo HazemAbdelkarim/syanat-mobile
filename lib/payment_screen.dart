@@ -410,8 +410,8 @@ class _PaymentScreenState extends State<PaymentScreen> {
       instructionTitle:
           isEn ? 'Vodafone Cash Wallet' : 'محفظة فودافون كاش',
       instructionBody: isEn
-          ? 'Transfer to this number:\n\n01XXXXXXXXX\n\nThen upload a screenshot and enter the transaction reference.'
-          : 'حوّل على الرقم ده:\n\n01XXXXXXXXX\n\nوبعدين ارفع صورة الإيصال واكتب رقم العملية.',
+          ? 'Transfer to this number:\n\n01023645696\n\nAlternative number: 01142426411\n\nPlease use the above phone number whether you are paying instapay or with your E-wallet.\n\nThen upload a screenshot and enter the transaction reference.'
+          : 'حوّل على الرقم ده:\n\n01023645696\n\nرقم بديل: 01142426411\n\nمن فضلك استخدم الرقم أعلاه سواء كنت بتدفع إنستاباي أو بمحفظتك الإلكترونية.\n\nوبعدين ارفع صورة الإيصال واكتب رقم العملية.',
     );
   }
 
@@ -422,8 +422,8 @@ class _PaymentScreenState extends State<PaymentScreen> {
       icon: Icons.account_balance,
       instructionTitle: isEn ? 'InstaPay Transfer' : 'تحويل انستاباي',
       instructionBody: isEn
-          ? 'Transfer to:\n\nPhone: 01XXXXXXXXX\nName: Syanat App\n\nThen upload a screenshot and enter the transaction reference.'
-          : 'حوّل على:\n\nالموبايل: 01XXXXXXXXX\nالاسم: تطبيق صيانات\n\nوبعدين ارفع صورة الإيصال واكتب رقم العملية.',
+          ? 'Transfer to:\n\nPhone: 01023645696\nAlternative: 01142426411\nName: Syanat\n\nPlease use the above phone number whether you are paying instapay or with your E-wallet.\n\nThen upload a screenshot and enter the transaction reference.'
+          : 'حوّل على:\n\nالموبايل: 01023645696\nبديل: 01142426411\nالاسم: صيانات\n\nمن فضلك استخدم الرقم أعلاه سواء كنت بتدفع إنستاباي أو بمحفظتك الإلكترونية.\n\nوبعدين ارفع صورة الإيصال واكتب رقم العملية.',
     );
   }
 

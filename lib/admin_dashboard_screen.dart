@@ -5,6 +5,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../firebase_service.dart';
 import '../login_screen.dart';
+import '../admin_support_chat_screen.dart';
 
 const Color syanatBlue = Color(0xFF3C21C8);
 
@@ -35,6 +36,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   DateTime? _selectedDate;
   bool _loading = true;
 
+  int _unreadSupportCount = 0;
+  StreamSubscription<int>? _supportCountSub;
+
   /// True while a stats fetch is already in-flight; prevents overlapping calls.
   bool _fetching = false;
 
@@ -44,10 +48,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(length: 5, vsync: this);
     // Lazy-load map markers only when the Map tab is first opened.
     _tabController.addListener(_onTabChanged);
     _loadAllStats();
+    _supportCountSub = FirebaseService.streamUnreadSupportCount().listen(
+      (n) {
+        if (mounted) setState(() => _unreadSupportCount = n);
+      },
+    );
   }
 
   void _onTabChanged() {
@@ -61,6 +70,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   void dispose() {
     _tabController.removeListener(_onTabChanged);
     _tabController.dispose();
+    _supportCountSub?.cancel();
     super.dispose();
   }
 
@@ -337,6 +347,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                 icon: const Icon(Icons.map),
                 text: _t(isEn, 'Map', 'الخريطة'),
               ),
+              Tab(
+                icon: _buildSupportTabIcon(),
+                text: _t(isEn, 'Support', 'الدعم'),
+              ),
             ],
           ),
         ),
@@ -351,6 +365,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                   _usersTab(isEn),
                   _jobsTab(isEn),
                   _mapTab(isEn),
+                  _supportTab(isEn),
                 ],
               ),
       ),
@@ -756,6 +771,140 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildSupportTabIcon() {
+    if (_unreadSupportCount == 0) {
+      return const Icon(Icons.support_agent);
+    }
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        const Icon(Icons.support_agent),
+        Positioned(
+          top: -4,
+          right: -6,
+          child: Container(
+            padding: const EdgeInsets.all(3),
+            decoration: const BoxDecoration(
+              color: Colors.red,
+              shape: BoxShape.circle,
+            ),
+            constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+            child: Text(
+              _unreadSupportCount > 99
+                  ? '99+'
+                  : _unreadSupportCount.toString(),
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 9,
+                fontWeight: FontWeight.bold,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _supportTab(bool isEn) {
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: FirebaseService.streamSupportChats(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) {
+          return const Center(
+            child: CircularProgressIndicator(color: syanatBlue),
+          );
+        }
+        final chats = snapshot.data!;
+        if (chats.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.support_agent, size: 64, color: Colors.black26),
+                const SizedBox(height: 16),
+                Text(
+                  _t(isEn, 'No support requests yet.', 'لا توجد طلبات دعم حتى الآن.'),
+                  style: const TextStyle(color: Colors.black45, fontSize: 16),
+                ),
+              ],
+            ),
+          );
+        }
+        return ListView.separated(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          itemCount: chats.length,
+          separatorBuilder: (_, __) =>
+              const Divider(height: 1, indent: 72, endIndent: 16),
+          itemBuilder: (context, index) {
+            final chat = chats[index];
+            final chatId = chat['id'] as String;
+            final userName = chat['userName'] as String? ?? 'User';
+            final status = chat['status'] as String? ?? 'open';
+            final unread = chat['unreadByAdmin'] as bool? ?? false;
+            final closed = status == 'closed';
+
+            return ListTile(
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              leading: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  CircleAvatar(
+                    backgroundColor: closed
+                        ? Colors.grey.shade300
+                        : syanatBlue.withOpacity(0.12),
+                    child: Icon(
+                      Icons.person,
+                      color: closed ? Colors.grey : syanatBlue,
+                    ),
+                  ),
+                  if (unread && !closed)
+                    const Positioned(
+                      top: 0,
+                      right: 0,
+                      child: CircleAvatar(
+                        radius: 5,
+                        backgroundColor: Colors.red,
+                      ),
+                    ),
+                ],
+              ),
+              title: Text(
+                userName,
+                style: TextStyle(
+                  fontWeight:
+                      unread && !closed ? FontWeight.bold : FontWeight.normal,
+                ),
+              ),
+              subtitle: Text(
+                closed
+                    ? _t(isEn, 'Closed', 'مغلق')
+                    : _t(isEn, 'Open · Tap to reply', 'مفتوح · اضغط للرد'),
+                style: TextStyle(
+                  fontSize: 12,
+                  color: closed ? Colors.grey : Colors.green.shade700,
+                ),
+              ),
+              trailing: const Icon(Icons.chevron_right, color: Colors.black26),
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => AdminSupportChatScreen(
+                      chatId: chatId,
+                      userName: userName,
+                    ),
+                  ),
+                );
+              },
+            );
+          },
+        );
+      },
     );
   }
 

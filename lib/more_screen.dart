@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'login_screen.dart';
 import 'personal_info_screen.dart';
+import 'account_settings_screen.dart';
+import 'saved_locations_screen.dart';
+import 'faq_screen.dart';
+import 'support_chat_screen.dart';
 
 const Color _syanatBlue = Color(0xFF3C21C8);
 
@@ -33,17 +37,6 @@ class MoreScreen extends StatelessWidget {
         ),
         body: ListView(
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 14, 20, 6),
-              child: Text(
-                t('Wallet: EGP', 'المحفظة: جنيه'),
-                style: const TextStyle(
-                  fontSize: 13,
-                  color: Colors.black54,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
             const SizedBox(height: 12),
             _MoreTile(
               icon: Icons.person_outline,
@@ -57,25 +50,38 @@ class MoreScreen extends StatelessWidget {
             _MoreTile(
               icon: Icons.settings_outlined,
               label: t('Account settings', 'إعدادات الحساب'),
-              onTap: () => _openPlaceholder(context, t('Account settings', 'إعدادات الحساب')),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const AccountSettingsScreen()),
+              ),
             ),
             const Divider(height: 1, indent: 20, endIndent: 20),
             _MoreTile(
               icon: Icons.location_on_outlined,
               label: t('Saved locations', 'المواقع المحفوظة'),
-              onTap: () => _openPlaceholder(context, t('Saved locations', 'المواقع المحفوظة')),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const SavedLocationsScreen()),
+              ),
             ),
             const Divider(height: 1, indent: 20, endIndent: 20),
             _MoreTile(
-              icon: Icons.help_outline,
+              icon: Icons.support_agent,
               label: t('Need help?', 'تحتاج مساعدة؟'),
-              onTap: () => _openPlaceholder(context, t('Need help?', 'تحتاج مساعدة؟')),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                    builder: (_) => const SupportChatScreen()),
+              ),
             ),
             const Divider(height: 1, indent: 20, endIndent: 20),
             _MoreTile(
               icon: Icons.quiz_outlined,
               label: t('FAQ', 'الأسئلة الشائعة'),
-              onTap: () => _openPlaceholder(context, t('FAQ', 'الأسئلة الشائعة')),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const FaqScreen()),
+              ),
             ),
             const Divider(height: 1, indent: 20, endIndent: 20),
             _MoreTile(
@@ -112,15 +118,6 @@ class MoreScreen extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  void _openPlaceholder(BuildContext context, String title) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => _EmptySectionScreen(title: title),
       ),
     );
   }
@@ -174,24 +171,3 @@ class _MoreTile extends StatelessWidget {
   }
 }
 
-class _EmptySectionScreen extends StatelessWidget {
-  final String title;
-  const _EmptySectionScreen({required this.title});
-
-  @override
-  Widget build(BuildContext context) {
-    final isEn = Localizations.localeOf(context).languageCode == 'en';
-
-    return Directionality(
-      textDirection: isEn ? TextDirection.ltr : TextDirection.rtl,
-      child: Scaffold(
-        appBar: AppBar(
-          backgroundColor: _syanatBlue,
-          title: Text(title, style: const TextStyle(color: Colors.white)),
-          iconTheme: const IconThemeData(color: Colors.white),
-        ),
-        body: const SizedBox.shrink(),
-      ),
-    );
-  }
-}

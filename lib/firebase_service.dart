@@ -62,6 +62,53 @@ class FirebaseService {
     return doc.exists ? doc.data() : null;
   }
 
+  /// Updates specific fields on the user profile document.
+  static Future<void> updateProfile(String uid, Map<String, dynamic> fields) async {
+    await firestore.collection('users').doc(uid).update(fields);
+  }
+
+  // ── Saved Locations ──────────────────────────────────────────────────────
+
+  /// Returns all saved locations for a user.
+  static Future<List<Map<String, dynamic>>> getSavedLocations(String uid) async {
+    final snap = await firestore
+        .collection('users')
+        .doc(uid)
+        .collection('locations')
+        .orderBy('createdAt', descending: true)
+        .limit(20)
+        .get();
+    return snap.docs.map((d) => {'id': d.id, ...d.data()}).toList();
+  }
+
+  /// Adds a new saved location and returns its document ID.
+  static Future<String> addSavedLocation(String uid, Map<String, dynamic> data) async {
+    data['createdAt'] = FieldValue.serverTimestamp();
+    final ref = await firestore
+        .collection('users')
+        .doc(uid)
+        .collection('locations')
+        .add(data);
+    return ref.id;
+  }
+
+  /// Sets the active location for a user by storing the location ID on the user doc.
+  static Future<void> setActiveLocation(String uid, String locationId) async {
+    await firestore.collection('users').doc(uid).update({
+      'activeLocationId': locationId,
+    });
+  }
+
+  /// Deletes a saved location.
+  static Future<void> deleteSavedLocation(String uid, String locationId) async {
+    await firestore
+        .collection('users')
+        .doc(uid)
+        .collection('locations')
+        .doc(locationId)
+        .delete();
+  }
+
   /// Creates a user record. Use for both customers and technicians.
   static Future<void> createUser({
     required String uid,
@@ -311,6 +358,102 @@ class FirebaseService {
       'photoUrl': photoUrl,
       'createdAt': FieldValue.serverTimestamp(),
     });
+  }
+
+  // ----------------------
+  // SUPPORT CHAT
+  // ----------------------
+
+  /// Returns the existing open support chat for [userId], or creates a new one.
+  static Future<String> getOrCreateSupportChat({
+    required String userId,
+    required String userName,
+  }) async {
+    final existing = await firestore
+        .collection('support_chats')
+        .where('userId', isEqualTo: userId)
+        .where('status', isEqualTo: 'open')
+        .limit(1)
+        .get();
+    if (existing.docs.isNotEmpty) return existing.docs.first.id;
+
+    final docRef = await firestore.collection('support_chats').add({
+      'userId': userId,
+      'userName': userName,
+      'status': 'open',
+      'unreadByAdmin': true,
+      'createdAt': FieldValue.serverTimestamp(),
+      'lastMessageAt': FieldValue.serverTimestamp(),
+    });
+    return docRef.id;
+  }
+
+  /// Streams all support chats ordered by most recent activity (admin use).
+  static Stream<List<Map<String, dynamic>>> streamSupportChats() {
+    return firestore
+        .collection('support_chats')
+        .orderBy('lastMessageAt', descending: true)
+        .limit(50)
+        .snapshots()
+        .map((snap) => snap.docs.map((d) {
+              final data = Map<String, dynamic>.from(d.data());
+              data['id'] = d.id;
+              return data;
+            }).toList());
+  }
+
+  /// Streams the count of open support chats with unread messages (admin badge).
+  static Stream<int> streamUnreadSupportCount() {
+    return firestore
+        .collection('support_chats')
+        .where('unreadByAdmin', isEqualTo: true)
+        .where('status', isEqualTo: 'open')
+        .snapshots()
+        .map((snap) => snap.docs.length);
+  }
+
+  /// Sends a message in a support chat and bumps [lastMessageAt].
+  /// Set [setUnreadForAdmin] = true when the user sends (not admin).
+  static Future<void> sendSupportMessage({
+    required String chatId,
+    required String senderId,
+    required String text,
+    bool setUnreadForAdmin = false,
+  }) async {
+    final batch = firestore.batch();
+    final msgRef = firestore
+        .collection('support_chats')
+        .doc(chatId)
+        .collection('messages')
+        .doc();
+    batch.set(msgRef, {
+      'senderId': senderId,
+      'text': text,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+    final Map<String, dynamic> chatUpdate = {
+      'lastMessageAt': FieldValue.serverTimestamp(),
+    };
+    if (setUnreadForAdmin) chatUpdate['unreadByAdmin'] = true;
+    batch.update(
+        firestore.collection('support_chats').doc(chatId), chatUpdate);
+    await batch.commit();
+  }
+
+  /// Marks a support chat as closed (called by admin).
+  static Future<void> closeSupportChat(String chatId) async {
+    await firestore.collection('support_chats').doc(chatId).update({
+      'status': 'closed',
+      'closedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  /// Clears the unread flag when admin opens a support chat.
+  static Future<void> markSupportChatReadByAdmin(String chatId) async {
+    await firestore
+        .collection('support_chats')
+        .doc(chatId)
+        .update({'unreadByAdmin': false});
   }
 
   // ----------------------

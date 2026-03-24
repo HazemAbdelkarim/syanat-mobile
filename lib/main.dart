@@ -30,7 +30,7 @@ class _MyAppState extends State<MyApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Fanni App',
+      title: 'Syanat',
       debugShowCheckedModeBanner: false,
 
       // 🌍 Multi-language support (English / Arabic)
