@@ -236,7 +236,7 @@ class _OrdersScreenState extends State<OrdersScreen>
                     ),
                     const SizedBox(width: 10),
                     Text(
-                      _prettyLabel(serviceKey),
+                      _serviceLabel(serviceKey, isEn),
                       style: const TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 15,
@@ -497,13 +497,43 @@ class _OrdersScreenState extends State<OrdersScreen>
     }
   }
 
-  /// Converts a snake_case key like "ac" → "Ac", "in_progress" → "In Progress".
-  String _prettyLabel(String key) {
-    return key
-        .split(RegExp(r'[_\-\s]+'))
-        .map((p) =>
-            p.isEmpty ? '' : p[0].toUpperCase() + (p.length > 1 ? p.substring(1) : ''))
-        .join(' ');
+  static const _serviceLabelsEn = {
+    'ac': 'Air Conditioning',
+    'plumbing': 'Plumbing',
+    'electricity': 'Electrical',
+    'security_intercom': 'Security & Intercom',
+    'large_appliances': 'Large Appliances',
+    'small_appliances': 'Small Appliances',
+    'carpentry': 'Carpentry',
+    'pest_control': 'Pest Control',
+    'aluminum': 'Aluminum',
+    'finishing': 'Finishing',
+  };
+
+  static const _serviceLabelsAr = {
+    'ac': 'تكييف',
+    'plumbing': 'سباكة',
+    'electricity': 'كهرباء',
+    'security_intercom': 'أنظمة أمن وإنتركم',
+    'large_appliances': 'أجهزة منزلية كبيرة',
+    'small_appliances': 'أجهزة منزلية صغيرة',
+    'carpentry': 'نجارة',
+    'pest_control': 'مكافحة حشرات',
+    'aluminum': 'ألوميتال',
+    'finishing': 'تشطيبات',
+  };
+
+  /// Returns the localized service label for a given key.
+  /// Falls back to capitalizing the key if it's not in the map.
+  String _serviceLabel(String key, bool isEn) {
+    final map = isEn ? _serviceLabelsEn : _serviceLabelsAr;
+    return map[key] ??
+        key
+            .split(RegExp(r'[_\-\s]+'))
+            .map((p) => p.isEmpty
+                ? ''
+                : p[0].toUpperCase() + (p.length > 1 ? p.substring(1) : ''))
+            .join(' ');
   }
 
   Widget _buildEmptyState({required IconData icon, required String label}) {

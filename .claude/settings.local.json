@@ -8,7 +8,9 @@
       "Read(//c/Users/LTC/**)",
       "Bash(jobs -l)",
       "Bash(curl -s http://localhost:8080)",
-      "Bash(find /c/Users/LTC/Syanat -name firestore.rules -o -name *firebase* -type f)"
+      "Bash(find /c/Users/LTC/Syanat -name firestore.rules -o -name *firebase* -type f)",
+      "Bash(flutter pub:*)",
+      "Bash(/c/Users/LTC/flutter/bin/flutter pub:*)"
     ]
   }
 }
