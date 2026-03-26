@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import '../firebase_service.dart';
+import 'main.dart' show AppLocale;
 import 'tech_home_screen.dart';
 import 'user_home_screen.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -12,8 +13,7 @@ import 'package:image_picker/image_picker.dart';
 const Color syanatBlue = Color(0xFF3C21C8);
 
 class CreateAccountScreen extends StatefulWidget {
-  final Function(Locale) setLocale;
-  const CreateAccountScreen({required this.setLocale, super.key});
+  const CreateAccountScreen({super.key});
 
   @override
   State<CreateAccountScreen> createState() => _CreateAccountScreenState();
@@ -213,16 +213,12 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
       if (_role == 'technician') {
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(
-            builder: (_) => TechHomeScreen(setLocale: widget.setLocale),
-          ),
+          MaterialPageRoute(builder: (_) => const TechHomeScreen()),
         );
       } else {
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(
-            builder: (_) => UserHomeScreen(setLocale: widget.setLocale),
-          ),
+          MaterialPageRoute(builder: (_) => const UserHomeScreen()),
         );
       }
     } catch (e) {
@@ -244,7 +240,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
         Localizations.localeOf(context).languageCode == 'en'
             ? const Locale('ar')
             : const Locale('en');
-    widget.setLocale(newLocale);
+    AppLocale.of(context).value = newLocale;
   }
 
   @override

@@ -3,16 +3,16 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../firebase_service.dart';
+import 'main.dart' show AppLocale;
 import 'user_home_screen.dart';
 import 'tech_home_screen.dart';
-import 'admin_dashboard_screen.dart';      // Admin dashboard
-import 'create_account_screen.dart';       // Register page
+import 'admin_dashboard_screen.dart';
+import 'create_account_screen.dart';
 
 const Color syanatBlue = Color(0xFF3C21C8);
 
 class LoginScreen extends StatefulWidget {
-  final Function(Locale) setLocale;
-  const LoginScreen({required this.setLocale, super.key});
+  const LoginScreen({super.key});
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -34,7 +34,7 @@ class _LoginScreenState extends State<LoginScreen> {
     final newLocale = Localizations.localeOf(context).languageCode == 'en'
         ? const Locale('ar')
         : const Locale('en');
-    Future.microtask(() => widget.setLocale(newLocale));
+    AppLocale.of(context).value = newLocale;
   }
 
   Future<void> _login() async {
@@ -67,16 +67,12 @@ class _LoginScreenState extends State<LoginScreen> {
       } else if (role == 'technician') {
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(
-            builder: (_) => TechHomeScreen(setLocale: widget.setLocale),
-          ),
+          MaterialPageRoute(builder: (_) => const TechHomeScreen()),
         );
       } else {
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(
-            builder: (_) => UserHomeScreen(setLocale: widget.setLocale),
-          ),
+          MaterialPageRoute(builder: (_) => const UserHomeScreen()),
         );
       }
     } catch (e) {
@@ -217,7 +213,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                   Navigator.push(
                                     context,
                                     MaterialPageRoute(
-                                      builder: (_) => CreateAccountScreen(setLocale: widget.setLocale),
+                                      builder: (_) => const CreateAccountScreen(),
                                     ),
                                   );
                                 },

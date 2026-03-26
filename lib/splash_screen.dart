@@ -7,8 +7,7 @@ import 'user_home_screen.dart';
 const Color syanatBlue = Color(0xFF3C21C8);
 
 class SplashScreen extends StatefulWidget {
-  final Function(Locale) setLocale;
-  const SplashScreen({required this.setLocale, super.key});
+  const SplashScreen({super.key});
 
   @override
   State<SplashScreen> createState() => _SplashScreenState();
@@ -65,16 +64,12 @@ class _SplashScreenState extends State<SplashScreen>
       if (role == 'technician') {
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(
-            builder: (_) => TechHomeScreen(setLocale: widget.setLocale),
-          ),
+          MaterialPageRoute(builder: (_) => const TechHomeScreen()),
         );
       } else {
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(
-            builder: (_) => UserHomeScreen(setLocale: widget.setLocale),
-          ),
+          MaterialPageRoute(builder: (_) => const UserHomeScreen()),
         );
       }
     } catch (_) {
@@ -85,9 +80,7 @@ class _SplashScreenState extends State<SplashScreen>
   void _goToLogin() {
     Navigator.pushReplacement(
       context,
-      MaterialPageRoute(
-        builder: (_) => LoginScreen(setLocale: widget.setLocale),
-      ),
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
     );
   }
 

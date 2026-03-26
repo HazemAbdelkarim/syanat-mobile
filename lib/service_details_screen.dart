@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import '../glass_card.dart';
-import 'technicians_list_screen.dart';
 import '../firebase_service.dart';
 import 'payment_screen.dart';
 import 'services_integration.dart';
@@ -193,17 +192,42 @@ class _ServiceDetailsScreenState extends State<ServiceDetailsScreen> {
   }
 
   void _openServiceTechnicians(Service service) {
+    _showOrderRequestSheet(service);
+  }
+
+  Future<void> _showOrderRequestSheet(Service service) async {
+    final user = FirebaseService.getCurrentUser();
+    if (user == null) return;
+
+    // Load profile + saved locations before showing the sheet.
+    final results = await Future.wait([
+      FirebaseService.getProfile(user.uid),
+      FirebaseService.getSavedLocations(user.uid),
+    ]);
+
+    if (!mounted) return;
+
+    final profile = results[0] as Map<String, dynamic>?;
+    final locations = results[1] as List<Map<String, dynamic>>;
     final isEn = _locale.languageCode == 'en';
-    final label = isEn ? service.serviceNameEn : service.serviceNameAr;
-    
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => TechniciansListScreen(
-          serviceKey: widget.serviceKey,
-          serviceLabel: label,
-          preSelectedDescription: label,
-        ),
+    final subservice =
+        isEn ? service.serviceNameEn : service.serviceNameAr;
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => _OrderRequestSheet(
+        uid: user.uid,
+        customerName: profile?['username'] as String? ??
+            profile?['email'] as String? ?? '',
+        serviceKey: widget.serviceKey,
+        serviceCategory: widget.serviceLabel,
+        subservice: subservice,
+        savedLocations: locations,
+        initialPhone: profile?['phone'] as String? ?? '',
+        isEn: isEn,
       ),
     );
   }
@@ -498,6 +522,600 @@ class _ServiceDetailsScreenState extends State<ServiceDetailsScreen> {
           ],
         ),
       ),
+    );
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// _OrderRequestSheet — Customer creates a managed order request
+// ═════════════════════════════════════════════════════════════════════════════
+
+class _OrderRequestSheet extends StatefulWidget {
+  final String uid;
+  final String customerName;
+  final String serviceKey;
+  final String serviceCategory;
+  final String subservice;
+  final List<Map<String, dynamic>> savedLocations;
+  final String initialPhone;
+  final bool isEn;
+
+  const _OrderRequestSheet({
+    required this.uid,
+    required this.customerName,
+    required this.serviceKey,
+    required this.serviceCategory,
+    required this.subservice,
+    required this.savedLocations,
+    required this.initialPhone,
+    required this.isEn,
+  });
+
+  @override
+  State<_OrderRequestSheet> createState() => _OrderRequestSheetState();
+}
+
+class _OrderRequestSheetState extends State<_OrderRequestSheet> {
+  final _descController = TextEditingController();
+  final _phoneController = TextEditingController();
+  final _newLocLabelCtrl = TextEditingController();
+  final _newLocAddressCtrl = TextEditingController();
+
+  List<Map<String, dynamic>> _locations = [];
+  Map<String, dynamic>? _selectedLocation;
+  String _urgencyType = 'urgent'; // 'urgent' | 'scheduled'
+  DateTime? _scheduledTime;
+  bool _submitting = false;
+  bool _submitted = false; // duplicate-submit guard
+
+  @override
+  void initState() {
+    super.initState();
+    _locations = List.from(widget.savedLocations);
+    _phoneController.text = widget.initialPhone;
+    if (_locations.isNotEmpty) _selectedLocation = _locations.first;
+  }
+
+  @override
+  void dispose() {
+    _descController.dispose();
+    _phoneController.dispose();
+    _newLocLabelCtrl.dispose();
+    _newLocAddressCtrl.dispose();
+    super.dispose();
+  }
+
+  String _t(String en, String ar) => widget.isEn ? en : ar;
+
+  Future<void> _pickScheduledTime() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: now.add(const Duration(hours: 1)),
+      firstDate: now,
+      lastDate: now.add(const Duration(days: 30)),
+    );
+    if (picked == null || !mounted) return;
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(now.add(const Duration(hours: 1))),
+    );
+    if (time == null || !mounted) return;
+    setState(() {
+      _scheduledTime = DateTime(
+          picked.year, picked.month, picked.day, time.hour, time.minute);
+    });
+  }
+
+  Future<void> _addNewLocation() async {
+    _newLocLabelCtrl.clear();
+    _newLocAddressCtrl.clear();
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(_t('Add Location', 'إضافة موقع')),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _newLocLabelCtrl,
+              decoration: InputDecoration(
+                labelText: _t('Label (e.g. Home)', 'التسمية (مثال: المنزل)'),
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _newLocAddressCtrl,
+              decoration: InputDecoration(
+                labelText: _t('Full Address', 'العنوان الكامل'),
+              ),
+              maxLines: 2,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text(_t('Cancel', 'إلغاء'))),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+                backgroundColor: syanatBlue, foregroundColor: Colors.white),
+            child: Text(_t('Save', 'حفظ')),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+    final label = _newLocLabelCtrl.text.trim();
+    final address = _newLocAddressCtrl.text.trim();
+    if (address.isEmpty) return;
+
+    try {
+      await FirebaseService.addSavedLocation(widget.uid, {
+        'label': label,
+        'address': address,
+      });
+      // Refresh locations list
+      final updated = await FirebaseService.getSavedLocations(widget.uid);
+      if (mounted) {
+        setState(() {
+          _locations = updated;
+          // Select the newly added location (first in DESC order)
+          if (_locations.isNotEmpty) _selectedLocation = _locations.first;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Error: $e')));
+      }
+    }
+  }
+
+  Future<void> _submit() async {
+    if (_submitted || _submitting) return; // duplicate-submit guard
+
+    final description = _descController.text.trim();
+    final phone = _phoneController.text.trim();
+
+    if (_selectedLocation == null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(_t('Please select a location', 'اختر موقعاً أولاً'))));
+      return;
+    }
+    if (description.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(_t('Please describe your request',
+              'يرجى وصف طلبك أولاً'))));
+      return;
+    }
+    if (phone.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content:
+              Text(_t('Please enter a phone number', 'أدخل رقم هاتفك أولاً'))));
+      return;
+    }
+    if (_urgencyType == 'scheduled' && _scheduledTime == null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+              _t('Please pick a scheduled time', 'اختر الوقت المناسب'))));
+      return;
+    }
+
+    setState(() { _submitting = true; _submitted = true; });
+
+    try {
+      final locationLabel =
+          _selectedLocation!['label'] as String? ?? '';
+      final locationAddress =
+          _selectedLocation!['address'] as String? ?? '';
+
+      final jobId = await FirebaseService.createOrderRequest(
+        customerId: widget.uid,
+        customerName: widget.customerName,
+        serviceKey: widget.serviceKey,
+        serviceCategory: widget.serviceCategory,
+        subservice: widget.subservice,
+        description: description,
+        phoneNumber: phone,
+        locationLabel: locationLabel,
+        locationAddress: locationAddress,
+        urgencyType: _urgencyType,
+        scheduledTime: _scheduledTime,
+      );
+
+      // Fire-and-forget: notify available technicians (never blocks submit).
+      FirebaseService.notifyAvailableTechnicians(
+        jobId: jobId,
+        serviceKey: widget.serviceKey,
+        serviceCategory: widget.serviceCategory,
+        customerName: widget.customerName,
+        locationAddress: locationAddress,
+        urgencyType: _urgencyType,
+      );
+
+      if (!mounted) return;
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(_t(
+            'Request submitted! We will assign a technician shortly.',
+            'تم إرسال الطلب! سنقوم بتعيين فني قريباً.')),
+        backgroundColor: Colors.green,
+        duration: const Duration(seconds: 4),
+      ));
+    } catch (e) {
+      if (mounted) {
+        setState(() { _submitting = false; _submitted = false; });
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Error: $e')));
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.9,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
+      expand: false,
+      builder: (ctx, scrollCtrl) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: ListView(
+          controller: scrollCtrl,
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+          children: [
+            // Handle
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2)),
+              ),
+            ),
+            Text(
+              _t('Request Service', 'طلب خدمة'),
+              style: const TextStyle(
+                  fontSize: 20, fontWeight: FontWeight.bold),
+            ),
+            Text(
+              widget.serviceCategory +
+                  (widget.subservice.isNotEmpty
+                      ? ' · ${widget.subservice}'
+                      : ''),
+              style: TextStyle(
+                  fontSize: 14, color: Colors.grey.shade600),
+            ),
+            const SizedBox(height: 20),
+
+            // ── Saved Locations ────────────────────────────────────────────
+            _sectionLabel(Icons.location_on,
+                _t('Service Location', 'موقع الخدمة')),
+            const SizedBox(height: 8),
+            if (_locations.isEmpty)
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.orange.shade200),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.warning_amber,
+                        color: Colors.orange, size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _t('No saved locations. Add one below.',
+                            'لا توجد مواقع محفوظة. أضف موقعاً أدناه.'),
+                        style:
+                            const TextStyle(color: Colors.orange),
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            else
+              ...(_locations.map((loc) {
+                final locId = loc['id'] as String? ?? '';
+                final label = loc['label'] as String? ?? '';
+                final address = loc['address'] as String? ?? '';
+                final isSelected =
+                    _selectedLocation?['id'] == locId;
+
+                return GestureDetector(
+                  onTap: () =>
+                      setState(() => _selectedLocation = loc),
+                  child: Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: isSelected
+                          ? syanatBlue.withOpacity(0.07)
+                          : Colors.grey.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: isSelected
+                            ? syanatBlue
+                            : Colors.grey.shade200,
+                        width: isSelected ? 2 : 1,
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          isSelected
+                              ? Icons.radio_button_checked
+                              : Icons.radio_button_unchecked,
+                          color: isSelected
+                              ? syanatBlue
+                              : Colors.grey,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment:
+                                CrossAxisAlignment.start,
+                            children: [
+                              if (label.isNotEmpty)
+                                Text(label,
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 14)),
+                              Text(address,
+                                  style: const TextStyle(
+                                      fontSize: 13,
+                                      color: Colors.black54)),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }).toList()),
+            TextButton.icon(
+              onPressed: _addNewLocation,
+              icon: const Icon(Icons.add_location_alt, color: syanatBlue),
+              label: Text(_t('Add New Location', 'إضافة موقع جديد'),
+                  style: const TextStyle(color: syanatBlue)),
+            ),
+            const SizedBox(height: 16),
+
+            // ── Description ────────────────────────────────────────────────
+            _sectionLabel(Icons.description,
+                _t('Describe Your Request', 'اوصف طلبك')),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _descController,
+              maxLines: 3,
+              maxLength: 300,
+              decoration: InputDecoration(
+                hintText: _t(
+                    'What needs to be fixed / installed / serviced?',
+                    'ما الذي يحتاج إصلاح / تركيب / صيانة؟'),
+                filled: true,
+                fillColor: Colors.grey.shade50,
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: Colors.grey.shade300)),
+                enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: Colors.grey.shade300)),
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // ── Phone ──────────────────────────────────────────────────────
+            _sectionLabel(Icons.phone, _t('Phone Number', 'رقم الهاتف')),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _phoneController,
+              keyboardType: TextInputType.phone,
+              decoration: InputDecoration(
+                hintText: _t('01XXXXXXXXX', '01XXXXXXXXX'),
+                filled: true,
+                fillColor: Colors.grey.shade50,
+                prefixIcon: const Icon(Icons.phone_outlined),
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: Colors.grey.shade300)),
+                enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: Colors.grey.shade300)),
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // ── Timing ────────────────────────────────────────────────────
+            _sectionLabel(Icons.schedule, _t('Timing', 'الوقت')),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () =>
+                        setState(() => _urgencyType = 'urgent'),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          vertical: 14, horizontal: 8),
+                      decoration: BoxDecoration(
+                        color: _urgencyType == 'urgent'
+                            ? syanatBlue
+                            : Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: _urgencyType == 'urgent'
+                              ? syanatBlue
+                              : Colors.grey.shade300,
+                        ),
+                      ),
+                      child: Column(
+                        children: [
+                          Icon(Icons.flash_on,
+                              color: _urgencyType == 'urgent'
+                                  ? Colors.white
+                                  : Colors.orange,
+                              size: 22),
+                          const SizedBox(height: 4),
+                          Text(
+                            _t('Now / Urgent', 'الآن / عاجل'),
+                            style: TextStyle(
+                              color: _urgencyType == 'urgent'
+                                  ? Colors.white
+                                  : Colors.black87,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () async {
+                      setState(() => _urgencyType = 'scheduled');
+                      await _pickScheduledTime();
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          vertical: 14, horizontal: 8),
+                      decoration: BoxDecoration(
+                        color: _urgencyType == 'scheduled'
+                            ? syanatBlue
+                            : Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: _urgencyType == 'scheduled'
+                              ? syanatBlue
+                              : Colors.grey.shade300,
+                        ),
+                      ),
+                      child: Column(
+                        children: [
+                          Icon(Icons.calendar_today,
+                              color: _urgencyType == 'scheduled'
+                                  ? Colors.white
+                                  : Colors.blue,
+                              size: 22),
+                          const SizedBox(height: 4),
+                          Text(
+                            _t('Schedule', 'جدولة'),
+                            style: TextStyle(
+                              color: _urgencyType == 'scheduled'
+                                  ? Colors.white
+                                  : Colors.black87,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (_urgencyType == 'scheduled') ...[
+              const SizedBox(height: 10),
+              GestureDetector(
+                onTap: _pickScheduledTime,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 14, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: syanatBlue.withOpacity(0.07),
+                    borderRadius: BorderRadius.circular(12),
+                    border:
+                        Border.all(color: syanatBlue.withOpacity(0.4)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.access_time, color: syanatBlue),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          _scheduledTime == null
+                              ? _t('Tap to pick date & time',
+                                  'اضغط لاختيار الموعد')
+                              : '${_scheduledTime!.day}/${_scheduledTime!.month}/${_scheduledTime!.year}  '
+                                  '${_scheduledTime!.hour.toString().padLeft(2, '0')}:${_scheduledTime!.minute.toString().padLeft(2, '0')}',
+                          style: TextStyle(
+                            color: _scheduledTime == null
+                                ? Colors.grey
+                                : syanatBlue,
+                            fontWeight: _scheduledTime != null
+                                ? FontWeight.w600
+                                : FontWeight.normal,
+                          ),
+                        ),
+                      ),
+                      const Icon(Icons.edit, color: syanatBlue, size: 16),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+            const SizedBox(height: 24),
+
+            // ── Submit ────────────────────────────────────────────────────
+            SizedBox(
+              width: double.infinity,
+              height: 56,
+              child: ElevatedButton(
+                onPressed: _submitting ? null : _submit,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: syanatBlue,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16)),
+                  elevation: 4,
+                ),
+                child: _submitting
+                    ? const SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2.5, color: Colors.white))
+                    : Text(
+                        _t('Submit Request', 'إرسال الطلب'),
+                        style: const TextStyle(
+                            fontSize: 17, fontWeight: FontWeight.bold),
+                      ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _sectionLabel(IconData icon, String text) {
+    return Row(
+      children: [
+        Icon(icon, size: 18, color: syanatBlue),
+        const SizedBox(width: 6),
+        Text(text,
+            style: const TextStyle(
+                fontSize: 15, fontWeight: FontWeight.w600)),
+      ],
     );
   }
 }

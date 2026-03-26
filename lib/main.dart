@@ -3,12 +3,31 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'firebase_service.dart';
 import 'splash_screen.dart';
 
+// ---------------------------------------------------------------------------
+// AppLocale — InheritedNotifier that provides locale state to the whole tree.
+// Any screen can READ the current locale via AppLocale.of(context).value
+// and CHANGE it via AppLocale.of(context).value = newLocale.
+// No prop-drilling of setLocale callbacks needed anywhere.
+// ---------------------------------------------------------------------------
+class AppLocale extends InheritedNotifier<ValueNotifier<Locale>> {
+  const AppLocale({
+    super.key,
+    required ValueNotifier<Locale> super.notifier,
+    required super.child,
+  });
+
+  /// Returns the [ValueNotifier<Locale>] so callers can both read and write.
+  static ValueNotifier<Locale> of(BuildContext context) {
+    final result =
+        context.dependOnInheritedWidgetOfExactType<AppLocale>();
+    assert(result != null, 'No AppLocale found in context');
+    return result!.notifier!;
+  }
+}
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-// ✅ Initialize Firebase + Firestore + Auth + Storage
   await FirebaseService.initialize();
-
   runApp(const MyApp());
 }
 
@@ -20,41 +39,54 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
-  Locale _locale = const Locale('en');
+  final _localeNotifier = ValueNotifier<Locale>(const Locale('en'));
 
-  /// Allows any screen to switch the app language
-  void setLocale(Locale locale) {
-    setState(() => _locale = locale);
+  @override
+  void initState() {
+    super.initState();
+    // Rebuild MaterialApp whenever the locale changes so that
+    // MaterialApp.locale receives the new value immediately.
+    _localeNotifier.addListener(_onLocaleChanged);
   }
 
   @override
+  void dispose() {
+    _localeNotifier.removeListener(_onLocaleChanged);
+    _localeNotifier.dispose();
+    super.dispose();
+  }
+
+  void _onLocaleChanged() => setState(() {});
+
+  @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Syanat',
-      debugShowCheckedModeBanner: false,
+    return AppLocale(
+      notifier: _localeNotifier,
+      child: MaterialApp(
+        title: 'Syanat',
+        debugShowCheckedModeBanner: false,
 
-      // 🌍 Multi-language support (English / Arabic)
-      locale: _locale,
-      supportedLocales: const [
-        Locale('en'),
-        Locale('ar'),
-      ],
-      localizationsDelegates: const [
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
+        // Multi-language support (English / Arabic)
+        locale: _localeNotifier.value,
+        supportedLocales: const [
+          Locale('en'),
+          Locale('ar'),
+        ],
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
 
-      // 🧭 Auto-switch text direction (RTL for Arabic)
-      localeResolutionCallback: (locale, supported) {
-        if (locale == null) return const Locale('en');
-        return supported.contains(Locale(locale.languageCode))
-            ? Locale(locale.languageCode)
-            : const Locale('en');
-      },
+        localeResolutionCallback: (locale, supported) {
+          if (locale == null) return const Locale('en');
+          return supported.contains(Locale(locale.languageCode))
+              ? Locale(locale.languageCode)
+              : const Locale('en');
+        },
 
-      // 🚀 Start app with SplashScreen
-      home: SplashScreen(setLocale: setLocale),
+        home: const SplashScreen(),
+      ),
     );
   }
 }

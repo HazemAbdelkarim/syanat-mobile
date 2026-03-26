@@ -9,7 +9,7 @@ const Color _syanatBlue = Color(0xFF3C21C8);
 // ---------------------------------------------------------------------------
 
 /// Statuses that appear in the "Ongoing" tab.
-const _ongoingStatuses = {'requested', 'accepted', 'in_progress'};
+const _ongoingStatuses = {'requested', 'accepted', 'in_progress', 'inprogress'};
 
 /// Statuses that appear in the "Recent" (completed) tab.
 const _recentStatuses = {'completed'};

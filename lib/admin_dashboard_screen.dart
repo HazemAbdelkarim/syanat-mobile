@@ -17,8 +17,9 @@ class AdminDashboardScreen extends StatefulWidget {
 }
 
 class _AdminDashboardScreenState extends State<AdminDashboardScreen>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late TabController _tabController;
+  late TabController _jobsTabController;
 
   int totalUsers = 0;
   int customers = 0;
@@ -29,6 +30,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   int jobsRequested = 0;
   int jobsOngoing = 0;
   int jobsFinished = 0;
+  int jobsCancelled = 0;
 
   int activeChats = 0;
 
@@ -49,6 +51,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   void initState() {
     super.initState();
     _tabController = TabController(length: 5, vsync: this);
+    _jobsTabController = TabController(length: 3, vsync: this);
     // Lazy-load map markers only when the Map tab is first opened.
     _tabController.addListener(_onTabChanged);
     _loadAllStats();
@@ -70,6 +73,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   void dispose() {
     _tabController.removeListener(_onTabChanged);
     _tabController.dispose();
+    _jobsTabController.dispose();
     _supportCountSub?.cancel();
     super.dispose();
   }
@@ -104,7 +108,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       final int? aggCompleted   = (statsData['jobsCompleted'] as num?)?.toInt();
       final int? aggChats       = (statsData['activeChats']   as num?)?.toInt();
 
-      int usersCount, custCount, techCount, reqCount, ongCount, finCount, chatCount;
+      int usersCount, custCount, techCount, reqCount, ongCount, finCount, chatCount, cancelledCount;
 
       if (aggUsers != null &&
           aggCustomers != null &&
@@ -114,13 +118,20 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           aggCompleted != null &&
           aggChats != null) {
         // All counters present in the aggregate doc — no extra reads needed.
-        usersCount = aggUsers;
-        custCount  = aggCustomers;
-        techCount  = aggTechnicians;
-        reqCount   = aggRequested;
-        ongCount   = aggOngoing;
-        finCount   = aggCompleted;
-        chatCount  = aggChats;
+        usersCount     = aggUsers;
+        custCount      = aggCustomers;
+        techCount      = aggTechnicians;
+        reqCount       = aggRequested;
+        ongCount       = aggOngoing;
+        finCount       = aggCompleted;
+        chatCount      = aggChats;
+        // Cancelled always fetched via count() — not cached in stats/global yet.
+        final cancelSnap = await firestore
+            .collection('jobs')
+            .where('status', isEqualTo: 'cancelled')
+            .count()
+            .get();
+        cancelledCount = cancelSnap.count ?? 0;
       } else {
         // ── Slow path: aggregate doc incomplete, fall back to count() queries ──
         final results = await Future.wait([
@@ -133,6 +144,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           firestore.collection('jobs').where('status', isEqualTo: 'inprogress').count().get(),
           firestore.collection('jobs').where('status', isEqualTo: 'completed').count().get(),
           firestore.collectionGroup('messages').count().get(),
+          firestore.collection('jobs').where('status', isEqualTo: 'cancelled').count().get(),
         ]);
 
         usersCount = (results[0] as AggregateQuerySnapshot).count ?? 0;
@@ -145,6 +157,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         ongCount   = accepted + inProg + inProgLeg;
         finCount   = (results[7] as AggregateQuerySnapshot).count ?? 0;
         chatCount  = (results[8] as AggregateQuerySnapshot).count ?? 0;
+        cancelledCount = (results[9] as AggregateQuerySnapshot).count ?? 0;
       }
 
       if (!mounted) return;
@@ -157,6 +170,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         jobsOngoing   = ongCount;
         jobsFinished  = finCount;
         activeChats   = chatCount;
+        jobsCancelled = cancelledCount;
         _loading      = false;
       });
     } catch (e) {
@@ -246,13 +260,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     if (!mounted) return;
 
     // Navigate all the way back to root so MyApp rebuilds SplashScreen
-    // with the real setLocale — avoids needing to thread setLocale into
-    // AdminDashboardScreen (which is pushed without it from LoginScreen).
     Navigator.pushAndRemoveUntil(
       context,
-      MaterialPageRoute(
-        builder: (_) => LoginScreen(setLocale: (locale) {}),
-      ),
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
       (route) => false,
     );
   }
@@ -373,6 +383,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   }
 
   Widget _overviewTab(bool isEn) {
+    final cancellationPct = jobsRequested > 0
+        ? (jobsCancelled / jobsRequested * 100).toStringAsFixed(1)
+        : '0.0';
+
     return RefreshIndicator(
       onRefresh: _loadAllStats,
       child: SingleChildScrollView(
@@ -422,11 +436,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                 Expanded(
                   child: _kpiCard(
                     isEn,
-                    titleEn: 'Active Jobs',
-                    titleAr: 'طلبات شغالة',
-                    value: jobsOngoing.toString(),
-                    icon: Icons.hourglass_empty,
-                    color: Colors.amber,
+                    titleEn: 'Completed Jobs',
+                    titleAr: 'طلبات مكتملة',
+                    value: jobsFinished.toString(),
+                    icon: Icons.check_circle,
+                    color: Colors.teal,
                   ),
                 ),
               ],
@@ -437,22 +451,22 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                 Expanded(
                   child: _kpiCard(
                     isEn,
-                    titleEn: 'Completed Jobs',
-                    titleAr: 'طلبات مكتملة',
-                    value: jobsFinished.toString(),
-                    icon: Icons.check_circle,
-                    color: Colors.teal,
+                    titleEn: 'Cancelled Orders',
+                    titleAr: 'طلبات ملغية',
+                    value: jobsCancelled.toString(),
+                    icon: Icons.cancel,
+                    color: Colors.red,
                   ),
                 ),
                 const SizedBox(width: 16),
                 Expanded(
                   child: _kpiCard(
                     isEn,
-                    titleEn: 'Active Chats',
-                    titleAr: 'الشاتات النشطة',
-                    value: activeChats.toString(),
-                    icon: Icons.chat_bubble,
-                    color: Colors.deepPurple,
+                    titleEn: 'Cancellation %',
+                    titleAr: 'نسبة الإلغاء',
+                    value: '$cancellationPct%',
+                    icon: Icons.percent,
+                    color: Colors.deepOrange,
                   ),
                 ),
               ],
@@ -538,74 +552,397 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   }
 
   Widget _jobsTab(bool isEn) {
-    return RefreshIndicator(
-      onRefresh: _loadAllStats,
-      child: SingleChildScrollView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.all(20),
+    return Column(
+      children: [
+        // Inner sub-tab bar
+        Container(
+          color: syanatBlue,
+          child: TabBar(
+            controller: _jobsTabController,
+            indicatorColor: Colors.white,
+            indicatorWeight: 3,
+            labelColor: Colors.white,
+            unselectedLabelColor: Colors.white60,
+            labelStyle: const TextStyle(fontWeight: FontWeight.bold),
+            tabs: [
+              Tab(text: _t(isEn, 'Requested', 'مطلوبة')),
+              Tab(text: _t(isEn, 'Active', 'نشطة')),
+              Tab(text: _t(isEn, 'Completed', 'مكتملة')),
+            ],
+          ),
+        ),
+        Expanded(
+          child: TabBarView(
+            controller: _jobsTabController,
+            children: [
+              _requestedJobsList(isEn),
+              _activeJobsList(isEn),
+              _completedJobsList(isEn),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ─── Requested Jobs ────────────────────────────────────────────────────────
+
+  Widget _requestedJobsList(bool isEn) {
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: FirebaseService.streamJobsByStatus('requested'),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) {
+          return const Center(child: CircularProgressIndicator(color: syanatBlue));
+        }
+        final jobs = snapshot.data!;
+        if (jobs.isEmpty) {
+          return _emptyJobsState(isEn ? 'No requested jobs' : 'لا توجد طلبات جديدة');
+        }
+        return ListView.separated(
+          padding: const EdgeInsets.all(16),
+          itemCount: jobs.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 10),
+          itemBuilder: (context, i) => _jobListTile(
+            jobs[i],
+            isEn,
+            statusColor: Colors.orange,
+            onTap: () => _openRequestedJobDetail(jobs[i], isEn),
+          ),
+        );
+      },
+    );
+  }
+
+  // ─── Active Jobs ───────────────────────────────────────────────────────────
+
+  Widget _activeJobsList(bool isEn) {
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: FirebaseService.streamActiveJobsAdmin(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) {
+          return const Center(child: CircularProgressIndicator(color: syanatBlue));
+        }
+        final jobs = snapshot.data!;
+        if (jobs.isEmpty) {
+          return _emptyJobsState(isEn ? 'No active jobs' : 'لا توجد طلبات نشطة');
+        }
+        return ListView.separated(
+          padding: const EdgeInsets.all(16),
+          itemCount: jobs.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 10),
+          itemBuilder: (context, i) => _jobListTile(
+            jobs[i],
+            isEn,
+            statusColor: Colors.blue,
+            onTap: () => _openActiveJobDetail(jobs[i], isEn),
+          ),
+        );
+      },
+    );
+  }
+
+  // ─── Completed Jobs ────────────────────────────────────────────────────────
+
+  Widget _completedJobsList(bool isEn) {
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: FirebaseService.streamJobsByStatus('completed'),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) {
+          return const Center(child: CircularProgressIndicator(color: syanatBlue));
+        }
+        final jobs = snapshot.data!;
+        if (jobs.isEmpty) {
+          return _emptyJobsState(isEn ? 'No completed jobs' : 'لا توجد طلبات مكتملة');
+        }
+        return ListView.separated(
+          padding: const EdgeInsets.all(16),
+          itemCount: jobs.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 10),
+          itemBuilder: (context, i) => _completedJobTile(jobs[i], isEn),
+        );
+      },
+    );
+  }
+
+  // ─── Shared job card ───────────────────────────────────────────────────────
+
+  Widget _jobListTile(
+    Map<String, dynamic> job,
+    bool isEn, {
+    Color statusColor = Colors.orange,
+    required VoidCallback onTap,
+  }) {
+    final serviceKey = job['serviceKey'] as String? ?? '';
+    final serviceCategory = job['serviceCategory'] as String? ??
+        job['serviceKey'] as String? ?? '';
+    final customerName =
+        job['customerName'] as String? ?? job['customerId'] as String? ?? '—';
+    final description = job['description'] as String? ?? '';
+    final urgency = job['urgencyType'] as String? ?? '';
+    final locationAddress = job['locationAddress'] as String? ?? '';
+    final locationLabel = job['locationLabel'] as String? ?? '';
+    final createdAt = job['createdAt'];
+    String dateStr = '';
+    if (createdAt is Timestamp) {
+      final dt = createdAt.toDate();
+      dateStr =
+          '${dt.day}/${dt.month}/${dt.year} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+    }
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.grey.shade200),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Expanded(
-                  child: _statCard(
-                    isEn,
-                    titleEn: 'Requested',
-                    titleAr: 'مطلوب',
-                    value: jobsRequested,
-                    icon: Icons.pending,
-                    color: Colors.orange,
+                  child: Text(
+                    serviceCategory.isNotEmpty ? serviceCategory : serviceKey,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.bold, fontSize: 16),
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: _statCard(
-                    isEn,
-                    titleEn: 'Ongoing',
-                    titleAr: 'شغال',
-                    value: jobsOngoing,
-                    icon: Icons.schedule,
-                    color: Colors.blue,
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: statusColor.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(20),
                   ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: _statCard(
-                    isEn,
-                    titleEn: 'Completed',
-                    titleAr: 'مكتمل',
-                    value: jobsFinished,
-                    icon: Icons.check_circle,
-                    color: Colors.green,
+                  child: Text(
+                    urgency == 'urgent'
+                        ? (isEn ? 'Urgent' : 'عاجل')
+                        : (urgency == 'scheduled'
+                            ? (isEn ? 'Scheduled' : 'مجدول')
+                            : urgency),
+                    style: TextStyle(
+                        color: statusColor,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600),
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 24),
-            _chartCard(
-              _t(isEn, 'Jobs by Status', 'الطلبات حسب الحالة'),
-              _t(isEn, 'Pie chart coming soon', 'مخطط دائري قريباً'),
-              isEn: isEn,
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                const Icon(Icons.person_outline, size: 14, color: Colors.grey),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(customerName,
+                      style: const TextStyle(
+                          fontSize: 13, color: Colors.black54)),
+                ),
+              ],
             ),
-            const SizedBox(height: 20),
-            Align(
-              alignment: isEn ? Alignment.centerLeft : Alignment.centerRight,
-              child: Text(
-                _t(isEn, 'Recent Jobs', 'آخر الطلبات'),
-                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            if (locationAddress.isNotEmpty || locationLabel.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  const Icon(Icons.location_on_outlined,
+                      size: 14, color: Colors.grey),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      locationLabel.isNotEmpty
+                          ? '$locationLabel — $locationAddress'
+                          : locationAddress,
+                      style:
+                          const TextStyle(fontSize: 12, color: Colors.black45),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
               ),
-            ),
-            const SizedBox(height: 16),
-            ListTile(
-              leading: const Icon(Icons.work, color: syanatBlue),
-              title: Text(_t(isEn, 'Plumbing - Ahmed St.', 'سباكة - شارع أحمد')),
-              subtitle: Text(_t(isEn, 'Requested 2h ago', 'اتطلب من ساعتين')),
-              trailing: const Icon(Icons.arrow_forward_ios),
-              onTap: () {},
-            ),
+            ],
+            if (description.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(
+                description,
+                style: const TextStyle(fontSize: 13, color: Colors.black54),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+            if (dateStr.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(dateStr,
+                  style:
+                      const TextStyle(fontSize: 11, color: Colors.black38)),
+            ],
           ],
         ),
       ),
+    );
+  }
+
+  Widget _completedJobTile(Map<String, dynamic> job, bool isEn) {
+    final serviceCategory = job['serviceCategory'] as String? ??
+        job['serviceKey'] as String? ?? '—';
+    final customerName =
+        job['customerName'] as String? ?? job['customerId'] as String? ?? '—';
+    final techName = job['assignedTechnicianName'] as String? ?? '—';
+    final amountPaid = (job['amountPaid'] as num?)?.toDouble();
+    final adminClosedAt = job['adminClosedAt'];
+    final createdAt = job['createdAt'];
+
+    String closedStr = '';
+    if (adminClosedAt is Timestamp) {
+      final dt = adminClosedAt.toDate();
+      closedStr =
+          '${dt.day}/${dt.month}/${dt.year} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.green.shade100),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Text(
+                  serviceCategory,
+                  style: const TextStyle(
+                      fontWeight: FontWeight.bold, fontSize: 16),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.green.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  isEn ? 'Completed' : 'مكتمل',
+                  style: const TextStyle(
+                      color: Colors.green,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              const Icon(Icons.person_outline, size: 14, color: Colors.grey),
+              const SizedBox(width: 4),
+              Text('${isEn ? 'Customer' : 'العميل'}: $customerName',
+                  style:
+                      const TextStyle(fontSize: 13, color: Colors.black54)),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              const Icon(Icons.construction, size: 14, color: Colors.grey),
+              const SizedBox(width: 4),
+              Text('${isEn ? 'Technician' : 'الفني'}: $techName',
+                  style:
+                      const TextStyle(fontSize: 13, color: Colors.black54)),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              const Icon(Icons.payments_outlined,
+                  size: 14, color: Colors.green),
+              const SizedBox(width: 4),
+              Text(
+                amountPaid != null
+                    ? '${isEn ? 'Paid' : 'المدفوع'}: ${amountPaid.toStringAsFixed(2)} EGP'
+                    : (isEn ? 'Payment not set' : 'لم يُحدد المبلغ'),
+                style: TextStyle(
+                  fontSize: 13,
+                  color: amountPaid != null ? Colors.green : Colors.orange,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+          if (closedStr.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              '${isEn ? 'Closed' : 'أُغلق'}: $closedStr',
+              style: const TextStyle(fontSize: 11, color: Colors.black38),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _emptyJobsState(String message) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.inbox_outlined, size: 64, color: Colors.black26),
+          const SizedBox(height: 16),
+          Text(message,
+              style: const TextStyle(color: Colors.black45, fontSize: 16)),
+        ],
+      ),
+    );
+  }
+
+  // ─── Requested job detail (assign technician) ──────────────────────────────
+
+  void _openRequestedJobDetail(Map<String, dynamic> job, bool isEn) {
+    final serviceKey = job['serviceKey'] as String? ?? '';
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) =>
+          _RequestedJobSheet(job: job, serviceKey: serviceKey, isEn: isEn),
+    );
+  }
+
+  // ─── Active job detail (close with payment) ────────────────────────────────
+
+  void _openActiveJobDetail(Map<String, dynamic> job, bool isEn) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => _ActiveJobSheet(job: job, isEn: isEn),
     );
   }
 
@@ -908,6 +1245,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     );
   }
 
+  // Keep existing helper widgets below
   Widget _activityCard(bool isEn) {
     return Container(
       width: double.infinity,
@@ -958,6 +1296,542 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             title: Text(_t(isEn, 'Job completed', 'طلب اتقفل')),
             subtitle: Text(_t(isEn, 'Plumbing - 150 EGP', 'سباكة - 150 جنيه')),
             trailing: Text(_t(isEn, '5 min ago', 'من 5 دقايق')),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// _RequestedJobSheet — Admin views a requested job and assigns a technician
+// ═════════════════════════════════════════════════════════════════════════════
+
+class _RequestedJobSheet extends StatefulWidget {
+  final Map<String, dynamic> job;
+  final String serviceKey;
+  final bool isEn;
+
+  const _RequestedJobSheet({
+    required this.job,
+    required this.serviceKey,
+    required this.isEn,
+  });
+
+  @override
+  State<_RequestedJobSheet> createState() => _RequestedJobSheetState();
+}
+
+class _RequestedJobSheetState extends State<_RequestedJobSheet> {
+  List<Map<String, dynamic>> _techs = [];
+  bool _loadingTechs = true;
+  String? _assigningTechId;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadTechs();
+  }
+
+  Future<void> _loadTechs() async {
+    try {
+      final techs = await FirebaseService.getAvailableTechniciansByService(
+          widget.serviceKey);
+      if (mounted) {
+        setState(() {
+          _techs = techs;
+          _loadingTechs = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _loadingTechs = false);
+    }
+  }
+
+  Future<void> _assign(String techId, String techName) async {
+    setState(() => _assigningTechId = techId);
+    try {
+      final jobId = widget.job['id'] as String? ?? '';
+      if (jobId.isEmpty) throw Exception('Invalid job ID');
+      await FirebaseService.assignJob(
+        jobId: jobId,
+        technicianId: techId,
+        technicianName: techName,
+      );
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(widget.isEn
+              ? 'Technician assigned successfully'
+              : 'تم تعيين الفني بنجاح'),
+          backgroundColor: Colors.green,
+        ));
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _assigningTechId = null);
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Error: $e')));
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final job = widget.job;
+    final isEn = widget.isEn;
+    final serviceCategory = job['serviceCategory'] as String? ??
+        job['serviceKey'] as String? ?? '—';
+    final customerName =
+        job['customerName'] as String? ?? job['customerId'] as String? ?? '—';
+    final description = job['description'] as String? ?? '';
+    final phoneNumber = job['phoneNumber'] as String? ?? '';
+    final locationLabel = job['locationLabel'] as String? ?? '';
+    final locationAddress = job['locationAddress'] as String? ?? '';
+    final urgencyType = job['urgencyType'] as String? ?? '';
+    final scheduledTime = job['scheduledTime'];
+    final createdAt = job['createdAt'];
+
+    String dateStr = '';
+    if (createdAt is Timestamp) {
+      final dt = createdAt.toDate();
+      dateStr =
+          '${dt.day}/${dt.month}/${dt.year}  ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+    }
+    String scheduledStr = '';
+    if (scheduledTime is Timestamp) {
+      final dt = scheduledTime.toDate();
+      scheduledStr =
+          '${dt.day}/${dt.month}/${dt.year}  ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+    }
+
+    return DraggableScrollableSheet(
+      initialChildSize: 0.92,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
+      expand: false,
+      builder: (ctx, scrollCtrl) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: ListView(
+          controller: scrollCtrl,
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            Text(
+              isEn ? 'Job Request Details' : 'تفاصيل الطلب',
+              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 16),
+            _infoRow(Icons.build, isEn ? 'Service' : 'الخدمة', serviceCategory),
+            _infoRow(Icons.person, isEn ? 'Customer' : 'العميل', customerName),
+            if (phoneNumber.isNotEmpty)
+              _infoRow(Icons.phone, isEn ? 'Phone' : 'الهاتف', phoneNumber),
+            if (locationLabel.isNotEmpty || locationAddress.isNotEmpty)
+              _infoRow(
+                  Icons.location_on,
+                  isEn ? 'Location' : 'الموقع',
+                  locationLabel.isNotEmpty
+                      ? '$locationLabel — $locationAddress'
+                      : locationAddress),
+            if (description.isNotEmpty)
+              _infoRow(Icons.description,
+                  isEn ? 'Description' : 'الوصف', description),
+            _infoRow(
+                Icons.flash_on,
+                isEn ? 'Urgency' : 'الأولوية',
+                urgencyType == 'urgent'
+                    ? (isEn ? 'Urgent / Now' : 'عاجل / الآن')
+                    : (isEn ? 'Scheduled' : 'مجدول')),
+            if (scheduledStr.isNotEmpty)
+              _infoRow(Icons.schedule,
+                  isEn ? 'Scheduled For' : 'موعد', scheduledStr),
+            if (dateStr.isNotEmpty)
+              _infoRow(Icons.access_time,
+                  isEn ? 'Requested At' : 'وقت الطلب', dateStr),
+            const Divider(height: 32),
+            Text(
+              isEn
+                  ? 'Available Technicians (Same Service)'
+                  : 'الفنيون المتاحون (نفس الخدمة)',
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 12),
+            if (_loadingTechs)
+              const Center(
+                  child: CircularProgressIndicator(color: syanatBlue))
+            else if (_techs.isEmpty)
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.orange.shade200),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.warning_amber,
+                        color: Colors.orange, size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        isEn
+                            ? 'No available technicians for this service right now.'
+                            : 'لا يوجد فنيون متاحون لهذه الخدمة حالياً.',
+                        style: const TextStyle(color: Colors.orange),
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            else
+              ...(_techs.map((tech) {
+                final techId = tech['id'] as String? ?? '';
+                final techName = tech['username'] as String? ??
+                    tech['email'] as String? ?? 'Technician';
+                final rating = (tech['rating'] as num?)?.toDouble() ?? 0.0;
+                final isAssigning = _assigningTechId == techId;
+
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 10),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 14, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.grey.shade200),
+                  ),
+                  child: Row(
+                    children: [
+                      CircleAvatar(
+                        backgroundColor: syanatBlue.withOpacity(0.12),
+                        child: const Icon(Icons.construction,
+                            color: syanatBlue, size: 20),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(techName,
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w600)),
+                            if (rating > 0)
+                              Text('★ ${rating.toStringAsFixed(1)}',
+                                  style: const TextStyle(
+                                      fontSize: 12, color: Colors.amber)),
+                          ],
+                        ),
+                      ),
+                      isAssigning
+                          ? const SizedBox(
+                              width: 24,
+                              height: 24,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2, color: syanatBlue))
+                          : ElevatedButton(
+                              onPressed: _assigningTechId != null
+                                  ? null
+                                  : () => _assign(techId, techName),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: syanatBlue,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 16, vertical: 8),
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8)),
+                              ),
+                              child: Text(isEn ? 'Assign' : 'تعيين'),
+                            ),
+                    ],
+                  ),
+                );
+              }).toList()),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _infoRow(IconData icon, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 18, color: syanatBlue),
+          const SizedBox(width: 10),
+          Expanded(
+            child: RichText(
+              text: TextSpan(
+                style: const TextStyle(fontSize: 14, color: Colors.black87),
+                children: [
+                  TextSpan(
+                      text: '$label: ',
+                      style: const TextStyle(fontWeight: FontWeight.w600)),
+                  TextSpan(text: value),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// _ActiveJobSheet — Admin views an active job and closes it with payment
+// ═════════════════════════════════════════════════════════════════════════════
+
+class _ActiveJobSheet extends StatefulWidget {
+  final Map<String, dynamic> job;
+  final bool isEn;
+
+  const _ActiveJobSheet({required this.job, required this.isEn});
+
+  @override
+  State<_ActiveJobSheet> createState() => _ActiveJobSheetState();
+}
+
+class _ActiveJobSheetState extends State<_ActiveJobSheet> {
+  final _amountController = TextEditingController();
+  bool _closing = false;
+
+  @override
+  void dispose() {
+    _amountController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _closeJob() async {
+    final raw = _amountController.text.trim();
+    final amount = double.tryParse(raw);
+    if (amount == null || amount <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(widget.isEn
+            ? 'Please enter a valid amount'
+            : 'أدخل مبلغاً صحيحاً'),
+      ));
+      return;
+    }
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(widget.isEn ? 'Confirm Close' : 'تأكيد الإغلاق'),
+        content: Text(widget.isEn
+            ? 'Close this job with payment of ${amount.toStringAsFixed(2)} EGP?'
+            : 'إغلاق هذا الطلب بمبلغ ${amount.toStringAsFixed(2)} جنيه؟'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text(widget.isEn ? 'Cancel' : 'إلغاء')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+                backgroundColor: syanatBlue, foregroundColor: Colors.white),
+            child: Text(widget.isEn ? 'Confirm' : 'تأكيد'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+    setState(() => _closing = true);
+
+    try {
+      final jobId = widget.job['id'] as String? ?? '';
+      final closed =
+          await FirebaseService.adminCloseJob(jobId: jobId, amountPaid: amount);
+      if (!mounted) return;
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(closed
+            ? (widget.isEn
+                ? 'Job closed. Revenue updated.'
+                : 'تم إغلاق الطلب وتحديث الإيرادات.')
+            : (widget.isEn
+                ? 'Job was already closed.'
+                : 'الطلب مغلق مسبقاً.')),
+        backgroundColor: closed ? Colors.green : Colors.orange,
+      ));
+    } catch (e) {
+      if (mounted) {
+        setState(() => _closing = false);
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Error: $e')));
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final job = widget.job;
+    final isEn = widget.isEn;
+    final serviceCategory = job['serviceCategory'] as String? ??
+        job['serviceKey'] as String? ?? '—';
+    final customerName =
+        job['customerName'] as String? ?? job['customerId'] as String? ?? '—';
+    final techName = job['assignedTechnicianName'] as String? ?? '—';
+    final description = job['description'] as String? ?? '';
+    final phoneNumber = job['phoneNumber'] as String? ?? '';
+    final locationLabel = job['locationLabel'] as String? ?? '';
+    final locationAddress = job['locationAddress'] as String? ?? '';
+    final status = job['status'] as String? ?? '';
+    final createdAt = job['createdAt'];
+
+    String dateStr = '';
+    if (createdAt is Timestamp) {
+      final dt = createdAt.toDate();
+      dateStr =
+          '${dt.day}/${dt.month}/${dt.year}  ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+    }
+
+    return DraggableScrollableSheet(
+      initialChildSize: 0.88,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
+      expand: false,
+      builder: (ctx, scrollCtrl) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: ListView(
+          controller: scrollCtrl,
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2)),
+              ),
+            ),
+            Text(
+              isEn ? 'Active Job Details' : 'تفاصيل الطلب النشط',
+              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 16),
+            _infoRow(Icons.build, isEn ? 'Service' : 'الخدمة', serviceCategory),
+            _infoRow(Icons.person, isEn ? 'Customer' : 'العميل', customerName),
+            _infoRow(
+                Icons.construction, isEn ? 'Technician' : 'الفني', techName),
+            if (phoneNumber.isNotEmpty)
+              _infoRow(Icons.phone, isEn ? 'Phone' : 'الهاتف', phoneNumber),
+            if (locationLabel.isNotEmpty || locationAddress.isNotEmpty)
+              _infoRow(
+                  Icons.location_on,
+                  isEn ? 'Location' : 'الموقع',
+                  locationLabel.isNotEmpty
+                      ? '$locationLabel — $locationAddress'
+                      : locationAddress),
+            if (description.isNotEmpty)
+              _infoRow(Icons.description,
+                  isEn ? 'Description' : 'الوصف', description),
+            _infoRow(Icons.info_outline, isEn ? 'Status' : 'الحالة', status),
+            if (dateStr.isNotEmpty)
+              _infoRow(Icons.access_time,
+                  isEn ? 'Created' : 'وقت الإنشاء', dateStr),
+            const Divider(height: 32),
+            Text(
+              isEn
+                  ? 'Close Job & Record Payment'
+                  : 'إغلاق الطلب وتسجيل المبلغ',
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _amountController,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              decoration: InputDecoration(
+                labelText: isEn
+                    ? 'Exact amount paid (EGP)'
+                    : 'المبلغ المدفوع بالضبط (جنيه)',
+                hintText: '0.00',
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12)),
+                prefixIcon:
+                    const Icon(Icons.payments, color: syanatBlue),
+              ),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              height: 52,
+              child: ElevatedButton.icon(
+                onPressed: _closing ? null : _closeJob,
+                icon: _closing
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white))
+                    : const Icon(Icons.lock),
+                label: Text(
+                  isEn ? 'Close & Record Revenue' : 'إغلاق وتسجيل الإيراد',
+                  style: const TextStyle(
+                      fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: syanatBlue,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              isEn
+                  ? 'Revenue only updates when you close the job here.'
+                  : 'الإيراد يُضاف فقط عند الإغلاق من هنا.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _infoRow(IconData icon, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 18, color: syanatBlue),
+          const SizedBox(width: 10),
+          Expanded(
+            child: RichText(
+              text: TextSpan(
+                style: const TextStyle(fontSize: 14, color: Colors.black87),
+                children: [
+                  TextSpan(
+                      text: '$label: ',
+                      style: const TextStyle(fontWeight: FontWeight.w600)),
+                  TextSpan(text: value),
+                ],
+              ),
+            ),
           ),
         ],
       ),

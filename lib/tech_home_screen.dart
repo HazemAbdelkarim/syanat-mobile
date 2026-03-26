@@ -1,7 +1,8 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../firebase_service.dart';
+import 'main.dart' show AppLocale;
 import 'chat_screen.dart';
 import 'glass_card.dart';
 import 'technician_inventory_screen.dart';
@@ -10,8 +11,7 @@ import 'settings_screen.dart';
 const Color syanatBlue = Color(0xFF3C21C8);
 
 class TechHomeScreen extends StatefulWidget {
-  final Function(Locale) setLocale;
-  const TechHomeScreen({required this.setLocale, super.key});
+  const TechHomeScreen({super.key});
 
   @override
   State<TechHomeScreen> createState() => _TechHomeScreenState();
@@ -23,22 +23,27 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
   int _activeCount = 0;
   double _earnings = 0.0;
   double _rating = 0.0;
+  bool _isAvailable = true;
+  int _unreadNotifCount = 0;
 
   final Map<String, Map<String, dynamic>> _customerCache = {};
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _jobsSub;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _profileSub;
+  StreamSubscription<int>? _notifCountSub;
 
   @override
   void initState() {
     super.initState();
     _subscribeProfile();
     _loadJobsRealtime();
+    _subscribeNotifCount();
   }
 
   @override
   void dispose() {
     _jobsSub?.cancel();
     _profileSub?.cancel();
+    _notifCountSub?.cancel();
     super.dispose();
   }
 
@@ -54,9 +59,51 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
         .snapshots()
         .listen((doc) {
       final rating = (doc.data()?['rating'] as num?)?.toDouble() ?? 0.0;
+      final available = doc.data()?['available'] as bool? ?? true;
       if (!mounted) return;
-      setState(() => _rating = rating);
+      setState(() {
+        _rating = rating;
+        _isAvailable = available;
+      });
     });
+  }
+
+  void _subscribeNotifCount() {
+    final user = FirebaseService.getCurrentUser();
+    if (user == null) return;
+    _notifCountSub =
+        FirebaseService.streamTechnicianUnreadNotifCount(user.uid).listen((n) {
+      if (mounted) setState(() => _unreadNotifCount = n);
+    });
+  }
+
+  Future<void> _toggleAvailability() async {
+    final user = FirebaseService.getCurrentUser();
+    if (user == null) return;
+    try {
+      final newVal = !_isAvailable;
+      await FirebaseService.updateAvailability(user.uid, newVal);
+      // UI updates via profile stream
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Error: $e')));
+      }
+    }
+  }
+
+  void _openNotifications() {
+    final user = FirebaseService.getCurrentUser();
+    if (user == null) return;
+    final isEn = Localizations.localeOf(context).languageCode == 'en';
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) =>
+          _TechNotificationsSheet(uid: user.uid, isEn: isEn),
+    );
   }
 
   Future<void> _primeCustomerCache(List<Map<String, dynamic>> jobs) async {
@@ -132,9 +179,7 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
     final newLocale = Localizations.localeOf(context).languageCode == 'en'
         ? const Locale('ar')
         : const Locale('en');
-    // Defer past the current frame so the tap animation completes
-    // before the full-app rebuild triggered by setLocale.
-    Future.microtask(() => widget.setLocale(newLocale));
+    AppLocale.of(context).value = newLocale;
   }
 
   Future<void> _acceptJob(String jobId) async {
@@ -151,37 +196,50 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
   }
 
   Future<void> _rejectJob(String jobId) async {
+    final isEn = Localizations.localeOf(context).languageCode == 'en';
     try {
-      await FirebaseService.firestore.collection('jobs').doc(jobId).delete();
+      // Re-queue the job as urgent so it reappears in the admin "Requested" tab
+      // for reassignment to another technician.
+      await FirebaseService.firestore.collection('jobs').doc(jobId).update({
+        'status': 'requested',
+        'technicianId': '',
+        'assignedTechnicianId': null,
+        'assignedTechnicianName': null,
+        'urgencyType': 'urgent',
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Request rejected')),
+        SnackBar(
+          content: Text(isEn
+              ? 'Job returned to admin for reassignment'
+              : 'تم إعادة الطلب للإدارة لإعادة التعيين'),
+        ),
       );
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error rejecting: $e')),
+        SnackBar(content: Text('${isEn ? "Error" : "خطأ"}: $e')),
       );
     }
   }
 
   Future<void> _completeJob(String jobId) async {
-    final priceController = TextEditingController();
     final isEn = Localizations.localeOf(context).languageCode == 'en';
 
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(isEn ? 'Complete Job' : 'Complete Job'),
-        content: TextField(
-          controller: priceController,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          decoration: InputDecoration(
-            hintText: isEn ? 'Final price' : 'Final price',
-          ),
+        title: Text(isEn ? 'Mark Work Done' : 'تأكيد إنهاء العمل'),
+        content: Text(
+          isEn
+              ? 'Mark this job as done on your end? The admin will record the payment and officially close the order.'
+              : 'هل أنهيت العمل؟ الإدارة ستسجل المبلغ وتغلق الطلب رسمياً.',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: Text(isEn ? 'Cancel' : 'Cancel'),
+            child: Text(isEn ? 'Cancel' : 'إلغاء'),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
@@ -189,34 +247,27 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
               backgroundColor: syanatBlue,
               foregroundColor: Colors.white,
             ),
-            child: Text(isEn ? 'Complete' : 'Complete'),
+            child: Text(isEn ? 'Mark Done' : 'تم الانتهاء'),
           ),
         ],
       ),
     );
 
     if (ok != true) return;
-    final price = double.tryParse(priceController.text.trim()) ?? 0.0;
 
     try {
-      final user = FirebaseService.getCurrentUser();
-      if (user != null) {
-        await FirebaseService.firestore
-            .collection('jobs')
-            .doc(jobId)
-            .update({
-          'status': 'completed',
-          'price': price,
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
-        // addEarnings atomically increments both
-        // users/{uid}.earnings and stats/global.totalEarnings.
-        await FirebaseService.addEarnings(user.uid, price);
-      }
+      // Signal to admin that work is done; status moves to in_progress.
+      // Revenue is ONLY recorded when admin manually closes the job.
+      await FirebaseService.firestore.collection('jobs').doc(jobId).update({
+        'status': 'in_progress',
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error completing: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
     }
   }
 
@@ -242,29 +293,101 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Expanded(
-                        child: Text(
-                          isEn ? 'Welcome Technician' : 'Welcome Technician',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 22,
-                            fontWeight: FontWeight.bold,
-                          ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              isEn ? 'Welcome Technician' : 'مرحباً بك',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            // Availability toggle
+                            GestureDetector(
+                              onTap: _toggleAvailability,
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    _isAvailable
+                                        ? Icons.circle
+                                        : Icons.circle_outlined,
+                                    size: 10,
+                                    color: _isAvailable
+                                        ? Colors.greenAccent
+                                        : Colors.white54,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    _isAvailable
+                                        ? (isEn ? 'Available' : 'متاح')
+                                        : (isEn ? 'Unavailable' : 'غير متاح'),
+                                    style: TextStyle(
+                                      color: _isAvailable
+                                          ? Colors.greenAccent
+                                          : Colors.white54,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                       Row(
                         children: [
+                          // Notification bell
+                          Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              IconButton(
+                                onPressed: _openNotifications,
+                                icon: const Icon(Icons.notifications,
+                                    color: Colors.white),
+                                tooltip: isEn ? 'Notifications' : 'الإشعارات',
+                              ),
+                              if (_unreadNotifCount > 0)
+                                Positioned(
+                                  top: 4,
+                                  right: 4,
+                                  child: Container(
+                                    padding: const EdgeInsets.all(3),
+                                    decoration: const BoxDecoration(
+                                      color: Colors.red,
+                                      shape: BoxShape.circle,
+                                    ),
+                                    constraints: const BoxConstraints(
+                                        minWidth: 16, minHeight: 16),
+                                    child: Text(
+                                      _unreadNotifCount > 9
+                                          ? '9+'
+                                          : _unreadNotifCount.toString(),
+                                      style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 9,
+                                          fontWeight: FontWeight.bold),
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
                           IconButton(
                             onPressed: () {
                               Navigator.push(
                                 context,
                                 MaterialPageRoute(
-                                  builder: (_) => SettingsScreen(
-                                    setLocale: widget.setLocale),
+                                  builder: (_) =>
+                                      const SettingsScreen(),
                                 ),
                               );
                             },
                             icon: const Icon(Icons.settings, color: Colors.white),
-                            tooltip: isEn ? 'Settings' : 'Settings',
+                            tooltip: isEn ? 'Settings' : 'الإعدادات',
                           ),
                           IconButton(
                             onPressed: () => Navigator.push(
@@ -275,8 +398,7 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
                               ),
                             ),
                             icon: const Icon(Icons.inventory, color: Colors.white),
-                            tooltip:
-                                isEn ? 'Manage Inventory' : 'Manage Inventory',
+                            tooltip: isEn ? 'Inventory' : 'المخزون',
                           ),
                           IconButton(
                             onPressed: _switchLanguage,
@@ -583,8 +705,8 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
                                                         ),
                                                         child: Text(
                                                           isEn
-                                                              ? 'Complete'
-                                                              : 'Complete',
+                                                              ? 'Done'
+                                                              : 'تم',
                                                         ),
                                                       ),
                                                     ),
@@ -631,6 +753,236 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
             textAlign: TextAlign.center,
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// _TechNotificationsSheet — Technician notification center
+// ═════════════════════════════════════════════════════════════════════════════
+
+class _TechNotificationsSheet extends StatelessWidget {
+  final String uid;
+  final bool isEn;
+
+  const _TechNotificationsSheet({required this.uid, required this.isEn});
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.75,
+      minChildSize: 0.4,
+      maxChildSize: 0.95,
+      expand: false,
+      builder: (ctx, scrollCtrl) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          children: [
+            // Handle
+            Container(
+              width: 40,
+              height: 4,
+              margin: const EdgeInsets.symmetric(vertical: 12),
+              decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2)),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    isEn ? 'Notifications' : 'الإشعارات',
+                    style: const TextStyle(
+                        fontSize: 20, fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+            Expanded(
+              child: StreamBuilder<List<Map<String, dynamic>>>(
+                stream: FirebaseService.streamTechnicianNotifications(uid),
+                builder: (context, snapshot) {
+                  if (!snapshot.hasData) {
+                    return const Center(
+                        child:
+                            CircularProgressIndicator(color: syanatBlue));
+                  }
+                  final notifs = snapshot.data!;
+                  if (notifs.isEmpty) {
+                    return Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.notifications_none,
+                              size: 56, color: Colors.black26),
+                          const SizedBox(height: 12),
+                          Text(
+                            isEn
+                                ? 'No notifications yet'
+                                : 'لا توجد إشعارات بعد',
+                            style: const TextStyle(color: Colors.black45),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+                  return ListView.separated(
+                    controller: scrollCtrl,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 8),
+                    itemCount: notifs.length,
+                    separatorBuilder: (_, __) =>
+                        const SizedBox(height: 8),
+                    itemBuilder: (context, i) {
+                      final n = notifs[i];
+                      final notifId = n['id'] as String? ?? '';
+                      final isRead = n['read'] as bool? ?? false;
+                      final serviceCategory =
+                          n['serviceCategory'] as String? ??
+                              n['serviceKey'] as String? ?? '—';
+                      final customerName =
+                          n['customerName'] as String? ?? '—';
+                      final urgency = n['urgencyType'] as String? ?? '';
+                      final locationAddress =
+                          n['locationAddress'] as String? ?? '';
+                      final createdAt = n['createdAt'];
+                      String dateStr = '';
+                      if (createdAt is Timestamp) {
+                        final dt = createdAt.toDate();
+                        dateStr =
+                            '${dt.day}/${dt.month}  ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+                      }
+
+                      return GestureDetector(
+                        onTap: () {
+                          if (!isRead && notifId.isNotEmpty) {
+                            FirebaseService.markNotificationRead(notifId);
+                          }
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: isRead
+                                ? Colors.grey.shade50
+                                : syanatBlue.withOpacity(0.06),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: isRead
+                                  ? Colors.grey.shade200
+                                  : syanatBlue.withOpacity(0.3),
+                            ),
+                          ),
+                          child: Row(
+                            crossAxisAlignment:
+                                CrossAxisAlignment.start,
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: syanatBlue.withOpacity(0.1),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(Icons.work,
+                                    color: syanatBlue, size: 18),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      serviceCategory,
+                                      style: TextStyle(
+                                        fontWeight: isRead
+                                            ? FontWeight.normal
+                                            : FontWeight.bold,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      '${isEn ? 'Customer' : 'العميل'}: $customerName',
+                                      style: const TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.black54),
+                                    ),
+                                    if (locationAddress.isNotEmpty)
+                                      Text(
+                                        locationAddress,
+                                        style: const TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.black45),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    if (urgency.isNotEmpty)
+                                      Container(
+                                        margin:
+                                            const EdgeInsets.only(top: 4),
+                                        padding:
+                                            const EdgeInsets.symmetric(
+                                                horizontal: 8, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: urgency == 'urgent'
+                                              ? Colors.red.withOpacity(0.1)
+                                              : Colors.blue.withOpacity(0.1),
+                                          borderRadius:
+                                              BorderRadius.circular(10),
+                                        ),
+                                        child: Text(
+                                          urgency == 'urgent'
+                                              ? (isEn ? 'Urgent' : 'عاجل')
+                                              : (isEn
+                                                  ? 'Scheduled'
+                                                  : 'مجدول'),
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: urgency == 'urgent'
+                                                ? Colors.red
+                                                : Colors.blue,
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                              Column(
+                                children: [
+                                  Text(dateStr,
+                                      style: const TextStyle(
+                                          fontSize: 10,
+                                          color: Colors.black38)),
+                                  if (!isRead)
+                                    Container(
+                                      margin: const EdgeInsets.only(top: 6),
+                                      width: 8,
+                                      height: 8,
+                                      decoration: const BoxDecoration(
+                                        color: syanatBlue,
+                                        shape: BoxShape.circle,
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

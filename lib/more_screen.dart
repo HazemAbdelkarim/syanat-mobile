@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'main.dart' show AppLocale;
 import 'login_screen.dart';
 import 'personal_info_screen.dart';
 import 'account_settings_screen.dart';
@@ -10,8 +11,7 @@ import 'support_chat_screen.dart';
 const Color _syanatBlue = Color(0xFF3C21C8);
 
 class MoreScreen extends StatelessWidget {
-  final Function(Locale) setLocale;
-  const MoreScreen({required this.setLocale, super.key});
+  const MoreScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -88,8 +88,9 @@ class MoreScreen extends StatelessWidget {
               icon: Icons.language,
               label: t('Language', 'اللغة'),
               onTap: () {
-                final newLocale = isEn ? const Locale('ar') : const Locale('en');
-                Future.microtask(() => setLocale(newLocale));
+                final newLocale =
+                    isEn ? const Locale('ar') : const Locale('en');
+                AppLocale.of(context).value = newLocale;
               },
             ),
             const Divider(height: 1, indent: 20, endIndent: 20),
@@ -127,11 +128,7 @@ class MoreScreen extends StatelessWidget {
     if (!context.mounted) return;
     Navigator.pushAndRemoveUntil(
       context,
-      MaterialPageRoute(
-        builder: (_) => LoginScreen(
-          setLocale: setLocale,
-        ),
-      ),
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
       (route) => false,
     );
   }

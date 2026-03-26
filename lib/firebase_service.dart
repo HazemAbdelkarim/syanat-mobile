@@ -706,4 +706,243 @@ class FirebaseService {
         .timeout(const Duration(seconds: 30));
     return await ref.getDownloadURL().timeout(const Duration(seconds: 10));
   }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // MANAGED MARKETPLACE ORDER REQUEST
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /// Creates a new order request (no technician assigned yet).
+  /// Returns the new job document ID.
+  static Future<String> createOrderRequest({
+    required String customerId,
+    required String customerName,
+    required String serviceKey,
+    String serviceCategory = '',
+    String subservice = '',
+    required String description,
+    required String phoneNumber,
+    required String locationLabel,
+    required String locationAddress,
+    required String urgencyType, // 'urgent' | 'scheduled'
+    DateTime? scheduledTime,
+  }) async {
+    final data = <String, dynamic>{
+      'customerId': customerId,
+      'customerName': customerName,
+      'technicianId': '',
+      'assignedTechnicianId': null,
+      'assignedTechnicianName': null,
+      'serviceKey': serviceKey,
+      'serviceCategory': serviceCategory,
+      'subservice': subservice,
+      'description': description,
+      'phoneNumber': phoneNumber,
+      'locationLabel': locationLabel,
+      'locationAddress': locationAddress,
+      'urgencyType': urgencyType,
+      'scheduledTime':
+          scheduledTime != null ? Timestamp.fromDate(scheduledTime) : null,
+      'status': 'requested',
+      'price': 0.0,
+      'amountPaid': null,
+      'adminClosedAt': null,
+      'photos': [],
+      'createdAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+    final docRef = await firestore.collection('jobs').add(data);
+    return docRef.id;
+  }
+
+  /// Admin assigns a technician to a requested job → status becomes 'accepted'.
+  static Future<void> assignJob({
+    required String jobId,
+    required String technicianId,
+    required String technicianName,
+  }) async {
+    await firestore.collection('jobs').doc(jobId).update({
+      'assignedTechnicianId': technicianId,
+      'technicianId': technicianId, // kept for existing stream queries
+      'assignedTechnicianName': technicianName,
+      'status': 'accepted',
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  /// Admin closes an active job with the exact amount paid.
+  /// Uses a transaction to ensure revenue is incremented only once.
+  /// Returns true if the job was newly closed; false if already closed.
+  static Future<bool> adminCloseJob({
+    required String jobId,
+    required double amountPaid,
+  }) async {
+    bool closed = false;
+    await firestore.runTransaction((tx) async {
+      final ref = firestore.collection('jobs').doc(jobId);
+      final snap = await tx.get(ref);
+      if (!snap.exists) return;
+      final data = snap.data()!;
+      // Idempotency guard: if adminClosedAt is already set, skip.
+      if (data['adminClosedAt'] != null) return;
+      tx.update(ref, {
+        'status': 'completed',
+        'amountPaid': amountPaid,
+        'price': amountPaid,
+        'adminClosedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      closed = true;
+    });
+    if (closed) {
+      // Increment global revenue counter for the admin dashboard.
+      await firestore.doc('stats/global').set(
+        {'totalEarnings': FieldValue.increment(amountPaid)},
+        SetOptions(merge: true),
+      );
+    }
+    return closed;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // ADMIN JOB STREAMS (by status)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /// Streams all jobs with a given single status (e.g., 'requested', 'completed').
+  static Stream<List<Map<String, dynamic>>> streamJobsByStatus(String status) {
+    return firestore
+        .collection('jobs')
+        .where('status', isEqualTo: status)
+        .orderBy('createdAt', descending: true)
+        .limit(50)
+        .snapshots()
+        .map((snap) => snap.docs.map((d) {
+              final data = Map<String, dynamic>.from(d.data() as Map);
+              data['id'] = d.id;
+              return data;
+            }).toList());
+  }
+
+  /// Streams active jobs (accepted + in_progress) for admin view.
+  static Stream<List<Map<String, dynamic>>> streamActiveJobsAdmin() {
+    return firestore
+        .collection('jobs')
+        .where('status', whereIn: ['accepted', 'in_progress', 'inprogress'])
+        .orderBy('createdAt', descending: true)
+        .limit(50)
+        .snapshots()
+        .map((snap) => snap.docs.map((d) {
+              final data = Map<String, dynamic>.from(d.data() as Map);
+              data['id'] = d.id;
+              return data;
+            }).toList());
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // TECHNICIAN FILTERING (for admin assignment)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /// Returns available technicians for a specific service key (same category).
+  /// Limited to 30 to avoid large reads.
+  static Future<List<Map<String, dynamic>>> getAvailableTechniciansByService(
+      String serviceKey) async {
+    final snap = await firestore
+        .collection('users')
+        .where('role', isEqualTo: 'technician')
+        .where('service', isEqualTo: serviceKey)
+        .where('available', isEqualTo: true)
+        .limit(30)
+        .get();
+    return snap.docs.map((d) => {'id': d.id, ...d.data()}).toList();
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // SERVICE-TARGETED TECHNICIAN NOTIFICATIONS
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /// Writes notification records to the `notifications` collection for all
+  /// available technicians in the given service category.
+  /// Fire-and-forget: errors are swallowed so order creation is not blocked.
+  static Future<void> notifyAvailableTechnicians({
+    required String jobId,
+    required String serviceKey,
+    required String serviceCategory,
+    required String customerName,
+    required String locationAddress,
+    required String urgencyType,
+  }) async {
+    try {
+      final techs = await getAvailableTechniciansByService(serviceKey);
+      if (techs.isEmpty) return;
+      // Batch-write all notifications in a single round-trip.
+      final batch = firestore.batch();
+      for (final tech in techs) {
+        final techId = tech['id'] as String? ?? '';
+        if (techId.isEmpty) continue;
+        final ref = firestore.collection('notifications').doc();
+        batch.set(ref, {
+          'technicianId': techId,
+          'jobId': jobId,
+          'serviceKey': serviceKey,
+          'serviceCategory': serviceCategory,
+          'customerName': customerName,
+          'locationAddress': locationAddress,
+          'urgencyType': urgencyType,
+          'read': false,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+      }
+      await batch.commit();
+    } catch (_) {
+      // Notification failure must not block the customer's order creation.
+    }
+  }
+
+  /// Streams a technician's notifications (newest first, limit 20).
+  static Stream<List<Map<String, dynamic>>> streamTechnicianNotifications(
+      String techId) {
+    return firestore
+        .collection('notifications')
+        .where('technicianId', isEqualTo: techId)
+        .orderBy('createdAt', descending: true)
+        .limit(20)
+        .snapshots()
+        .map((snap) => snap.docs.map((d) {
+              final data = Map<String, dynamic>.from(d.data());
+              data['id'] = d.id;
+              return data;
+            }).toList());
+  }
+
+  /// Streams the count of unread notifications for a technician (badge use).
+  static Stream<int> streamTechnicianUnreadNotifCount(String techId) {
+    return firestore
+        .collection('notifications')
+        .where('technicianId', isEqualTo: techId)
+        .where('read', isEqualTo: false)
+        .limit(100)
+        .snapshots()
+        .map((snap) => snap.docs.length);
+  }
+
+  /// Marks a notification as read.
+  static Future<void> markNotificationRead(String notifId) async {
+    await firestore
+        .collection('notifications')
+        .doc(notifId)
+        .update({'read': true});
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // CANCELLED JOBS COUNT (for admin overview)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /// Returns total count of cancelled jobs via aggregation (1 read).
+  static Future<int> getCancelledJobsCount() async {
+    final snap = await firestore
+        .collection('jobs')
+        .where('status', isEqualTo: 'cancelled')
+        .count()
+        .get();
+    return snap.count ?? 0;
+  }
 }

@@ -10,7 +10,19 @@
       "Bash(curl -s http://localhost:8080)",
       "Bash(find /c/Users/LTC/Syanat -name firestore.rules -o -name *firebase* -type f)",
       "Bash(flutter pub:*)",
-      "Bash(/c/Users/LTC/flutter/bin/flutter pub:*)"
+      "Bash(/c/Users/LTC/flutter/bin/flutter pub:*)",
+      "Bash(flutter analyze:*)",
+      "Bash(cmd /c \"flutter analyze lib/admin_dashboard_screen.dart lib/support_chat_screen.dart lib/admin_support_chat_screen.dart lib/more_screen.dart 2>&1\")",
+      "Bash(cmd /c \"flutter analyze lib/admin_dashboard_screen.dart 2>&1\")",
+      "Bash(flutter --version)",
+      "Bash(powershell -Command \"& { \\\\$env:PATH; flutter analyze lib/admin_dashboard_screen.dart 2>&1 }\")",
+      "Bash(powershell -Command \"Get-ChildItem C:\\\\Users\\\\LTC -Recurse -Filter flutter.bat -ErrorAction SilentlyContinue | Select-Object -First 3 FullName\")",
+      "Bash(powershell -Command \"& 'C:\\\\Users\\\\LTC\\\\flutter\\\\bin\\\\flutter.bat' analyze lib/admin_dashboard_screen.dart lib/support_chat_screen.dart lib/admin_support_chat_screen.dart 2>&1\")",
+      "Bash(ls flutter*)",
+      "Bash(ls *.yaml)",
+      "Bash(cmd //c \"flutter --version\")",
+      "Bash(/c/Users/LTC/flutter/bin/flutter analyze:*)",
+      "Bash(\"$USERPROFILE/flutter/bin/flutter.bat\" analyze:*)"
     ]
   }
 }

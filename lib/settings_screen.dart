@@ -1,23 +1,19 @@
 // settings_screen.dart
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import '../firebase_service.dart';
 import 'login_screen.dart';
 
 const Color syanatBlue = Color(0xFF3C21C8);
 
 class SettingsScreen extends StatelessWidget {
-  final Function(Locale) setLocale;
-  const SettingsScreen({required this.setLocale, super.key});
+  const SettingsScreen({super.key});
 
   Future<void> _logout(BuildContext context) async {
     await FirebaseAuth.instance.signOut();
     if (!context.mounted) return;
     Navigator.pushAndRemoveUntil(
       context,
-      MaterialPageRoute(
-        builder: (_) => LoginScreen(setLocale: setLocale),
-      ),
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
       (route) => false,
     );
   }

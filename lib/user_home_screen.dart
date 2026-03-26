@@ -7,8 +7,7 @@ import 'more_screen.dart';
 const Color syanatBlue = Color(0xFF3C21C8);
 
 class UserHomeScreen extends StatefulWidget {
-  final Function(Locale) setLocale;
-  const UserHomeScreen({required this.setLocale, super.key});
+  const UserHomeScreen({super.key});
 
   @override
   State<UserHomeScreen> createState() => _UserHomeScreenState();
@@ -360,7 +359,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                 const OrdersScreen(),
 
                 // ── Tab 2: More ───────────────────────────────────────────
-                MoreScreen(setLocale: widget.setLocale),
+                const MoreScreen(),
               ],
             ),
           ),
