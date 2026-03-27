@@ -1,28 +1,30 @@
 import 'package:flutter/material.dart';
 import '../glass_card.dart';
 import '../firebase_service.dart';
-import 'payment_screen.dart';
 import 'services_integration.dart';
 import 'models/service.dart';
+import 'main.dart' show AppLocale;
 
 const Color syanatBlue = Color(0xFF3C21C8);
 
 class ServiceDetailsScreen extends StatefulWidget {
   final String serviceKey;
-  final String serviceLabel;
+  final String labelEn;
+  final String labelAr;
 
   const ServiceDetailsScreen({
     super.key,
     required this.serviceKey,
-    required this.serviceLabel,
+    required this.labelEn,
+    required this.labelAr,
   });
 
   @override
   State<ServiceDetailsScreen> createState() => _ServiceDetailsScreenState();
 }
 
-class _ServiceDetailsScreenState extends State<ServiceDetailsScreen> {
-  Locale _locale = const Locale('en');
+class _ServiceDetailsScreenState extends State<ServiceDetailsScreen>
+    with TickerProviderStateMixin {
   late ServiceIntegration _serviceIntegration;
   List<Service> _services = [];
   List<String> _subcategories = [];
@@ -71,9 +73,12 @@ class _ServiceDetailsScreenState extends State<ServiceDetailsScreen> {
   }
 
   void _switchLanguage() {
-    setState(() {
-      _locale = _locale.languageCode == 'en' ? const Locale('ar') : const Locale('en');
-    });
+    // Update the single global app locale — the same notifier used by every
+    // other screen. Never touch local state for language.
+    final notifier = AppLocale.of(context);
+    notifier.value = notifier.value.languageCode == 'en'
+        ? const Locale('ar')
+        : const Locale('en');
   }
 
   /// Always filters by the English key, which is the stable internal identifier.
@@ -97,98 +102,45 @@ class _ServiceDetailsScreenState extends State<ServiceDetailsScreen> {
     return ar.isNotEmpty ? ar : subcategoryEnKey;
   }
 
-  Future<void> _showQuickOrderDialog(BuildContext context) async {
-    final isEn = _locale.languageCode == 'en';
-    final confirmed = await showDialog<bool>(
+  Future<void> _showQuickOrderSheet() async {
+    final user = FirebaseService.getCurrentUser();
+    if (user == null) return;
+
+    final results = await Future.wait([
+      FirebaseService.getProfile(user.uid),
+      FirebaseService.getSavedLocations(user.uid),
+    ]);
+
+    if (!mounted) return;
+
+    final profile = results[0] as Map<String, dynamic>?;
+    final locations = results[1] as List<Map<String, dynamic>>;
+    final isEn = Localizations.localeOf(context).languageCode == 'en';
+
+    final ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 400),
+    );
+    await showModalBottomSheet<void>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(isEn ? 'Quick Order' : 'طلب سريع'),
-        content: Text(
-          isEn
-              ? 'A technician will be sent immediately to check your problem.\n\nVisit cost: 200 EGP'
-              : 'هيتبعتلك فني حالا يشوف المشكلة في المكان.\n\nتكلفة الزيارة: ٢٠٠ جنيه',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: Text(isEn ? 'Cancel' : 'إلغاء'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: syanatBlue,
-              foregroundColor: Colors.white,
-            ),
-            child: Text(isEn ? 'Confirm' : 'تمام'),
-          ),
-        ],
+      isScrollControlled: true,
+      transitionAnimationController: ctrl,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => _OrderRequestSheet(
+        uid: user.uid,
+        customerName: profile?['username'] as String? ??
+            profile?['email'] as String? ?? '',
+        serviceKey: widget.serviceKey,
+        serviceCategory: isEn ? widget.labelEn : widget.labelAr,
+        subservice: '',
+        savedLocations: locations,
+        initialPhone: profile?['phone'] as String? ?? '',
+        isEn: isEn,
+        isQuickOrder: true,
       ),
     );
-
-    if (confirmed == true && FirebaseService.getCurrentUser() != null) {
-      try {
-        final jobId = await FirebaseService.createJob(
-          customerId: FirebaseService.getCurrentUser()!.uid,
-          serviceKey: widget.serviceKey,
-          description: 'Quick inspection request',
-          price: 200.0,
-        );
-
-        // Navigate to payment screen
-        if (!mounted) return;
-        final paymentResult = await Navigator.push<PaymentResult>(
-          context,
-          MaterialPageRoute(
-            builder: (_) => PaymentScreen(
-              amount: 200.0,
-              serviceKey: widget.serviceKey,
-              serviceLabel: widget.serviceLabel,
-            ),
-          ),
-        );
-
-        // If user cancelled payment, order is still created but payment is missing
-        if (paymentResult == null) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                  _locale.languageCode == 'en'
-                      ? 'Order created but payment not completed'
-                      : 'تم إنشاء الطلب لكن لم يتم تأكيد الدفع',
-                ),
-              ),
-            );
-          }
-          return;
-        }
-
-        // Link payment to job
-        await FirebaseService.firestore
-            .collection('payments')
-            .doc(paymentResult.paymentId)
-            .update({'orderId': jobId});
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                _locale.languageCode == 'en'
-                    ? 'Quick order confirmed! Payment received.'
-                    : 'تم تأكيد الطلب السريع! تم استقبال الدفع.',
-              ),
-            ),
-          );
-          Navigator.pop(context);
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error: $e')),
-          );
-        }
-      }
-    }
+    ctrl.dispose();
   }
 
   void _openServiceTechnicians(Service service) {
@@ -209,13 +161,18 @@ class _ServiceDetailsScreenState extends State<ServiceDetailsScreen> {
 
     final profile = results[0] as Map<String, dynamic>?;
     final locations = results[1] as List<Map<String, dynamic>>;
-    final isEn = _locale.languageCode == 'en';
+    final isEn = Localizations.localeOf(context).languageCode == 'en';
     final subservice =
         isEn ? service.serviceNameEn : service.serviceNameAr;
 
-    showModalBottomSheet<void>(
+    final ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 400),
+    );
+    await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
+      transitionAnimationController: ctrl,
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (ctx) => _OrderRequestSheet(
@@ -223,18 +180,19 @@ class _ServiceDetailsScreenState extends State<ServiceDetailsScreen> {
         customerName: profile?['username'] as String? ??
             profile?['email'] as String? ?? '',
         serviceKey: widget.serviceKey,
-        serviceCategory: widget.serviceLabel,
+        serviceCategory: isEn ? widget.labelEn : widget.labelAr,
         subservice: subservice,
         savedLocations: locations,
         initialPhone: profile?['phone'] as String? ?? '',
         isEn: isEn,
       ),
     );
+    ctrl.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final isEn = _locale.languageCode == 'en';
+    final isEn = Localizations.localeOf(context).languageCode == 'en';
 
     return Directionality(
       textDirection: isEn ? TextDirection.ltr : TextDirection.rtl,
@@ -261,7 +219,7 @@ class _ServiceDetailsScreenState extends State<ServiceDetailsScreen> {
                   ),
                   Expanded(
                     child: Text(
-                      widget.serviceLabel,
+                      isEn ? widget.labelEn : widget.labelAr,
                       textAlign: TextAlign.center,
                       style: const TextStyle(
                         color: Colors.white,
@@ -310,7 +268,7 @@ class _ServiceDetailsScreenState extends State<ServiceDetailsScreen> {
                             width: double.infinity,
                             height: 56,
                             child: ElevatedButton.icon(
-                              onPressed: () => _showQuickOrderDialog(context),
+                              onPressed: _showQuickOrderSheet,
                               icon: const Icon(Icons.flash_on, color: Colors.white),
                               label: Text(
                                 isEn ? 'Quick Order - 200 EGP' : 'طلب سريع - ٢٠٠ جنيه',
@@ -539,6 +497,7 @@ class _OrderRequestSheet extends StatefulWidget {
   final List<Map<String, dynamic>> savedLocations;
   final String initialPhone;
   final bool isEn;
+  final bool isQuickOrder;
 
   const _OrderRequestSheet({
     required this.uid,
@@ -549,6 +508,7 @@ class _OrderRequestSheet extends StatefulWidget {
     required this.savedLocations,
     required this.initialPhone,
     required this.isEn,
+    this.isQuickOrder = false,
   });
 
   @override
@@ -574,6 +534,11 @@ class _OrderRequestSheetState extends State<_OrderRequestSheet> {
     _locations = List.from(widget.savedLocations);
     _phoneController.text = widget.initialPhone;
     if (_locations.isNotEmpty) _selectedLocation = _locations.first;
+    if (widget.isQuickOrder) {
+      _descController.text = widget.isEn
+          ? 'Quick inspection request'
+          : 'طلب كشف سريع';
+    }
   }
 
   @override
@@ -723,8 +688,9 @@ class _OrderRequestSheetState extends State<_OrderRequestSheet> {
         phoneNumber: phone,
         locationLabel: locationLabel,
         locationAddress: locationAddress,
-        urgencyType: _urgencyType,
-        scheduledTime: _scheduledTime,
+        urgencyType: widget.isQuickOrder ? 'urgent' : _urgencyType,
+        scheduledTime: widget.isQuickOrder ? null : _scheduledTime,
+        price: widget.isQuickOrder ? 200.0 : 0.0,
       );
 
       // Fire-and-forget: notify available technicians (never blocks submit).
@@ -740,9 +706,11 @@ class _OrderRequestSheetState extends State<_OrderRequestSheet> {
       if (!mounted) return;
       Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(_t(
-            'Request submitted! We will assign a technician shortly.',
-            'تم إرسال الطلب! سنقوم بتعيين فني قريباً.')),
+        content: Text(widget.isQuickOrder
+            ? _t('Quick order confirmed! A technician will be dispatched shortly.',
+                'تم تأكيد الطلب السريع! سيتم إرسال فني قريباً.')
+            : _t('Request submitted! We will assign a technician shortly.',
+                'تم إرسال الطلب! سنقوم بتعيين فني قريباً.')),
         backgroundColor: Colors.green,
         duration: const Duration(seconds: 4),
       ));
@@ -783,7 +751,9 @@ class _OrderRequestSheetState extends State<_OrderRequestSheet> {
               ),
             ),
             Text(
-              _t('Request Service', 'طلب خدمة'),
+              widget.isQuickOrder
+                  ? _t('Quick Order — 200 EGP', 'طلب سريع — ٢٠٠ جنيه')
+                  : _t('Request Service', 'طلب خدمة'),
               style: const TextStyle(
                   fontSize: 20, fontWeight: FontWeight.bold),
             ),
@@ -939,139 +909,141 @@ class _OrderRequestSheetState extends State<_OrderRequestSheet> {
             ),
             const SizedBox(height: 16),
 
-            // ── Timing ────────────────────────────────────────────────────
-            _sectionLabel(Icons.schedule, _t('Timing', 'الوقت')),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: GestureDetector(
-                    onTap: () =>
-                        setState(() => _urgencyType = 'urgent'),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          vertical: 14, horizontal: 8),
-                      decoration: BoxDecoration(
-                        color: _urgencyType == 'urgent'
-                            ? syanatBlue
-                            : Colors.grey.shade100,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
+            // ── Timing (hidden for quick order — always urgent) ───────────
+            if (!widget.isQuickOrder) ...[
+              _sectionLabel(Icons.schedule, _t('Timing', 'الوقت')),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () =>
+                          setState(() => _urgencyType = 'urgent'),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            vertical: 14, horizontal: 8),
+                        decoration: BoxDecoration(
                           color: _urgencyType == 'urgent'
                               ? syanatBlue
-                              : Colors.grey.shade300,
-                        ),
-                      ),
-                      child: Column(
-                        children: [
-                          Icon(Icons.flash_on,
-                              color: _urgencyType == 'urgent'
-                                  ? Colors.white
-                                  : Colors.orange,
-                              size: 22),
-                          const SizedBox(height: 4),
-                          Text(
-                            _t('Now / Urgent', 'الآن / عاجل'),
-                            style: TextStyle(
-                              color: _urgencyType == 'urgent'
-                                  ? Colors.white
-                                  : Colors.black87,
-                              fontWeight: FontWeight.w600,
-                              fontSize: 13,
-                            ),
-                            textAlign: TextAlign.center,
+                              : Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: _urgencyType == 'urgent'
+                                ? syanatBlue
+                                : Colors.grey.shade300,
                           ),
-                        ],
+                        ),
+                        child: Column(
+                          children: [
+                            Icon(Icons.flash_on,
+                                color: _urgencyType == 'urgent'
+                                    ? Colors.white
+                                    : Colors.orange,
+                                size: 22),
+                            const SizedBox(height: 4),
+                            Text(
+                              _t('Now / Urgent', 'الآن / عاجل'),
+                              style: TextStyle(
+                                color: _urgencyType == 'urgent'
+                                    ? Colors.white
+                                    : Colors.black87,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: GestureDetector(
-                    onTap: () async {
-                      setState(() => _urgencyType = 'scheduled');
-                      await _pickScheduledTime();
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          vertical: 14, horizontal: 8),
-                      decoration: BoxDecoration(
-                        color: _urgencyType == 'scheduled'
-                            ? syanatBlue
-                            : Colors.grey.shade100,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () async {
+                        setState(() => _urgencyType = 'scheduled');
+                        await _pickScheduledTime();
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            vertical: 14, horizontal: 8),
+                        decoration: BoxDecoration(
                           color: _urgencyType == 'scheduled'
                               ? syanatBlue
-                              : Colors.grey.shade300,
+                              : Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: _urgencyType == 'scheduled'
+                                ? syanatBlue
+                                : Colors.grey.shade300,
+                          ),
+                        ),
+                        child: Column(
+                          children: [
+                            Icon(Icons.calendar_today,
+                                color: _urgencyType == 'scheduled'
+                                    ? Colors.white
+                                    : Colors.blue,
+                                size: 22),
+                            const SizedBox(height: 4),
+                            Text(
+                              _t('Schedule', 'جدولة'),
+                              style: TextStyle(
+                                color: _urgencyType == 'scheduled'
+                                    ? Colors.white
+                                    : Colors.black87,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
                         ),
                       ),
-                      child: Column(
-                        children: [
-                          Icon(Icons.calendar_today,
-                              color: _urgencyType == 'scheduled'
-                                  ? Colors.white
-                                  : Colors.blue,
-                              size: 22),
-                          const SizedBox(height: 4),
-                          Text(
-                            _t('Schedule', 'جدولة'),
+                    ),
+                  ),
+                ],
+              ),
+              if (_urgencyType == 'scheduled') ...[
+                const SizedBox(height: 10),
+                GestureDetector(
+                  onTap: _pickScheduledTime,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: syanatBlue.withOpacity(0.07),
+                      borderRadius: BorderRadius.circular(12),
+                      border:
+                          Border.all(color: syanatBlue.withOpacity(0.4)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.access_time, color: syanatBlue),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            _scheduledTime == null
+                                ? _t('Tap to pick date & time',
+                                    'اضغط لاختيار الموعد')
+                                : '${_scheduledTime!.day}/${_scheduledTime!.month}/${_scheduledTime!.year}  '
+                                    '${_scheduledTime!.hour.toString().padLeft(2, '0')}:${_scheduledTime!.minute.toString().padLeft(2, '0')}',
                             style: TextStyle(
-                              color: _urgencyType == 'scheduled'
-                                  ? Colors.white
-                                  : Colors.black87,
-                              fontWeight: FontWeight.w600,
-                              fontSize: 13,
+                              color: _scheduledTime == null
+                                  ? Colors.grey
+                                  : syanatBlue,
+                              fontWeight: _scheduledTime != null
+                                  ? FontWeight.w600
+                                  : FontWeight.normal,
                             ),
-                            textAlign: TextAlign.center,
                           ),
-                        ],
-                      ),
+                        ),
+                        const Icon(Icons.edit, color: syanatBlue, size: 16),
+                      ],
                     ),
                   ),
                 ),
               ],
-            ),
-            if (_urgencyType == 'scheduled') ...[
-              const SizedBox(height: 10),
-              GestureDetector(
-                onTap: _pickScheduledTime,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 14, vertical: 12),
-                  decoration: BoxDecoration(
-                    color: syanatBlue.withOpacity(0.07),
-                    borderRadius: BorderRadius.circular(12),
-                    border:
-                        Border.all(color: syanatBlue.withOpacity(0.4)),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.access_time, color: syanatBlue),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          _scheduledTime == null
-                              ? _t('Tap to pick date & time',
-                                  'اضغط لاختيار الموعد')
-                              : '${_scheduledTime!.day}/${_scheduledTime!.month}/${_scheduledTime!.year}  '
-                                  '${_scheduledTime!.hour.toString().padLeft(2, '0')}:${_scheduledTime!.minute.toString().padLeft(2, '0')}',
-                          style: TextStyle(
-                            color: _scheduledTime == null
-                                ? Colors.grey
-                                : syanatBlue,
-                            fontWeight: _scheduledTime != null
-                                ? FontWeight.w600
-                                : FontWeight.normal,
-                          ),
-                        ),
-                      ),
-                      const Icon(Icons.edit, color: syanatBlue, size: 16),
-                    ],
-                  ),
-                ),
-              ),
             ],
             const SizedBox(height: 24),
 
@@ -1095,7 +1067,9 @@ class _OrderRequestSheetState extends State<_OrderRequestSheet> {
                         child: CircularProgressIndicator(
                             strokeWidth: 2.5, color: Colors.white))
                     : Text(
-                        _t('Submit Request', 'إرسال الطلب'),
+                        widget.isQuickOrder
+                            ? _t('Confirm Quick Order', 'تأكيد الطلب السريع')
+                            : _t('Submit Request', 'إرسال الطلب'),
                         style: const TextStyle(
                             fontSize: 17, fontWeight: FontWeight.bold),
                       ),

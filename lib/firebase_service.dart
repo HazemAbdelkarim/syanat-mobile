@@ -1,5 +1,10 @@
+import 'dart:convert';
+import 'dart:math';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show kIsWeb, kDebugMode;
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:sign_in_with_apple/sign_in_with_apple.dart';
+import 'package:crypto/crypto.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -62,6 +67,73 @@ class FirebaseService {
     return doc.exists ? doc.data() : null;
   }
 
+  /// Returns true when the Firestore profile has all fields required to use the app.
+  /// A Firebase Auth account alone is NOT considered complete — phone, role, and
+  /// username are required by the onboarding flow before the user is admitted.
+  static bool isProfileComplete(Map<String, dynamic>? profile) {
+    if (profile == null) return false;
+    final phone = (profile['phone'] as String? ?? '').trim();
+    final role = (profile['role'] as String? ?? '').trim();
+    final username = (profile['username'] as String? ?? '').trim();
+    return phone.isNotEmpty && role.isNotEmpty && username.isNotEmpty;
+  }
+
+  // ----------------------
+  // SOCIAL SIGN-IN
+  // ----------------------
+
+  /// Signs in with Google. Returns null if the user cancelled.
+  static Future<UserCredential?> signInWithGoogle() async {
+    final googleUser = await GoogleSignIn().signIn();
+    if (googleUser == null) return null; // user cancelled
+    final googleAuth = await googleUser.authentication;
+    final credential = GoogleAuthProvider.credential(
+      accessToken: googleAuth.accessToken,
+      idToken: googleAuth.idToken,
+    );
+    return auth.signInWithCredential(credential);
+  }
+
+  /// Signs in with Apple. Returns null if the user cancelled.
+  /// Uses a cryptographic nonce to prevent replay attacks.
+  static Future<UserCredential?> signInWithApple() async {
+    final rawNonce = _generateNonce();
+    final nonce = _sha256ofString(rawNonce);
+    try {
+      final appleCredential = await SignInWithApple.getAppleIDCredential(
+        scopes: [
+          AppleIDAuthorizationScopes.email,
+          AppleIDAuthorizationScopes.fullName,
+        ],
+        nonce: nonce,
+      );
+      final oauthCredential = OAuthProvider('apple.com').credential(
+        idToken: appleCredential.identityToken,
+        rawNonce: rawNonce,
+      );
+      return auth.signInWithCredential(oauthCredential);
+    } on SignInWithAppleAuthorizationException catch (e) {
+      if (e.code == AuthorizationErrorCode.canceled) return null;
+      rethrow;
+    }
+  }
+
+  // Generates a cryptographically secure random nonce string for Apple Sign-In.
+  static String _generateNonce([int length = 32]) {
+    const charset =
+        '0123456789ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz-._';
+    final random = Random.secure();
+    return List.generate(
+        length, (_) => charset[random.nextInt(charset.length)]).join();
+  }
+
+  // Returns the SHA-256 hash of the input string.
+  static String _sha256ofString(String input) {
+    final bytes = utf8.encode(input);
+    final digest = sha256.convert(bytes);
+    return digest.toString();
+  }
+
   /// Updates specific fields on the user profile document.
   static Future<void> updateProfile(String uid, Map<String, dynamic> fields) async {
     await firestore.collection('users').doc(uid).update(fields);
@@ -110,7 +182,12 @@ class FirebaseService {
   }
 
   /// Creates a user record. Use for both customers and technicians.
-  static Future<void> createUser({
+  /// Creates (or idempotently updates) the user profile document.
+  /// Returns `true` if this was a genuinely new account creation.
+  /// Returns `false` if the document already existed (e.g. retry after a
+  /// crash during social sign-in onboarding) — counters are NOT incremented
+  /// in that case to prevent double-counting.
+  static Future<bool> createUser({
     required String uid,
     required String email,
     required String username,
@@ -124,7 +201,9 @@ class FirebaseService {
     GeoPoint? location,
     String photoUrl = '',
   }) async {
-    final data = {
+    final ref = firestore.collection('users').doc(uid);
+
+    final Map<String, dynamic> baseData = {
       'email': email,
       'username': username,
       'role': role,
@@ -136,16 +215,27 @@ class FirebaseService {
       'earnings': 0.0,
       'available': available,
       'featured': featured,
-      'createdAt': FieldValue.serverTimestamp(),
     };
-    if (phone.isNotEmpty) data['phone'] = phone;
-    if (location != null) data['location'] = location;
-    if (photoUrl.isNotEmpty) data['photoUrl'] = photoUrl;
+    if (phone.isNotEmpty) baseData['phone'] = phone;
+    if (location != null) baseData['location'] = location;
+    if (photoUrl.isNotEmpty) baseData['photoUrl'] = photoUrl;
 
-    await firestore.collection('users').doc(uid).set(data, SetOptions(merge: true));
+    // Transaction: check existence first so counters are only incremented once,
+    // even if the user retries after a mid-submission crash.
+    bool isNew = false;
+    await firestore.runTransaction((tx) async {
+      final snap = await tx.get(ref);
+      isNew = !snap.exists;
+      if (isNew) {
+        tx.set(ref, {...baseData, 'createdAt': FieldValue.serverTimestamp()});
+      } else {
+        tx.update(ref, {...baseData, 'updatedAt': FieldValue.serverTimestamp()});
+      }
+    });
 
-    // Increment aggregate counters atomically — one doc read saved on every
-    // dashboard load because stats/global is kept current at write time.
+    if (!isNew) return false;
+
+    // Increment aggregate counters atomically — only for genuinely new accounts.
     final Map<String, dynamic> statsInc = {
       'totalUsers': FieldValue.increment(1),
     };
@@ -167,6 +257,8 @@ class FirebaseService {
         'createdAt': FieldValue.serverTimestamp(),
       });
     } catch (_) {}
+
+    return true;
   }
 
   /// Helper: create a technician user and ensure its service entry exists.
@@ -184,7 +276,7 @@ class FirebaseService {
     GeoPoint? location,
     String photoUrl = '',
   }) async {
-    await createUser(
+    final isNew = await createUser(
       uid: uid,
       email: email,
       username: username,
@@ -199,15 +291,16 @@ class FirebaseService {
       photoUrl: photoUrl,
     );
 
-    // Ensure service document exists (merge so it doesn't overwrite existing data),
-    // then atomically increment the technician count for that service.
-    // FieldValue.increment is crash-safe and requires no prior read.
-    final nameEn = serviceNameEn.trim().isNotEmpty ? serviceNameEn : _prettyServiceLabel(serviceId);
-    final nameAr = serviceNameAr.trim().isNotEmpty ? serviceNameAr : nameEn;
-    await ensureServiceExists(serviceId, nameEn, nameAr);
-    await firestore.collection('services').doc(serviceId).update({
-      'techCount': FieldValue.increment(1),
-    });
+    // Only update the service catalogue and increment techCount for new accounts.
+    // On a retry (isNew == false) the service doc and counter are already correct.
+    if (isNew) {
+      final nameEn = serviceNameEn.trim().isNotEmpty ? serviceNameEn : _prettyServiceLabel(serviceId);
+      final nameAr = serviceNameAr.trim().isNotEmpty ? serviceNameAr : nameEn;
+      await ensureServiceExists(serviceId, nameEn, nameAr);
+      await firestore.collection('services').doc(serviceId).update({
+        'techCount': FieldValue.increment(1),
+      });
+    }
   }
 
   // ----------------------
@@ -793,6 +886,7 @@ class FirebaseService {
     required String locationAddress,
     required String urgencyType, // 'urgent' | 'scheduled'
     DateTime? scheduledTime,
+    double price = 0.0,
   }) async {
     final data = <String, dynamic>{
       'customerId': customerId,
@@ -811,7 +905,7 @@ class FirebaseService {
       'scheduledTime':
           scheduledTime != null ? Timestamp.fromDate(scheduledTime) : null,
       'status': 'requested',
-      'price': 0.0,
+      'price': price,
       'amountPaid': null,
       'adminClosedAt': null,
       'photos': [],

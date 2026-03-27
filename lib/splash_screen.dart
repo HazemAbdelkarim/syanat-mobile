@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../firebase_service.dart';
+import 'create_account_screen.dart';
 import 'login_screen.dart';
 import 'tech_home_screen.dart';
 import 'user_home_screen.dart';
@@ -58,9 +59,26 @@ class _SplashScreenState extends State<SplashScreen>
 
     try {
       final profile = await FirebaseService.getProfile(user.uid);
-      final role = profile?['role'] ?? 'customer';
       if (!mounted) return;
 
+      // Firebase Auth session exists but Firestore profile is missing or
+      // incomplete — this happens when a social sign-in user closes the app
+      // before finishing the onboarding form. Route them back to complete it.
+      if (!FirebaseService.isProfileComplete(profile)) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => CreateAccountScreen(
+              prefillUid: user.uid,
+              prefillEmail: user.email ?? '',
+              prefillName: user.displayName ?? '',
+            ),
+          ),
+        );
+        return;
+      }
+
+      final role = (profile!['role'] as String? ?? 'customer').trim();
       if (role == 'technician') {
         Navigator.pushReplacement(
           context,

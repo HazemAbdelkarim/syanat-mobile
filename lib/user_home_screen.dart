@@ -30,13 +30,14 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
     {'key': 'finishing', 'name_en': 'Finishing', 'name_ar': 'تشطيبات', 'icon': Icons.format_paint},
   ];
 
-  void _openCategory(String serviceKey, String serviceLabel) {
+  void _openCategory(String serviceKey, String labelEn, String labelAr) {
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => ServiceDetailsScreen(
           serviceKey: serviceKey,
-          serviceLabel: serviceLabel,
+          labelEn: labelEn,
+          labelAr: labelAr,
         ),
       ),
     );
@@ -305,13 +306,13 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                                             itemBuilder: (context, index) {
                                               final item = services[index];
                                               final id = item['key'] as String? ?? '';
-                                              final label = (isEn ? item['name_en'] : item['name_ar'])
-                                                      as String? ??
-                                                  (item['name_en'] as String? ?? 'Service');
+                                              final en = item['name_en'] as String? ?? 'Service';
+                                              final ar = item['name_ar'] as String? ?? en;
+                                              final label = isEn ? en : ar;
                                               final iconData = item['icon'] as IconData?;
 
                                               return GestureDetector(
-                                                onTap: () => _openCategory(id, label),
+                                                onTap: () => _openCategory(id, en, ar),
                                                 child: GlassCard(
                                                   padding: const EdgeInsets.symmetric(
                                                     horizontal: 8, vertical: 10,

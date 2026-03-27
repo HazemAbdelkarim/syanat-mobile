@@ -13,7 +13,19 @@ import 'package:image_picker/image_picker.dart';
 const Color syanatBlue = Color(0xFF3C21C8);
 
 class CreateAccountScreen extends StatefulWidget {
-  const CreateAccountScreen({super.key});
+  /// When set, a Firebase Auth account already exists (social sign-in).
+  /// The screen skips email/password creation and goes straight to
+  /// profile completion, pre-filling whatever the provider supplied.
+  final String? prefillUid;
+  final String prefillEmail;
+  final String prefillName;
+
+  const CreateAccountScreen({
+    super.key,
+    this.prefillUid,
+    this.prefillEmail = '',
+    this.prefillName = '',
+  });
 
   @override
   State<CreateAccountScreen> createState() => _CreateAccountScreenState();
@@ -67,6 +79,16 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+    // Pre-fill available data from the social provider.
+    if (widget.prefillUid != null) {
+      _emailController.text = widget.prefillEmail;
+      _usernameController.text = widget.prefillName;
+    }
+  }
+
+  @override
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
@@ -103,24 +125,28 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
   }
 
   Future<void> _signup() async {
+    if (_isLoading) return;
     setState(() => _isLoading = true);
 
-    final email = _emailController.text.trim();
-    final password = _passwordController.text.trim();
+    final isSocialMode = widget.prefillUid != null;
     final username = _usernameController.text.trim();
     final phone = _phoneController.text.trim();
     final city = _cityController.text.trim();
     final isEn = Localizations.localeOf(context).languageCode == 'en';
     final lang = isEn ? 'en' : 'ar';
 
-    if (email.isEmpty ||
-        password.isEmpty ||
-        username.isEmpty ||
+    // Validate required fields.
+    // Email/password are only required in the standard (non-social) flow.
+    final bool missingFields = username.isEmpty ||
         phone.isEmpty ||
-        city.isEmpty) {
+        city.isEmpty ||
+        (!isSocialMode &&
+            (_emailController.text.trim().isEmpty ||
+                _passwordController.text.trim().isEmpty));
+
+    if (missingFields) {
       _showSnack(
-        isEn ? "Please fill all fields" : "يرجى ملء جميع الحقول",
-      );
+          isEn ? "Please fill all fields" : "يرجى ملء جميع الحقول");
       setState(() => _isLoading = false);
       return;
     }
@@ -137,9 +163,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
     }
 
     if (_role == 'technician' && _service == null) {
-      _showSnack(
-        isEn ? "Please select your service" : "اختر مجال عملك",
-      );
+      _showSnack(isEn ? "Please select your service" : "اختر مجال عملك");
       setState(() => _isLoading = false);
       return;
     }
@@ -149,16 +173,28 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
         await _getLocation();
       }
 
-      final credential =
-          await FirebaseService.auth.createUserWithEmailAndPassword(
-        email: email,
-        password: password,
-      );
-      final user = credential.user;
-      if (user == null) throw "Unable to create user";
+      // ── Obtain UID + email ──────────────────────────────────────────────
+      final String uid;
+      final String email;
 
+      if (isSocialMode) {
+        // Firebase Auth account already exists — skip email/password creation.
+        uid = widget.prefillUid!;
+        email = widget.prefillEmail;
+      } else {
+        final credential =
+            await FirebaseService.auth.createUserWithEmailAndPassword(
+          email: _emailController.text.trim(),
+          password: _passwordController.text.trim(),
+        );
+        final user = credential.user;
+        if (user == null) throw "Unable to create user";
+        uid = user.uid;
+        email = _emailController.text.trim();
+      }
+
+      // ── Upload photo (technicians only) ─────────────────────────────────
       String? photoUrl;
-
       if (_role == 'technician' && _profileImage != null) {
         photoUrl = await FirebaseService.uploadPhoto(
           _profileImage!,
@@ -166,12 +202,11 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
         );
       }
 
+      // ── Write Firestore profile ──────────────────────────────────────────
       if (_role == 'technician') {
-        // Convert Arabic service name to internal service key
         final serviceKey = arabicToServiceKey[_service!] ?? _service!;
-        
         await FirebaseService.createTechnician(
-          uid: user.uid,
+          uid: uid,
           email: email,
           username: username,
           phone: phone,
@@ -180,11 +215,10 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
           language: lang,
           photoUrl: photoUrl ?? '',
         );
-
         if (_currentPosition != null) {
           await FirebaseService.firestore
               .collection('users')
-              .doc(user.uid)
+              .doc(uid)
               .set(
             {
               'location': GeoPoint(
@@ -197,7 +231,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
         }
       } else {
         await FirebaseService.createUser(
-          uid: user.uid,
+          uid: uid,
           email: email,
           username: username,
           role: 'customer',
@@ -246,6 +280,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
   @override
   Widget build(BuildContext context) {
     final isEn = Localizations.localeOf(context).languageCode == 'en';
+    final isSocialMode = widget.prefillUid != null;
 
     return Directionality(
       textDirection: isEn ? TextDirection.ltr : TextDirection.rtl,
@@ -302,8 +337,12 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                             children: [
                               Text(
                                 isEn
-                                    ? "Create Account"
-                                    : "إنشاء حساب",
+                                    ? (isSocialMode
+                                        ? "Complete Profile"
+                                        : "Create Account")
+                                    : (isSocialMode
+                                        ? "أكمل ملفك الشخصي"
+                                        : "إنشاء حساب"),
                                 style: const TextStyle(
                                   fontSize: 32,
                                   fontWeight: FontWeight.bold,
@@ -329,21 +368,28 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                                 isEn ? "City" : "المدينة",
                                 Icons.location_city,
                               ),
-                              const SizedBox(height: 16),
-                              _buildModernTextField(
-                                _emailController,
-                                isEn ? "Email" : "البريد الإلكتروني",
-                                Icons.email,
-                                keyboardType:
-                                    TextInputType.emailAddress,
-                              ),
-                              const SizedBox(height: 16),
-                              _buildModernTextField(
-                                _passwordController,
-                                isEn ? "Password" : "كلمة المرور",
-                                Icons.lock,
-                                obscure: true,
-                              ),
+                              // Email + password are only needed for the
+                              // standard sign-up flow. Social sign-in users
+                              // already have a Firebase Auth account.
+                              if (!isSocialMode) ...[
+                                const SizedBox(height: 16),
+                                _buildModernTextField(
+                                  _emailController,
+                                  isEn
+                                      ? "Email"
+                                      : "البريد الإلكتروني",
+                                  Icons.email,
+                                  keyboardType:
+                                      TextInputType.emailAddress,
+                                ),
+                                const SizedBox(height: 16),
+                                _buildModernTextField(
+                                  _passwordController,
+                                  isEn ? "Password" : "كلمة المرور",
+                                  Icons.lock,
+                                  obscure: true,
+                                ),
+                              ],
                               const SizedBox(height: 16),
                               _buildModernDropdown(
                                 value: _role,

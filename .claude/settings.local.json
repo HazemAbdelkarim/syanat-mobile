@@ -33,7 +33,9 @@
       "Bash(cmd /c \"dir /b C:\\\\Users\\\\LTC\\\\AppData\\\\Local\\\\flutter\\\\bin\\\\flutter.bat C:\\\\flutter\\\\bin\\\\flutter.bat C:\\\\src\\\\flutter\\\\bin\\\\flutter.bat 2>nul & where /R C:\\\\Users\\\\LTC flutter.bat 2>nul | head -3\" 2>&1)",
       "Bash(cmd /c \"where /R C:\\\\ flutter.bat 2>nul\" 2>&1)",
       "mcp__firebase__firestore_query_collection",
-      "mcp__firebase__firestore_list_documents"
+      "mcp__firebase__firestore_list_documents",
+      "Bash(cmd /c \"dir /B /S C:\\\\Users\\\\LTC\\\\Syanat\\\\lib\\\\*.dart 2>nul | sort\")",
+      "Bash(cmd /c \"cd /d C:\\\\Users\\\\LTC\\\\Syanat && dir /B /S lib\\\\*.dart\")"
     ]
   }
 }
