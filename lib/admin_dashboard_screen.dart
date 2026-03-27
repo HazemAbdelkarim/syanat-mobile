@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../firebase_service.dart';
 import '../login_screen.dart';
@@ -34,7 +33,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
 
   int activeChats = 0;
 
-  Set<Marker> markers = {};
   DateTime? _selectedDate;
   bool _loading = true;
 
@@ -44,16 +42,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   /// True while a stats fetch is already in-flight; prevents overlapping calls.
   bool _fetching = false;
 
-  /// True once technician map markers have been loaded at least once.
-  bool _markersLoaded = false;
-
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 5, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
     _jobsTabController = TabController(length: 3, vsync: this);
-    // Lazy-load map markers only when the Map tab is first opened.
-    _tabController.addListener(_onTabChanged);
     _loadAllStats();
     _supportCountSub = FirebaseService.streamUnreadSupportCount().listen(
       (n) {
@@ -62,16 +55,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     );
   }
 
-  void _onTabChanged() {
-    if (_tabController.indexIsChanging) return;
-    if (_tabController.index == 3 && !_markersLoaded) {
-      _loadTechnicianLocations();
-    }
-  }
-
   @override
   void dispose() {
-    _tabController.removeListener(_onTabChanged);
     _tabController.dispose();
     _jobsTabController.dispose();
     _supportCountSub?.cancel();
@@ -96,9 +81,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       final statsSnap = await firestore.doc('stats/global').get();
       final statsData = statsSnap.data() ?? {};
 
+      // Revenue = total technician payout (full amountPaid on completed jobs).
+      // We do NOT multiply by a platform-margin factor; the admin calculates
+      // their own bottom line manually outside the app.
       final totalEarnings =
           (statsData['totalEarnings'] as num?)?.toDouble() ?? 0.0;
-      final revenue = totalEarnings * 0.15;
+      final revenue = totalEarnings;
 
       final int? aggUsers       = (statsData['totalUsers']    as num?)?.toInt();
       final int? aggCustomers   = (statsData['customers']     as num?)?.toInt();
@@ -107,6 +95,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       final int? aggOngoing     = (statsData['jobsOngoing']   as num?)?.toInt();
       final int? aggCompleted   = (statsData['jobsCompleted'] as num?)?.toInt();
       final int? aggChats       = (statsData['activeChats']   as num?)?.toInt();
+      // jobsCancelled is now stored in stats/global — no separate count() needed.
+      final int? aggCancelled   = (statsData['jobsCancelled'] as num?)?.toInt();
 
       int usersCount, custCount, techCount, reqCount, ongCount, finCount, chatCount, cancelledCount;
 
@@ -116,8 +106,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           aggRequested != null &&
           aggOngoing != null &&
           aggCompleted != null &&
-          aggChats != null) {
-        // All counters present in the aggregate doc — no extra reads needed.
+          aggChats != null &&
+          aggCancelled != null) {
+        // All counters present — entire dashboard is 1 document read.
         usersCount     = aggUsers;
         custCount      = aggCustomers;
         techCount      = aggTechnicians;
@@ -125,13 +116,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         ongCount       = aggOngoing;
         finCount       = aggCompleted;
         chatCount      = aggChats;
-        // Cancelled always fetched via count() — not cached in stats/global yet.
-        final cancelSnap = await firestore
-            .collection('jobs')
-            .where('status', isEqualTo: 'cancelled')
-            .count()
-            .get();
-        cancelledCount = cancelSnap.count ?? 0;
+        cancelledCount = aggCancelled;
       } else {
         // ── Slow path: aggregate doc incomplete, fall back to count() queries ──
         final results = await Future.wait([
@@ -143,7 +128,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           firestore.collection('jobs').where('status', isEqualTo: 'in_progress').count().get(),
           firestore.collection('jobs').where('status', isEqualTo: 'inprogress').count().get(),
           firestore.collection('jobs').where('status', isEqualTo: 'completed').count().get(),
-          firestore.collectionGroup('messages').count().get(),
+          firestore.collection('support_chats').where('status', isEqualTo: 'open').count().get(),
           firestore.collection('jobs').where('status', isEqualTo: 'cancelled').count().get(),
         ]);
 
@@ -189,60 +174,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     }
   }
 
-  Future<void> _loadTechnicianLocations() async {
-    final bool isEn =
-        mounted ? Localizations.localeOf(context).languageCode == 'en' : true;
-
-    final snap = await FirebaseService.firestore
-        .collection('users')
-        .where('role', isEqualTo: 'technician')
-        .where('available', isEqualTo: true)
-        .get();
-
-    final Set<Marker> temp = {};
-    for (final d in snap.docs) {
-      final data = d.data();
-      if (data.containsKey('location') && data['location'] is GeoPoint) {
-        final GeoPoint gp = data['location'] as GeoPoint;
-        final rating = (data['rating'] as num?)?.toDouble() ?? 0.0;
-
-        temp.add(
-          Marker(
-            markerId: MarkerId(d.id),
-            position: LatLng(gp.latitude, gp.longitude),
-            infoWindow: InfoWindow(
-              title: (data['username']?.toString().trim().isNotEmpty ?? false)
-                  ? data['username'].toString()
-                  : _t(isEn, 'Technician', 'فني'),
-              snippet:
-                  '${_t(isEn, 'Rating', 'التقييم')}: ${rating.toStringAsFixed(1)}',
-            ),
-            icon: BitmapDescriptor.defaultMarkerWithHue(
-              rating >= 4.5
-                  ? BitmapDescriptor.hueGreen
-                  : BitmapDescriptor.hueOrange,
-            ),
-          ),
-        );
-      }
-    }
-
-    if (mounted) {
-      setState(() {
-        markers = temp;
-        _markersLoaded = true;
-      });
-    }
-  }
 
   Future<void> _refreshStats() async {
-    // Allow map markers to reload on the next explicit refresh.
-    _markersLoaded = false;
     await _loadAllStats();
-    // Reload map data immediately if the map tab is currently visible.
-    if (mounted && _tabController.index == 3) {
-      await _loadTechnicianLocations();
-    }
     if (!mounted) return;
 
     final isEn = Localizations.localeOf(context).languageCode == 'en';
@@ -354,10 +288,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                 text: _t(isEn, 'Jobs', 'الطلبات'),
               ),
               Tab(
-                icon: const Icon(Icons.map),
-                text: _t(isEn, 'Map', 'الخريطة'),
-              ),
-              Tab(
                 icon: _buildSupportTabIcon(),
                 text: _t(isEn, 'Support', 'الدعم'),
               ),
@@ -374,7 +304,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                   _overviewTab(isEn),
                   _usersTab(isEn),
                   _jobsTab(isEn),
-                  _mapTab(isEn),
                   _supportTab(isEn),
                 ],
               ),
@@ -410,8 +339,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                 Expanded(
                   child: _kpiCard(
                     isEn,
-                    titleEn: 'Revenue',
-                    titleAr: 'الإيرادات',
+                    titleEn: 'Total Payouts',
+                    titleAr: 'إجمالي المدفوعات',
                     value: '${totalRevenue.toStringAsFixed(0)} EGP',
                     icon: Icons.monetization_on,
                     color: Colors.green,
@@ -494,11 +423,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _chartCard(
-              _t(isEn, 'Users Growth', 'نمو المستخدمين'),
-              _t(isEn, 'Growth chart coming soon', 'رسم النمو قريباً'),
-              isEn: isEn,
-            ),
+            // ── User Breakdown ─────────────────────────────────────────────
+            _usersBreakdownCard(isEn),
             const SizedBox(height: 24),
             Row(
               children: [
@@ -535,19 +461,199 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               _t(isEn, 'Recent Users', 'المستخدمين الجدد'),
               style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
-            const SizedBox(height: 16),
-            ListTile(
-              leading: const CircleAvatar(child: Icon(Icons.person)),
-              title: Text(_t(isEn, 'ahmed@example.com', 'ahmed@example.com')),
-              subtitle: Text(
-                _t(isEn, 'Customer - Joined today', 'عميل - انضم النهاردة'),
-              ),
-              trailing: const Icon(Icons.edit),
-              onTap: () {},
-            ),
+            const SizedBox(height: 12),
+            // ── Real recent-users feed (latest 3 signups) ──────────────────
+            _recentUsersSection(isEn),
           ],
         ),
       ),
+    );
+  }
+
+  /// Bar-breakdown card. Reads from already-loaded state vars — 0 extra reads.
+  Widget _usersBreakdownCard(bool isEn) {
+    final breakdown = customers + technicians;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.08),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            _t(isEn, 'User Breakdown', 'توزيع المستخدمين'),
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            _t(
+              isEn,
+              'Total registered: $totalUsers accounts',
+              'إجمالي المسجلين: $totalUsers حساب',
+            ),
+            style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+          ),
+          const SizedBox(height: 20),
+          _breakdownBar(
+            label: _t(isEn, 'Customers', 'العملاء'),
+            count: customers,
+            total: breakdown,
+            color: Colors.blue,
+          ),
+          const SizedBox(height: 14),
+          _breakdownBar(
+            label: _t(isEn, 'Technicians', 'الفنيين'),
+            count: technicians,
+            total: breakdown,
+            color: Colors.green,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _breakdownBar({
+    required String label,
+    required int count,
+    required int total,
+    required Color color,
+  }) {
+    final pct = total > 0 ? (count / total).clamp(0.0, 1.0) : 0.0;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(label,
+                style: const TextStyle(
+                    fontSize: 13, fontWeight: FontWeight.w500)),
+            Text(
+              '$count  (${(pct * 100).toStringAsFixed(0)}%)',
+              style: TextStyle(
+                  fontSize: 13,
+                  color: color,
+                  fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: LinearProgressIndicator(
+            value: pct,
+            minHeight: 8,
+            backgroundColor: Colors.grey.shade200,
+            valueColor: AlwaysStoppedAnimation<Color>(color),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Streams the latest 3 signups directly from Firestore — cheap bounded query.
+  Widget _recentUsersSection(bool isEn) {
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: FirebaseService.streamRecentUsers(limit: 3),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Text(
+              _t(isEn, 'Could not load recent users.',
+                  'تعذر تحميل المستخدمين الجدد.'),
+              style: const TextStyle(color: Colors.black45),
+            ),
+          );
+        }
+        if (!snapshot.hasData) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 16),
+            child: Center(
+                child: CircularProgressIndicator(color: syanatBlue)),
+          );
+        }
+        final users = snapshot.data!;
+        if (users.isEmpty) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Text(
+              _t(isEn, 'No users yet.', 'لا يوجد مستخدمون بعد.'),
+              style: const TextStyle(color: Colors.black45),
+            ),
+          );
+        }
+        return Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.grey.shade200),
+          ),
+          child: Column(
+            children: List.generate(users.length, (i) {
+              final u = users[i];
+              final username = (u['username'] as String?)?.trim() ?? '';
+              final email = (u['email'] as String?)?.trim() ?? '';
+              final role = (u['role'] as String?) ?? '';
+              final display = username.isNotEmpty ? username : email;
+              final createdAt = u['createdAt'];
+              String joined = '';
+              if (createdAt is Timestamp) {
+                final dt = createdAt.toDate();
+                joined =
+                    '${dt.day}/${dt.month}/${dt.year}';
+              }
+              final isTech = role == 'technician';
+              return Column(
+                children: [
+                  ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: isTech
+                          ? Colors.green.shade50
+                          : syanatBlue.withOpacity(0.10),
+                      child: Icon(
+                        isTech ? Icons.construction : Icons.person,
+                        color: isTech ? Colors.green : syanatBlue,
+                        size: 20,
+                      ),
+                    ),
+                    title: Text(
+                      display.isNotEmpty
+                          ? display
+                          : _t(isEn, 'Unknown', 'غير معروف'),
+                      style: const TextStyle(fontSize: 14),
+                    ),
+                    subtitle: Text(
+                      isTech
+                          ? _t(isEn, 'Technician', 'فني')
+                          : _t(isEn, 'Customer', 'عميل'),
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    trailing: Text(
+                      joined,
+                      style: const TextStyle(
+                          fontSize: 11, color: Colors.black38),
+                    ),
+                  ),
+                  if (i < users.length - 1)
+                    const Divider(
+                        height: 1, indent: 56, endIndent: 16),
+                ],
+              );
+            }),
+          ),
+        );
+      },
     );
   }
 
@@ -591,6 +697,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     return StreamBuilder<List<Map<String, dynamic>>>(
       stream: FirebaseService.streamJobsByStatus('requested'),
       builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return _jobStreamErrorState(snapshot.error.toString(), isEn,
+              onRetry: () => setState(() {}));
+        }
         if (!snapshot.hasData) {
           return const Center(child: CircularProgressIndicator(color: syanatBlue));
         }
@@ -619,6 +729,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     return StreamBuilder<List<Map<String, dynamic>>>(
       stream: FirebaseService.streamActiveJobsAdmin(),
       builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return _jobStreamErrorState(snapshot.error.toString(), isEn,
+              onRetry: () => setState(() {}));
+        }
         if (!snapshot.hasData) {
           return const Center(child: CircularProgressIndicator(color: syanatBlue));
         }
@@ -647,6 +761,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     return StreamBuilder<List<Map<String, dynamic>>>(
       stream: FirebaseService.streamJobsByStatus('completed'),
       builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return _jobStreamErrorState(snapshot.error.toString(), isEn,
+              onRetry: () => setState(() {}));
+        }
         if (!snapshot.hasData) {
           return const Center(child: CircularProgressIndicator(color: syanatBlue));
         }
@@ -920,6 +1038,48 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     );
   }
 
+  /// Shown whenever a job stream emits an error (permission denied, missing
+  /// index, network failure, etc.).  Replaces the infinite loading spinner.
+  Widget _jobStreamErrorState(String error, bool isEn,
+      {required VoidCallback onRetry}) {
+    // Extract a concise message from the Firestore error string.
+    // Full Firestore errors can be very verbose; show only the first sentence.
+    final brief = error.contains('\n') ? error.substring(0, error.indexOf('\n')) : error;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.cloud_off_outlined,
+                size: 56, color: Colors.red.shade300),
+            const SizedBox(height: 12),
+            Text(
+              _t(isEn, 'Failed to load jobs', 'فشل تحميل الطلبات'),
+              style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                  color: Colors.black87),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              brief,
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+            ),
+            const SizedBox(height: 16),
+            TextButton.icon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh, size: 18),
+              label: Text(_t(isEn, 'Retry', 'إعادة المحاولة')),
+              style: TextButton.styleFrom(foregroundColor: syanatBlue),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   // ─── Requested job detail (assign technician) ──────────────────────────────
 
   void _openRequestedJobDetail(Map<String, dynamic> job, bool isEn) {
@@ -943,19 +1103,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (ctx) => _ActiveJobSheet(job: job, isEn: isEn),
-    );
-  }
-
-  Widget _mapTab(bool isEn) {
-    return GoogleMap(
-      initialCameraPosition: const CameraPosition(
-        target: LatLng(30.0444, 31.2357),
-        zoom: 11,
-      ),
-      markers: markers,
-      myLocationEnabled: true,
-      myLocationButtonEnabled: true,
-      mapToolbarEnabled: false,
     );
   }
 
@@ -1245,7 +1392,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     );
   }
 
-  // Keep existing helper widgets below
   Widget _activityCard(bool isEn) {
     return Container(
       width: double.infinity,
@@ -1264,42 +1410,141 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                _t(isEn, 'Recent Activity', 'آخر النشاطات'),
-                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-              ),
-              TextButton.icon(
-                onPressed: () {},
-                icon: const Icon(Icons.history),
-                label: Text(_t(isEn, 'View all', 'عرض الكل')),
-              ),
-            ],
+          Text(
+            _t(isEn, 'Recent Activity', 'آخر النشاطات'),
+            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
           ),
-          const SizedBox(height: 16),
-          ListTile(
-            leading: const CircleAvatar(
-              backgroundColor: syanatBlue,
-              child: Icon(Icons.person_add, color: Colors.white),
-            ),
-            title: Text(_t(isEn, 'New customer joined', 'عميل جديد انضم')),
-            subtitle: Text(_t(isEn, 'ahmed@example.com', 'ahmed@example.com')),
-            trailing: Text(_t(isEn, '2 min ago', 'من دقيقتين')),
-          ),
-          ListTile(
-            leading: const CircleAvatar(
-              backgroundColor: Colors.green,
-              child: Icon(Icons.check_circle, color: Colors.white),
-            ),
-            title: Text(_t(isEn, 'Job completed', 'طلب اتقفل')),
-            subtitle: Text(_t(isEn, 'Plumbing - 150 EGP', 'سباكة - 150 جنيه')),
-            trailing: Text(_t(isEn, '5 min ago', 'من 5 دقايق')),
+          const SizedBox(height: 12),
+          StreamBuilder<List<Map<String, dynamic>>>(
+            stream: FirebaseService.streamRecentActivity(limit: 10),
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  child: Text(
+                    _t(isEn, 'Could not load activity', 'تعذر تحميل النشاطات'),
+                    style: const TextStyle(color: Colors.black45),
+                  ),
+                );
+              }
+              if (!snapshot.hasData) {
+                return const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 16),
+                  child: Center(
+                      child: CircularProgressIndicator(color: syanatBlue)),
+                );
+              }
+              final events = snapshot.data!;
+              if (events.isEmpty) {
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  child: Center(
+                    child: Text(
+                      _t(isEn, 'No activity yet.', 'لا توجد نشاطات بعد.'),
+                      style: const TextStyle(color: Colors.black45),
+                    ),
+                  ),
+                );
+              }
+              return ListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: events.length,
+                itemBuilder: (context, i) {
+                  final ev = events[i];
+                  final type = ev['type'] as String? ?? '';
+                  final desc = ev['description'] as String? ?? '';
+                  final role = ev['role'] as String? ?? '';
+                  final ts = ev['createdAt'];
+                  final timeStr = _relativeTime(ts, isEn);
+
+                  IconData icon;
+                  Color color;
+                  String titleEn;
+                  String titleAr;
+
+                  switch (type) {
+                    case 'account_created':
+                      icon = Icons.person_add;
+                      color = syanatBlue;
+                      if (role == 'technician') {
+                        titleEn = 'New technician joined';
+                        titleAr = 'فني جديد انضم';
+                      } else {
+                        titleEn = 'New customer joined';
+                        titleAr = 'عميل جديد انضم';
+                      }
+                      break;
+                    case 'job_requested':
+                      icon = Icons.pending_actions;
+                      color = Colors.orange;
+                      titleEn = 'Job requested';
+                      titleAr = 'طلب جديد';
+                      break;
+                    case 'job_completed':
+                      icon = Icons.check_circle;
+                      color = Colors.green;
+                      titleEn = 'Job completed';
+                      titleAr = 'طلب مكتمل';
+                      break;
+                    case 'job_cancelled':
+                      icon = Icons.cancel;
+                      color = Colors.red;
+                      titleEn = 'Job cancelled';
+                      titleAr = 'طلب ملغي';
+                      break;
+                    default:
+                      icon = Icons.info_outline;
+                      color = Colors.grey;
+                      titleEn = type;
+                      titleAr = type;
+                  }
+
+                  return ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: CircleAvatar(
+                      backgroundColor: color.withOpacity(0.12),
+                      child: Icon(icon, color: color, size: 20),
+                    ),
+                    title: Text(
+                      _t(isEn, titleEn, titleAr),
+                      style: const TextStyle(fontSize: 14),
+                    ),
+                    subtitle: desc.isNotEmpty
+                        ? Text(
+                            desc,
+                            style: const TextStyle(
+                                fontSize: 12, color: Colors.black45),
+                            overflow: TextOverflow.ellipsis,
+                          )
+                        : null,
+                    trailing: Text(
+                      timeStr,
+                      style: const TextStyle(
+                          fontSize: 11, color: Colors.black38),
+                    ),
+                  );
+                },
+              );
+            },
           ),
         ],
       ),
     );
+  }
+
+  /// Returns a human-readable relative time string for a Firestore Timestamp.
+  String _relativeTime(dynamic ts, bool isEn) {
+    if (ts is! Timestamp) return '';
+    final diff = DateTime.now().difference(ts.toDate());
+    if (diff.inSeconds < 60) return isEn ? 'just now' : 'الآن';
+    if (diff.inMinutes < 60) {
+      return isEn ? '${diff.inMinutes}m ago' : 'من ${diff.inMinutes} د';
+    }
+    if (diff.inHours < 24) {
+      return isEn ? '${diff.inHours}h ago' : 'من ${diff.inHours} س';
+    }
+    return isEn ? '${diff.inDays}d ago' : 'من ${diff.inDays} ي';
   }
 }
 

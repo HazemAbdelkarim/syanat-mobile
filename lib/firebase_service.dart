@@ -143,6 +143,30 @@ class FirebaseService {
     if (photoUrl.isNotEmpty) data['photoUrl'] = photoUrl;
 
     await firestore.collection('users').doc(uid).set(data, SetOptions(merge: true));
+
+    // Increment aggregate counters atomically — one doc read saved on every
+    // dashboard load because stats/global is kept current at write time.
+    final Map<String, dynamic> statsInc = {
+      'totalUsers': FieldValue.increment(1),
+    };
+    if (role == 'customer') {
+      statsInc['customers'] = FieldValue.increment(1);
+    } else if (role == 'technician') {
+      statsInc['technicians'] = FieldValue.increment(1);
+    }
+    await firestore
+        .doc('stats/global')
+        .set(statsInc, SetOptions(merge: true));
+
+    // Activity log — fire-and-forget, must not block account creation.
+    try {
+      await firestore.collection('activity_log').add({
+        'type': 'account_created',
+        'description': username.isNotEmpty ? username : email,
+        'role': role,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+    } catch (_) {}
   }
 
   /// Helper: create a technician user and ensure its service entry exists.
@@ -285,12 +309,43 @@ class FirebaseService {
   }
 
   /// Cancel a job by updating its status to 'cancelled'.
-  /// Visible to both customer and technician through streamJobs.
+  /// Uses a transaction so we know the previous status for accurate counter
+  /// updates: a 'requested' job decrements jobsRequested; an active job
+  /// decrements jobsOngoing.
   static Future<void> cancelJob(String jobId) async {
-    await firestore.collection('jobs').doc(jobId).update({
-      'status': 'cancelled',
-      'updatedAt': FieldValue.serverTimestamp(),
+    String prevStatus = '';
+    await firestore.runTransaction((tx) async {
+      final ref = firestore.collection('jobs').doc(jobId);
+      final snap = await tx.get(ref);
+      if (!snap.exists) return;
+      prevStatus = (snap.data()!['status'] as String?) ?? '';
+      tx.update(ref, {
+        'status': 'cancelled',
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
     });
+    if (prevStatus.isEmpty) return;
+    try {
+      final Map<String, dynamic> statsUpdate = {
+        'jobsCancelled': FieldValue.increment(1),
+      };
+      if (prevStatus == 'requested') {
+        statsUpdate['jobsRequested'] = FieldValue.increment(-1);
+      } else if (prevStatus == 'accepted' ||
+          prevStatus == 'in_progress' ||
+          prevStatus == 'inprogress') {
+        statsUpdate['jobsOngoing'] = FieldValue.increment(-1);
+      }
+      await firestore
+          .doc('stats/global')
+          .set(statsUpdate, SetOptions(merge: true));
+      await firestore.collection('activity_log').add({
+        'type': 'job_cancelled',
+        'description': 'Job cancelled',
+        'jobId': jobId,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+    } catch (_) {}
   }
 
   // ----------------------
@@ -363,6 +418,19 @@ class FirebaseService {
   // ----------------------
   // SUPPORT CHAT
   // ----------------------
+
+  /// Returns the ID of an existing open support chat for [userId], or null.
+  /// Does NOT create a new chat — call this on screen open to avoid phantom
+  /// admin-side tickets when the user merely opens the help screen.
+  static Future<String?> getExistingSupportChat(String userId) async {
+    final snap = await firestore
+        .collection('support_chats')
+        .where('userId', isEqualTo: userId)
+        .where('status', isEqualTo: 'open')
+        .limit(1)
+        .get();
+    return snap.docs.isNotEmpty ? snap.docs.first.id : null;
+  }
 
   /// Returns the existing open support chat for [userId], or creates a new one.
   static Future<String> getOrCreateSupportChat({
@@ -751,6 +819,21 @@ class FirebaseService {
       'updatedAt': FieldValue.serverTimestamp(),
     };
     final docRef = await firestore.collection('jobs').add(data);
+
+    // Increment jobsRequested counter and append activity event.
+    try {
+      await firestore
+          .doc('stats/global')
+          .set({'jobsRequested': FieldValue.increment(1)}, SetOptions(merge: true));
+      await firestore.collection('activity_log').add({
+        'type': 'job_requested',
+        'description':
+            '${serviceCategory.isNotEmpty ? serviceCategory : serviceKey} — $customerName',
+        'jobId': docRef.id,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+    } catch (_) {}
+
     return docRef.id;
   }
 
@@ -767,6 +850,13 @@ class FirebaseService {
       'status': 'accepted',
       'updatedAt': FieldValue.serverTimestamp(),
     });
+    // Move counter: one fewer requested, one more ongoing.
+    try {
+      await firestore.doc('stats/global').set({
+        'jobsRequested': FieldValue.increment(-1),
+        'jobsOngoing': FieldValue.increment(1),
+      }, SetOptions(merge: true));
+    } catch (_) {}
   }
 
   /// Admin closes an active job with the exact amount paid.
@@ -794,11 +884,20 @@ class FirebaseService {
       closed = true;
     });
     if (closed) {
-      // Increment global revenue counter for the admin dashboard.
-      await firestore.doc('stats/global').set(
-        {'totalEarnings': FieldValue.increment(amountPaid)},
-        SetOptions(merge: true),
-      );
+      // Batch all stats changes in one write: revenue + job counters.
+      await firestore.doc('stats/global').set({
+        'totalEarnings': FieldValue.increment(amountPaid),
+        'jobsCompleted': FieldValue.increment(1),
+        'jobsOngoing': FieldValue.increment(-1),
+      }, SetOptions(merge: true));
+      try {
+        await firestore.collection('activity_log').add({
+          'type': 'job_completed',
+          'description': 'Job closed — ${amountPaid.toStringAsFixed(0)} EGP',
+          'jobId': jobId,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+      } catch (_) {}
     }
     return closed;
   }
@@ -944,5 +1043,46 @@ class FirebaseService {
         .count()
         .get();
     return snap.count ?? 0;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // RECENT USERS (admin dashboard — latest signups)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /// Streams the [limit] most recently created user documents, newest first.
+  /// Uses the auto-indexed single-field orderBy on createdAt — no composite
+  /// index required. Includes all roles; callers filter display as needed.
+  static Stream<List<Map<String, dynamic>>> streamRecentUsers(
+      {int limit = 3}) {
+    return firestore
+        .collection('users')
+        .orderBy('createdAt', descending: true)
+        .limit(limit)
+        .snapshots()
+        .map((snap) => snap.docs.map((d) {
+              final data = Map<String, dynamic>.from(d.data());
+              data['id'] = d.id;
+              return data;
+            }).toList());
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // RECENT ACTIVITY FEED (admin-only reads, append-only writes)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /// Streams the [limit] most recent activity events ordered newest-first.
+  /// Each document has: type, description, createdAt, and optional jobId/role.
+  static Stream<List<Map<String, dynamic>>> streamRecentActivity(
+      {int limit = 10}) {
+    return firestore
+        .collection('activity_log')
+        .orderBy('createdAt', descending: true)
+        .limit(limit)
+        .snapshots()
+        .map((snap) => snap.docs.map((d) {
+              final data = Map<String, dynamic>.from(d.data());
+              data['id'] = d.id;
+              return data;
+            }).toList());
   }
 }

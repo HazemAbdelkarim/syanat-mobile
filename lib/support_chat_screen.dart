@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'firebase_service.dart';
 
 const Color _syanatBlue = Color(0xFF3C21C8);
@@ -15,8 +16,10 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
   final _msgController = TextEditingController();
   final _scrollController = ScrollController();
 
+  User? _currentUser;
   String? _chatId;
   bool _loading = true;
+  bool _sending = false;
 
   @override
   void initState() {
@@ -31,44 +34,58 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
     super.dispose();
   }
 
+  /// On screen open: only LOOK for an existing open chat.
+  /// Do NOT create one — that would create a phantom admin-side ticket
+  /// for users who opened the screen but never wrote anything.
   Future<void> _initChat() async {
     final user = FirebaseService.getCurrentUser();
     if (user == null) {
       if (mounted) setState(() => _loading = false);
       return;
     }
+    _currentUser = user;
     try {
-      final profile = await FirebaseService.getProfile(user.uid);
-      final userName =
-          (profile?['username'] as String?)?.trim().isNotEmpty == true
-              ? profile!['username'] as String
-              : user.email ?? 'User';
-
-      final chatId = await FirebaseService.getOrCreateSupportChat(
-        userId: user.uid,
-        userName: userName,
-      );
+      final chatId = await FirebaseService.getExistingSupportChat(user.uid);
       if (mounted) setState(() { _chatId = chatId; _loading = false; });
-    } catch (e) {
+    } catch (_) {
       if (mounted) setState(() => _loading = false);
     }
   }
 
   Future<void> _sendMessage() async {
-    final user = FirebaseService.getCurrentUser();
-    if (user == null || _chatId == null) return;
+    if (_sending) return;
+    final user = _currentUser;
+    if (user == null) return;
 
     final text = _msgController.text.trim();
     if (text.isEmpty) return;
 
+    setState(() => _sending = true);
     _msgController.clear();
+
     try {
+      // Lazy-create the support chat only on the very first message send.
+      // This prevents phantom tickets from users who just opened the screen.
+      if (_chatId == null) {
+        final profile = await FirebaseService.getProfile(user.uid);
+        final userName =
+            (profile?['username'] as String?)?.trim().isNotEmpty == true
+                ? profile!['username'] as String
+                : user.email ?? 'User';
+        final chatId = await FirebaseService.getOrCreateSupportChat(
+          userId: user.uid,
+          userName: userName,
+        );
+        if (mounted) setState(() => _chatId = chatId);
+      }
+
       await FirebaseService.sendSupportMessage(
         chatId: _chatId!,
         senderId: user.uid,
         text: text,
         setUnreadForAdmin: true,
       );
+
       await Future.delayed(const Duration(milliseconds: 80));
       if (_scrollController.hasClients) {
         _scrollController.animateTo(
@@ -78,50 +95,71 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
         );
       }
     } catch (e) {
+      // Restore message text so user does not lose it
+      _msgController.text = text;
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to send message: $e')),
+          SnackBar(
+            content: Text(
+              _t('Failed to send message: $e', 'فشل إرسال الرسالة: $e'),
+            ),
+          ),
         );
       }
+    } finally {
+      if (mounted) setState(() => _sending = false);
     }
   }
 
+  bool get _isEn => Localizations.localeOf(context).languageCode == 'en';
+
+  String _t(String en, String ar) => _isEn ? en : ar;
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        backgroundColor: _syanatBlue,
-        iconTheme: const IconThemeData(color: Colors.white),
-        title: const Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Need Help?',
-              style: TextStyle(
-                  color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
-            ),
-            Text(
-              'Syanat Support',
-              style: TextStyle(color: Colors.white70, fontSize: 12),
-            ),
-          ],
+    return Directionality(
+      textDirection: _isEn ? TextDirection.ltr : TextDirection.rtl,
+      child: Scaffold(
+        appBar: AppBar(
+          backgroundColor: _syanatBlue,
+          iconTheme: const IconThemeData(color: Colors.white),
+          title: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                _t('Need Help?', 'تحتاج مساعدة؟'),
+                style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16),
+              ),
+              Text(
+                _t('Syanat Support', 'دعم صيانات'),
+                style: const TextStyle(color: Colors.white70, fontSize: 12),
+              ),
+            ],
+          ),
         ),
+        body: _loading
+            ? const Center(
+                child: CircularProgressIndicator(color: _syanatBlue))
+            : _currentUser == null
+                ? Center(
+                    child: Text(
+                      _t(
+                        'Please log in to access support.',
+                        'يرجى تسجيل الدخول للوصول إلى الدعم.',
+                      ),
+                      style: const TextStyle(color: Colors.black54),
+                    ),
+                  )
+                : _buildChatBody(),
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator(color: _syanatBlue))
-          : _chatId == null
-              ? const Center(
-                  child: Text(
-                    'Please log in to access support.',
-                    style: TextStyle(color: Colors.black54),
-                  ),
-                )
-              : _buildChatBody(),
     );
   }
 
   Widget _buildChatBody() {
-    final currentUid = FirebaseService.getCurrentUser()!.uid;
+    final currentUid = _currentUser!.uid;
 
     return Column(
       children: [
@@ -142,167 +180,201 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
                     color: _syanatBlue, size: 18),
               ),
               const SizedBox(width: 10),
-              const Expanded(
+              Expanded(
                 child: Text(
-                  'Our support team typically replies within 24 hours.',
-                  style: TextStyle(fontSize: 12, color: Colors.black54),
+                  _t(
+                    'Our support team typically replies within 24 hours.',
+                    'فريق الدعم يرد عادة خلال 24 ساعة.',
+                  ),
+                  style: const TextStyle(fontSize: 12, color: Colors.black54),
                 ),
               ),
             ],
           ),
         ),
 
-        // Messages
+        // Messages list
         Expanded(
-          child: StreamBuilder<QuerySnapshot>(
-            stream: FirebaseService.firestore
-                .collection('support_chats')
-                .doc(_chatId)
-                .collection('messages')
-                .orderBy('createdAt')
-                .limitToLast(50)
-                .snapshots(),
-            builder: (context, snapshot) {
-              if (!snapshot.hasData) {
-                return const Center(
-                    child:
-                        CircularProgressIndicator(color: _syanatBlue));
-              }
-              final docs = snapshot.data!.docs;
-              if (docs.isEmpty) {
-                return const Center(
+          child: _chatId == null
+              // No existing chat — show empty-state hint
+              ? Center(
                   child: Padding(
-                    padding: EdgeInsets.all(32),
+                    padding: const EdgeInsets.all(32),
                     child: Text(
-                      'Send us a message and we\'ll get back to you.',
+                      _t(
+                        'Send us a message and we\'ll get back to you.',
+                        'أرسل لنا رسالة وسنرد عليك.',
+                      ),
                       textAlign: TextAlign.center,
-                      style:
-                          TextStyle(color: Colors.black45, fontSize: 14),
+                      style: const TextStyle(
+                          color: Colors.black45, fontSize: 14),
                     ),
                   ),
-                );
-              }
-              return ListView.builder(
-                controller: _scrollController,
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 12, vertical: 8),
-                itemCount: docs.length,
-                itemBuilder: (context, index) {
-                  final data =
-                      docs[index].data() as Map<String, dynamic>;
-                  final isMe = data['senderId'] == currentUid;
-                  final text = data['text'] as String? ?? '';
-                  return Align(
-                    alignment: isMe
-                        ? Alignment.centerRight
-                        : Alignment.centerLeft,
-                    child: Container(
-                      margin: const EdgeInsets.symmetric(vertical: 4),
+                )
+              : StreamBuilder<QuerySnapshot>(
+                  stream: FirebaseService.firestore
+                      .collection('support_chats')
+                      .doc(_chatId)
+                      .collection('messages')
+                      .orderBy('createdAt')
+                      .limitToLast(50)
+                      .snapshots(),
+                  builder: (context, snapshot) {
+                    if (!snapshot.hasData) {
+                      return const Center(
+                          child: CircularProgressIndicator(
+                              color: _syanatBlue));
+                    }
+                    final docs = snapshot.data!.docs;
+                    if (docs.isEmpty) {
+                      return Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(32),
+                          child: Text(
+                            _t(
+                              'Send us a message and we\'ll get back to you.',
+                              'أرسل لنا رسالة وسنرد عليك.',
+                            ),
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                                color: Colors.black45, fontSize: 14),
+                          ),
+                        ),
+                      );
+                    }
+                    return ListView.builder(
+                      controller: _scrollController,
                       padding: const EdgeInsets.symmetric(
                           horizontal: 12, vertical: 8),
-                      constraints: BoxConstraints(
-                        maxWidth:
-                            MediaQuery.of(context).size.width * 0.72,
-                      ),
-                      decoration: BoxDecoration(
-                        color: isMe
-                            ? _syanatBlue
-                            : Colors.grey.shade200,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        text,
-                        style: TextStyle(
-                          color:
-                              isMe ? Colors.white : Colors.black87,
+                      itemCount: docs.length,
+                      itemBuilder: (context, index) {
+                        final data =
+                            docs[index].data() as Map<String, dynamic>;
+                        final isMe = data['senderId'] == currentUid;
+                        final text = data['text'] as String? ?? '';
+                        return Align(
+                          alignment: isMe
+                              ? Alignment.centerRight
+                              : Alignment.centerLeft,
+                          child: Container(
+                            margin: const EdgeInsets.symmetric(vertical: 4),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 8),
+                            constraints: BoxConstraints(
+                              maxWidth:
+                                  MediaQuery.of(context).size.width * 0.72,
+                            ),
+                            decoration: BoxDecoration(
+                              color: isMe
+                                  ? _syanatBlue
+                                  : Colors.grey.shade200,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              text,
+                              style: TextStyle(
+                                color:
+                                    isMe ? Colors.white : Colors.black87,
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    );
+                  },
+                ),
+        ),
+
+        // Closed notice + input
+        _chatId == null
+            ? _inputBar(closed: false)
+            : StreamBuilder<DocumentSnapshot>(
+                stream: FirebaseService.firestore
+                    .collection('support_chats')
+                    .doc(_chatId)
+                    .snapshots(),
+                builder: (context, snapshot) {
+                  final data =
+                      snapshot.data?.data() as Map<String, dynamic>?;
+                  final closed = data?['status'] == 'closed';
+                  return Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (closed)
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(
+                              vertical: 10, horizontal: 16),
+                          color: Colors.grey.shade100,
+                          child: Text(
+                            _t(
+                              'This conversation has been closed by support. You may open a new request.',
+                              'تم إغلاق هذه المحادثة من قبل الدعم. يمكنك فتح طلب جديد.',
+                            ),
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                                fontSize: 12, color: Colors.black54),
+                          ),
                         ),
-                      ),
-                    ),
+                      _inputBar(closed: closed),
+                    ],
                   );
                 },
-              );
-            },
+              ),
+      ],
+    );
+  }
+
+  Widget _inputBar({required bool closed}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100,
+        border: const Border(top: BorderSide(color: Colors.grey)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _msgController,
+              enabled: !closed,
+              decoration: InputDecoration(
+                hintText: closed
+                    ? _t('Conversation closed', 'تم إغلاق المحادثة')
+                    : _t('Describe your issue...', 'اشرح مشكلتك...'),
+                filled: true,
+                fillColor: Colors.white,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(18),
+                  borderSide: BorderSide.none,
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 12, vertical: 10),
+              ),
+              minLines: 1,
+              maxLines: 3,
+            ),
           ),
-        ),
-
-        // Closed notice + input — driven by a single chat doc stream
-        StreamBuilder<DocumentSnapshot>(
-          stream: FirebaseService.firestore
-              .collection('support_chats')
-              .doc(_chatId)
-              .snapshots(),
-          builder: (context, snapshot) {
-            final data =
-                snapshot.data?.data() as Map<String, dynamic>?;
-            final closed = data?['status'] == 'closed';
-
-            return Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (closed)
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(
-                        vertical: 10, horizontal: 16),
-                    color: Colors.grey.shade100,
-                    child: const Text(
-                      'This conversation has been closed by support. '
-                      'You may open a new request.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                          fontSize: 12, color: Colors.black54),
-                    ),
+          const SizedBox(width: 8),
+          _sending
+              ? const Padding(
+                  padding: EdgeInsets.all(12),
+                  child: SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, color: _syanatBlue),
                   ),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 8, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade100,
-                    border: const Border(
-                        top: BorderSide(color: Colors.grey)),
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: _msgController,
-                          enabled: !closed,
-                          decoration: InputDecoration(
-                            hintText: closed
-                                ? 'Conversation closed'
-                                : 'Describe your issue...',
-                            filled: true,
-                            fillColor: Colors.white,
-                            border: OutlineInputBorder(
-                              borderRadius:
-                                  BorderRadius.circular(18),
-                              borderSide: BorderSide.none,
-                            ),
-                            contentPadding:
-                                const EdgeInsets.symmetric(
-                                    horizontal: 12, vertical: 10),
-                          ),
-                          minLines: 1,
-                          maxLines: 3,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      IconButton(
-                        onPressed: closed ? null : _sendMessage,
-                        icon: Icon(
-                          Icons.send,
-                          color:
-                              closed ? Colors.grey : _syanatBlue,
-                        ),
-                      ),
-                    ],
+                )
+              : IconButton(
+                  onPressed: closed ? null : _sendMessage,
+                  icon: Icon(
+                    Icons.send,
+                    color: closed ? Colors.grey : _syanatBlue,
                   ),
                 ),
-              ],
-            );
-          },
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
