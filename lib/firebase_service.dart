@@ -45,9 +45,7 @@ class FirebaseService {
     }
 
     // App Check — blocks unauthorized clients from reaching Firebase APIs.
-    // Debug provider is used automatically on debug builds; swap in production
-    // providers before releasing. Replace the reCAPTCHA key with the real one
-    // from the Firebase console before deploying the web build.
+    // On web-debug the placeholder reCAPTCHA key will fail, so skip it.
     await FirebaseAppCheck.instance.activate(
       webProvider: ReCaptchaV3Provider('YOUR_RECAPTCHA_V3_SITE_KEY'),
       androidProvider:
@@ -141,6 +139,20 @@ class FirebaseService {
 
   // ── Saved Locations ──────────────────────────────────────────────────────
 
+  static String buildAddressString({
+    required String street,
+    required String city,
+    required String building,
+    required String notes,
+  }) {
+    final parts = <String>[];
+    if (street.isNotEmpty) parts.add(street);
+    if (building.isNotEmpty) parts.add(building);
+    if (city.isNotEmpty) parts.add(city);
+    if (notes.isNotEmpty) parts.add(notes);
+    return parts.join(', ');
+  }
+
   /// Returns all saved locations for a user.
   static Future<List<Map<String, dynamic>>> getSavedLocations(String uid) async {
     final snap = await firestore
@@ -150,17 +162,60 @@ class FirebaseService {
         .orderBy('createdAt', descending: true)
         .limit(20)
         .get();
-    return snap.docs.map((d) => {'id': d.id, ...d.data()}).toList();
+    return snap.docs.map((d) {
+      final data = Map<String, dynamic>.from(d.data());
+      final street = (data['street'] as String? ?? '').trim();
+      final city = (data['city'] as String? ?? '').trim();
+      final building = (data['building'] as String? ?? '').trim();
+      final notes = (data['notes'] as String? ?? '').trim();
+      final address = (data['address'] as String? ?? '').trim();
+
+      return {
+        'id': d.id,
+        ...data,
+        'street': street,
+        'city': city,
+        'building': building,
+        'notes': notes,
+        'address': address.isNotEmpty
+            ? address
+            : buildAddressString(
+                street: street,
+                city: city,
+                building: building,
+                notes: notes,
+              ),
+      };
+    }).toList();
   }
 
   /// Adds a new saved location and returns its document ID.
   static Future<String> addSavedLocation(String uid, Map<String, dynamic> data) async {
-    data['createdAt'] = FieldValue.serverTimestamp();
+    final payload = Map<String, dynamic>.from(data);
+    final street = (payload['street'] as String? ?? '').trim();
+    final city = (payload['city'] as String? ?? '').trim();
+    final building = (payload['building'] as String? ?? '').trim();
+    final notes = (payload['notes'] as String? ?? '').trim();
+    final address = (payload['address'] as String? ?? '').trim();
+
+    payload['street'] = street;
+    payload['city'] = city;
+    payload['building'] = building;
+    payload['notes'] = notes;
+    payload['address'] = address.isNotEmpty
+        ? address
+        : buildAddressString(
+            street: street,
+            city: city,
+            building: building,
+            notes: notes,
+          );
+    payload['createdAt'] = FieldValue.serverTimestamp();
     final ref = await firestore
         .collection('users')
         .doc(uid)
         .collection('locations')
-        .add(data);
+        .add(payload);
     return ref.id;
   }
 

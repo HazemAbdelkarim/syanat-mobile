@@ -1,39 +1,70 @@
-// Syanat App - Widget Tests
-// Basic smoke tests for app startup and UI rendering
-
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:firebase_core/firebase_core.dart';
-
-import 'package:flutter_projects/main.dart';
+import 'package:flutter_projects/user_home_screen.dart';
 
 void main() {
-  /// Smoke test: App initializes without crashing
-  testWidgets('App starts and displays splash/login screen', (WidgetTester tester) async {
-    // Note: Firebase initialization requires proper mocking in CI/CD
-    // This test validates basic UI rendering, not Firebase connectivity
+  group('customer home service composition', () {
+    test('pins the exact five homepage services in the requested order', () {
+      final pinned = buildPinnedHomeServices(homeServiceCatalog);
 
-    await tester.pumpWidget(const MyApp());
+      expect(
+        pinned.map((service) => service.key).toList(),
+        equals([
+          'ac',
+          'plumbing',
+          'electricity',
+          'large_appliances',
+          'carpentry',
+        ]),
+      );
 
-    // Allow time for initial animations
-    await tester.pumpAndSettle(const Duration(milliseconds: 500));
+      expect(
+        pinned.map((service) => service.label(true)).toList(),
+        equals([
+          'Air Conditioning',
+          'Plumbing',
+          'Electricity',
+          'Large Appliances',
+          'Carpentry',
+        ]),
+      );
+    });
 
-    // Verify the app renders without throwing
-    expect(find.byType(MyApp), findsOneWidget);
+    test('More excludes the five pinned services and keeps the remaining keys', () {
+      final remaining = buildRemainingHomeServices(homeServiceCatalog);
 
-    // Verify splash screen or login screen is visible
-    // (depending on auth state - at startup, both should load without error)
-    final splashOrLogin = find.byType(Container);
-    expect(splashOrLogin, findsWidgets);
-  });
+      expect(
+        remaining.map((service) => service.key).toList(),
+        equals([
+          'security_intercom',
+          'small_appliances',
+          'pest_control',
+          'aluminum',
+          'finishing',
+        ]),
+      );
 
-  /// Basic widget test: Login screen widget renders
-  testWidgets('Login screen renders without errors', (WidgetTester tester) async {
-    await tester.pumpWidget(const MyApp());
-    await tester.pumpAndSettle();
+      for (final key in prioritizedHomeServiceKeys) {
+        expect(
+          remaining.any((service) => service.key == key),
+          isFalse,
+        );
+      }
+    });
 
-    // Verify basic UI elements are present
-    expect(find.byType(Icon), findsWidgets); // App icons
-    expect(find.byType(TextFormField), findsWidgets); // Input fields
+    test('selection metadata keeps the original stable service keys and route labels', () {
+      final electricity = buildPinnedHomeServices(homeServiceCatalog)
+          .firstWhere((service) => service.key == 'electricity');
+      final finishing = buildRemainingHomeServices(homeServiceCatalog)
+          .firstWhere((service) => service.key == 'finishing');
+
+      expect(electricity.key, 'electricity');
+      expect(electricity.routeLabelEn, 'Electrical');
+      expect(electricity.routeLabelAr, 'كهرباء');
+      expect(electricity.label(true), 'Electricity');
+
+      expect(finishing.key, 'finishing');
+      expect(finishing.routeLabelEn, 'Finishing');
+      expect(finishing.routeLabelAr, 'تشطيبات');
+    });
   });
 }

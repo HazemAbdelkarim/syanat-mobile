@@ -519,7 +519,10 @@ class _OrderRequestSheetState extends State<_OrderRequestSheet> {
   final _descController = TextEditingController();
   final _phoneController = TextEditingController();
   final _newLocLabelCtrl = TextEditingController();
-  final _newLocAddressCtrl = TextEditingController();
+  final _newLocStreetCtrl = TextEditingController();
+  final _newLocCityCtrl = TextEditingController();
+  final _newLocBuildingCtrl = TextEditingController();
+  final _newLocNotesCtrl = TextEditingController();
 
   List<Map<String, dynamic>> _locations = [];
   Map<String, dynamic>? _selectedLocation;
@@ -546,11 +549,76 @@ class _OrderRequestSheetState extends State<_OrderRequestSheet> {
     _descController.dispose();
     _phoneController.dispose();
     _newLocLabelCtrl.dispose();
-    _newLocAddressCtrl.dispose();
+    _newLocStreetCtrl.dispose();
+    _newLocCityCtrl.dispose();
+    _newLocBuildingCtrl.dispose();
+    _newLocNotesCtrl.dispose();
     super.dispose();
   }
 
   String _t(String en, String ar) => widget.isEn ? en : ar;
+
+  String _buildAddressString({
+    required String street,
+    required String city,
+    required String building,
+    required String notes,
+  }) {
+    final parts = <String>[];
+    if (street.isNotEmpty) parts.add(street);
+    if (building.isNotEmpty) parts.add(building);
+    if (city.isNotEmpty) parts.add(city);
+    if (notes.isNotEmpty) parts.add(notes);
+    return parts.join(', ');
+  }
+
+  Widget _locationFieldCard({
+    required IconData icon,
+    required String label,
+    required TextEditingController controller,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0F000000),
+            blurRadius: 8,
+            offset: Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(9),
+            decoration: BoxDecoration(
+              color: const Color(0x143C21C8),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, color: syanatBlue, size: 22),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: TextField(
+              controller: controller,
+              decoration: InputDecoration(
+                labelText: label,
+                labelStyle: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey.shade500,
+                  fontWeight: FontWeight.w500,
+                ),
+                border: InputBorder.none,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   Future<void> _pickScheduledTime() async {
     final now = DateTime.now();
@@ -574,61 +642,114 @@ class _OrderRequestSheetState extends State<_OrderRequestSheet> {
 
   Future<void> _addNewLocation() async {
     _newLocLabelCtrl.clear();
-    _newLocAddressCtrl.clear();
+    _newLocStreetCtrl.clear();
+    _newLocCityCtrl.clear();
+    _newLocBuildingCtrl.clear();
+    _newLocNotesCtrl.clear();
 
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(_t('Add Location', 'إضافة موقع')),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: _newLocLabelCtrl,
-              decoration: InputDecoration(
-                labelText: _t('Label (e.g. Home)', 'التسمية (مثال: المنزل)'),
-              ),
+      builder: (ctx) => Directionality(
+        textDirection: widget.isEn ? TextDirection.ltr : TextDirection.rtl,
+        child: AlertDialog(
+          scrollable: true,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Text(_t('Add Location', '\u0625\u0636\u0627\u0641\u0629 \u0645\u0648\u0642\u0639')),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _locationFieldCard(
+                  icon: Icons.place_outlined,
+                  label: _t('Label (e.g. Home)', '\u0627\u0644\u062a\u0633\u0645\u064a\u0629 (\u0645\u062b\u0627\u0644: \u0627\u0644\u0645\u0646\u0632\u0644)'),
+                  controller: _newLocLabelCtrl,
+                ),
+                const SizedBox(height: 12),
+                _locationFieldCard(
+                  icon: Icons.signpost,
+                  label: _t('Street', 'الشارع'),
+                  controller: _newLocStreetCtrl,
+                ),
+                const SizedBox(height: 12),
+                _locationFieldCard(
+                  icon: Icons.location_city,
+                  label: _t('City', 'المدينة'),
+                  controller: _newLocCityCtrl,
+                ),
+                const SizedBox(height: 12),
+                _locationFieldCard(
+                  icon: Icons.apartment,
+                  label: _t('Building', 'المبنى'),
+                  controller: _newLocBuildingCtrl,
+                ),
+                const SizedBox(height: 12),
+                _locationFieldCard(
+                  icon: Icons.notes,
+                  label: _t('Additional notes', 'ملاحظات إضافية'),
+                  controller: _newLocNotesCtrl,
+                ),
+              ],
             ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _newLocAddressCtrl,
-              decoration: InputDecoration(
-                labelText: _t('Full Address', 'العنوان الكامل'),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text(_t('Cancel', '\u0625\u0644\u063a\u0627\u0621')),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: syanatBlue,
+                foregroundColor: Colors.white,
               ),
-              maxLines: 2,
+              child: Text(_t('Save', '\u062d\u0641\u0638')),
             ),
           ],
         ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: Text(_t('Cancel', 'إلغاء'))),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(
-                backgroundColor: syanatBlue, foregroundColor: Colors.white),
-            child: Text(_t('Save', 'حفظ')),
-          ),
-        ],
       ),
     );
 
     if (confirmed != true) return;
     final label = _newLocLabelCtrl.text.trim();
-    final address = _newLocAddressCtrl.text.trim();
-    if (address.isEmpty) return;
+    final street = _newLocStreetCtrl.text.trim();
+    final city = _newLocCityCtrl.text.trim();
+    final building = _newLocBuildingCtrl.text.trim();
+    final notes = _newLocNotesCtrl.text.trim();
+    if (label.isEmpty || street.isEmpty || city.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _t(
+              'Please enter location name, street, and city.',
+              '\u064a\u0631\u062c\u0649 \u0625\u062f\u062e\u0627\u0644 \u0627\u0633\u0645 \u0627\u0644\u0645\u0648\u0642\u0639 \u0648\u0627\u0644\u0634\u0627\u0631\u0639 \u0648\u0627\u0644\u0645\u062f\u064a\u0646\u0629.',
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+
+    final address = _buildAddressString(
+      street: street,
+      city: city,
+      building: building,
+      notes: notes,
+    );
 
     try {
       await FirebaseService.addSavedLocation(widget.uid, {
         'label': label,
+        'street': street,
+        'city': city,
+        'building': building,
+        'notes': notes,
         'address': address,
       });
-      // Refresh locations list
       final updated = await FirebaseService.getSavedLocations(widget.uid);
       if (mounted) {
         setState(() {
           _locations = updated;
-          // Select the newly added location (first in DESC order)
           if (_locations.isNotEmpty) _selectedLocation = _locations.first;
         });
       }
@@ -1093,3 +1214,4 @@ class _OrderRequestSheetState extends State<_OrderRequestSheet> {
     );
   }
 }
+

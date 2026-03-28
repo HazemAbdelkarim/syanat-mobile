@@ -1,6 +1,7 @@
 {
   "project_info": {
     "project_number": "850445794682",
+    "firebase_url": "https://syana-ea75a-default-rtdb.firebaseio.com",
     "project_id": "syana-ea75a",
     "storage_bucket": "syana-ea75a.firebasestorage.app"
   },
@@ -29,6 +30,13 @@
             {
               "client_id": "850445794682-2vhn8p19vq351hq8ec7ijo8187qqnbdd.apps.googleusercontent.com",
               "client_type": 3
+            },
+            {
+              "client_id": "850445794682-j0mus7l09jhrqchtb0pocf764hgnup00.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.flutterProjects"
+              }
             }
           ]
         }

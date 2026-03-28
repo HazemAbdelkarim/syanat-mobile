@@ -47,9 +47,14 @@ class _SavedLocationsScreenState extends State<SavedLocationsScreen> {
   Future<void> _addLocation() async {
     if (_uid == null) return;
 
-    final result = await showDialog<Map<String, String>>(
+    final isEn = Localizations.localeOf(context).languageCode == 'en';
+    final result = await showModalBottomSheet<Map<String, String>>(
       context: context,
-      builder: (ctx) => _AddLocationDialog(),
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => const _AddLocationSheet(),
     );
     if (result == null) return;
 
@@ -57,10 +62,13 @@ class _SavedLocationsScreenState extends State<SavedLocationsScreen> {
     try {
       final id = await FirebaseService.addSavedLocation(_uid!, {
         'label': result['label'],
+        'street': result['street'],
+        'city': result['city'],
+        'building': result['building'],
+        'notes': result['notes'],
         'address': result['address'],
       });
 
-      // If this is the first location, make it active automatically.
       if (_locations.isEmpty) {
         await FirebaseService.setActiveLocation(_uid!, id);
         _activeLocationId = id;
@@ -69,7 +77,7 @@ class _SavedLocationsScreenState extends State<SavedLocationsScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e')),
+        SnackBar(content: Text(isEn ? 'Error: $e' : 'خطأ: $e')),
       );
       setState(() => _loading = false);
     }
@@ -92,9 +100,11 @@ class _SavedLocationsScreenState extends State<SavedLocationsScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(isEn ? 'Delete Location' : 'حذف الموقع'),
-        content: Text(isEn
-            ? 'Are you sure you want to delete this location?'
-            : 'هل أنت متأكد من حذف هذا الموقع؟'),
+        content: Text(
+          isEn
+              ? 'Are you sure you want to delete this location?'
+              : 'هل أنت متأكد من حذف هذا الموقع؟',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -126,7 +136,7 @@ class _SavedLocationsScreenState extends State<SavedLocationsScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e')),
+        SnackBar(content: Text(isEn ? 'Error: $e' : 'خطأ: $e')),
       );
       setState(() => _loading = false);
     }
@@ -183,8 +193,7 @@ class _SavedLocationsScreenState extends State<SavedLocationsScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              t('Tap the + button to add your first location.',
-                  'اضغط على زر + لإضافة أول موقع لك.'),
+              t('Tap the + button to add your first location.', 'اضغط على زر + لإضافة أول موقع لك.'),
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 14, color: Colors.grey.shade500),
             ),
@@ -214,11 +223,11 @@ class _SavedLocationsScreenState extends State<SavedLocationsScreen> {
               color: isActive ? _syanatBlue : Colors.grey.shade200,
               width: isActive ? 2 : 1,
             ),
-            boxShadow: [
+            boxShadow: const [
               BoxShadow(
-                color: const Color(0x0F000000),
+                color: Color(0x0F000000),
                 blurRadius: 8,
-                offset: const Offset(0, 3),
+                offset: Offset(0, 3),
               ),
             ],
           ),
@@ -227,9 +236,7 @@ class _SavedLocationsScreenState extends State<SavedLocationsScreen> {
             leading: Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: isActive
-                    ? _syanatBlue.withOpacity(0.1)
-                    : Colors.grey.shade100,
+                color: isActive ? _syanatBlue.withOpacity(0.1) : Colors.grey.shade100,
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(
@@ -296,81 +303,225 @@ class _SavedLocationsScreenState extends State<SavedLocationsScreen> {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Add Location Dialog
-// ─────────────────────────────────────────────────────────────────────────────
+class _AddLocationSheet extends StatefulWidget {
+  const _AddLocationSheet();
 
-class _AddLocationDialog extends StatefulWidget {
   @override
-  State<_AddLocationDialog> createState() => _AddLocationDialogState();
+  State<_AddLocationSheet> createState() => _AddLocationSheetState();
 }
 
-class _AddLocationDialogState extends State<_AddLocationDialog> {
+class _AddLocationSheetState extends State<_AddLocationSheet> {
   final _labelCtrl = TextEditingController();
-  final _addressCtrl = TextEditingController();
+  final _streetCtrl = TextEditingController();
+  final _cityCtrl = TextEditingController();
+  final _buildingCtrl = TextEditingController();
+  final _notesCtrl = TextEditingController();
 
   @override
   void dispose() {
     _labelCtrl.dispose();
-    _addressCtrl.dispose();
+    _streetCtrl.dispose();
+    _cityCtrl.dispose();
+    _buildingCtrl.dispose();
+    _notesCtrl.dispose();
     super.dispose();
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final isEn = Localizations.localeOf(context).languageCode == 'en';
-    String t(String en, String ar) => isEn ? en : ar;
+  String _buildAddressString({
+    required String street,
+    required String city,
+    required String building,
+    required String notes,
+  }) {
+    final parts = <String>[];
+    if (street.isNotEmpty) parts.add(street);
+    if (building.isNotEmpty) parts.add(building);
+    if (city.isNotEmpty) parts.add(city);
+    if (notes.isNotEmpty) parts.add(notes);
+    return parts.join(', ');
+  }
 
-    return AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      title: Text(t('Add Location', 'إضافة موقع')),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TextField(
-            controller: _labelCtrl,
-            decoration: InputDecoration(
-              labelText: t('Label (e.g. Home, Office)', 'الاسم (مثال: المنزل، المكتب)'),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
+  Widget _fieldCard({
+    required IconData icon,
+    required String label,
+    required TextEditingController controller,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0F000000),
+            blurRadius: 8,
+            offset: Offset(0, 3),
           ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _addressCtrl,
-            maxLines: 2,
-            decoration: InputDecoration(
-              labelText: t('Address', 'العنوان'),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(9),
+            decoration: BoxDecoration(
+              color: const Color(0x143C21C8),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, color: _syanatBlue, size: 22),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: TextField(
+              controller: controller,
+              decoration: InputDecoration(
+                labelText: label,
+                labelStyle: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey.shade500,
+                  fontWeight: FontWeight.w500,
+                ),
+                border: InputBorder.none,
               ),
             ),
           ),
         ],
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: Text(t('Cancel', 'إلغاء')),
-        ),
-        ElevatedButton(
-          onPressed: () {
-            final label = _labelCtrl.text.trim();
-            final address = _addressCtrl.text.trim();
-            if (label.isEmpty) return;
-            Navigator.pop(context, {'label': label, 'address': address});
-          },
-          style: ElevatedButton.styleFrom(
-            backgroundColor: _syanatBlue,
-            foregroundColor: Colors.white,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isEn = Localizations.localeOf(context).languageCode == 'en';
+
+    return Directionality(
+      textDirection: isEn ? TextDirection.ltr : TextDirection.rtl,
+      child: DraggableScrollableSheet(
+        initialChildSize: 0.8,
+        minChildSize: 0.5,
+        maxChildSize: 0.95,
+        expand: false,
+        builder: (ctx, scrollController) {
+          return Container(
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
             ),
-          ),
-          child: Text(t('Add', 'إضافة')),
-        ),
-      ],
+            child: ListView(
+              controller: scrollController,
+              padding: EdgeInsets.fromLTRB(
+                20,
+                12,
+                20,
+                MediaQuery.of(context).viewInsets.bottom + 24,
+              ),
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  isEn ? 'Add Location' : 'إضافة موقع',
+                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 20),
+                _fieldCard(
+                  icon: Icons.place_outlined,
+                  label: isEn ? 'Label (e.g. Home, Office)' : 'الاسم (مثال: المنزل، المكتب)',
+                  controller: _labelCtrl,
+                ),
+                const SizedBox(height: 12),
+                _fieldCard(
+                  icon: Icons.signpost,
+                  label: isEn ? 'Street' : 'شارع',
+                  controller: _streetCtrl,
+                ),
+                const SizedBox(height: 12),
+                _fieldCard(
+                  icon: Icons.location_city,
+                  label: isEn ? 'City' : 'مدينة',
+                  controller: _cityCtrl,
+                ),
+                const SizedBox(height: 12),
+                _fieldCard(
+                  icon: Icons.apartment,
+                  label: isEn ? 'Building' : 'مبنى',
+                  controller: _buildingCtrl,
+                ),
+                const SizedBox(height: 12),
+                _fieldCard(
+                  icon: Icons.notes,
+                  label: isEn ? 'Additional notes' : 'ملاحظات إضافية',
+                  controller: _notesCtrl,
+                ),
+                const SizedBox(height: 24),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: Text(isEn ? 'Cancel' : 'إلغاء'),
+                    ),
+                    const SizedBox(width: 8),
+                    ElevatedButton(
+                      onPressed: () {
+                        final label = _labelCtrl.text.trim();
+                        final street = _streetCtrl.text.trim();
+                        final city = _cityCtrl.text.trim();
+                        final building = _buildingCtrl.text.trim();
+                        final notes = _notesCtrl.text.trim();
+
+                        if (label.isEmpty || street.isEmpty || city.isEmpty) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                isEn
+                                    ? 'Please enter location name, street, and city.'
+                                    : 'يرجى إدخال اسم الموقع والشارع والمدينة.',
+                              ),
+                            ),
+                          );
+                          return;
+                        }
+
+                        final address = _buildAddressString(
+                          street: street,
+                          city: city,
+                          building: building,
+                          notes: notes,
+                        );
+
+                        Navigator.pop(context, {
+                          'label': label,
+                          'street': street,
+                          'city': city,
+                          'building': building,
+                          'notes': notes,
+                          'address': address,
+                        });
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _syanatBlue,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: Text(isEn ? 'Add' : 'إضافة'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          );
+        },
+      ),
     );
   }
 }
