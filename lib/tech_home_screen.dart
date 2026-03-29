@@ -5,7 +5,8 @@ import '../firebase_service.dart';
 import 'main.dart' show AppLocale;
 import 'chat_screen.dart';
 import 'glass_card.dart';
-import 'technician_inventory_screen.dart';
+import 'technician_active_job_screen.dart';
+import 'technician_profile_screen.dart';
 import 'settings_screen.dart';
 
 const Color syanatBlue = Color(0xFF3C21C8);
@@ -25,11 +26,13 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
   double _rating = 0.0;
   bool _isAvailable = true;
   int _unreadNotifCount = 0;
+  Map<String, dynamic>? _activeJob;
 
   final Map<String, Map<String, dynamic>> _customerCache = {};
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _jobsSub;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _profileSub;
   StreamSubscription<int>? _notifCountSub;
+  StreamSubscription<Map<String, dynamic>?>? _activeJobSub;
 
   @override
   void initState() {
@@ -37,6 +40,7 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
     _subscribeProfile();
     _loadJobsRealtime();
     _subscribeNotifCount();
+    _subscribeActiveJob();
   }
 
   @override
@@ -44,10 +48,9 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
     _jobsSub?.cancel();
     _profileSub?.cancel();
     _notifCountSub?.cancel();
+    _activeJobSub?.cancel();
     super.dispose();
   }
-
-  String _t(bool isEn, String en, String ar) => isEn ? en : ar;
 
   void _subscribeProfile() {
     final user = FirebaseService.getCurrentUser();
@@ -74,6 +77,18 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
     _notifCountSub =
         FirebaseService.streamTechnicianUnreadNotifCount(user.uid).listen((n) {
       if (mounted) setState(() => _unreadNotifCount = n);
+    });
+  }
+
+  void _subscribeActiveJob() {
+    final user = FirebaseService.getCurrentUser();
+    if (user == null) return;
+
+    _activeJobSub =
+        FirebaseService.streamTechnicianActiveJob(user.uid).listen((job) {
+      if (mounted) {
+        setState(() => _activeJob = job);
+      }
     });
   }
 
@@ -274,6 +289,14 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
   @override
   Widget build(BuildContext context) {
     final isEn = Localizations.localeOf(context).languageCode == 'en';
+    final user = FirebaseService.getCurrentUser();
+
+    if (_activeJob != null && user != null) {
+      return TechnicianActiveJobScreen(
+        job: _activeJob!,
+        technicianId: user.uid,
+      );
+    }
 
     return Directionality(
       textDirection: isEn ? TextDirection.ltr : TextDirection.rtl,
@@ -377,28 +400,26 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
                             ],
                           ),
                           IconButton(
+                            onPressed: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const TechnicianProfileScreen(),
+                              ),
+                            ),
+                            icon: const Icon(Icons.person_outline, color: Colors.white),
+                            tooltip: isEn ? 'Profile' : 'الملف الشخصي',
+                          ),
+                          IconButton(
                             onPressed: () {
                               Navigator.push(
                                 context,
                                 MaterialPageRoute(
-                                  builder: (_) =>
-                                      const SettingsScreen(),
+                                  builder: (_) => const SettingsScreen(),
                                 ),
                               );
                             },
                             icon: const Icon(Icons.settings, color: Colors.white),
                             tooltip: isEn ? 'Settings' : 'الإعدادات',
-                          ),
-                          IconButton(
-                            onPressed: () => Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) =>
-                                    const TechnicianInventoryScreen(),
-                              ),
-                            ),
-                            icon: const Icon(Icons.inventory, color: Colors.white),
-                            tooltip: isEn ? 'Inventory' : 'المخزون',
                           ),
                           IconButton(
                             onPressed: _switchLanguage,

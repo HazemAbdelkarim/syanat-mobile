@@ -1,13 +1,12 @@
-import 'dart:io' show Platform;
-import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import '../firebase_service.dart';
-import 'main.dart' show AppLocale;
-import 'user_home_screen.dart';
-import 'tech_home_screen.dart';
+import 'package:flutter/material.dart';
+
 import 'admin_dashboard_screen.dart';
-import 'create_account_screen.dart';
+import 'firebase_service.dart';
+import 'main.dart' show AppLocale;
+import 'role_selection_screen.dart';
+import 'tech_home_screen.dart';
+import 'user_home_screen.dart';
 
 const Color syanatBlue = Color(0xFF3C21C8);
 
@@ -21,8 +20,10 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+
   bool _loading = false;
   bool _socialLoading = false;
+  String? _loginError;
 
   @override
   void dispose() {
@@ -31,14 +32,14 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
+  String _t(bool isEn, String en, String ar) => isEn ? en : ar;
+
   void _switchLanguage() {
-    final newLocale = Localizations.localeOf(context).languageCode == 'en'
+    final notifier = AppLocale.of(context);
+    notifier.value = notifier.value.languageCode == 'en'
         ? const Locale('ar')
         : const Locale('en');
-    AppLocale.of(context).value = newLocale;
   }
-
-  // ── Routing ──────────────────────────────────────────────────────────────
 
   void _routeByRole(String role) {
     if (!mounted) return;
@@ -50,66 +51,82 @@ class _LoginScreenState extends State<LoginScreen> {
     } else {
       dest = const UserHomeScreen();
     }
-    Navigator.pushReplacement(
-        context, MaterialPageRoute(builder: (_) => dest));
+    Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => dest));
   }
-
-  // ── Email / Password login ────────────────────────────────────────────────
 
   Future<void> _login() async {
     if (_socialLoading) return;
-    setState(() => _loading = true);
     final isEn = Localizations.localeOf(context).languageCode == 'en';
+    setState(() {
+      _loading = true;
+      _loginError = null;
+    });
+
     try {
-      final cred = await FirebaseAuth.instance.signInWithEmailAndPassword(
-        email: _emailController.text.trim(),
-        password: _passwordController.text.trim(),
+      final email = _emailController.text.trim().toLowerCase();
+      final password = _passwordController.text;
+      final emailRegex = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
+
+      if (!emailRegex.hasMatch(email)) {
+        setState(() {
+          _loginError = _t(isEn, 'Enter a valid email address.', 'أدخل بريداً إلكترونياً صحيحاً.');
+        });
+        return;
+      }
+      if (password.isEmpty) {
+        setState(() {
+          _loginError = _t(isEn, 'Enter your password.', 'أدخل كلمة المرور.');
+        });
+        return;
+      }
+
+      final cred = await FirebaseService.auth.signInWithEmailAndPassword(
+        email: email,
+        password: password,
       );
       final user = cred.user;
-      if (user == null) throw 'No user';
+      if (user == null) throw Exception('No user');
 
       final profile = await FirebaseService.getProfile(user.uid);
+      if (!mounted) return;
       final role = (profile?['role'] as String? ?? 'customer').trim();
       _routeByRole(role);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(
-            isEn ? 'Login error: $e' : 'خطأ في تسجيل الدخول: $e'),
-      ));
+      setState(() {
+        _loginError = _t(
+          isEn,
+          'Login failed. Please check your credentials.',
+          'فشل تسجيل الدخول. يرجى التحقق من بياناتك.',
+        );
+      });
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
-  // ── Social sign-in (Google / Apple) ──────────────────────────────────────
-
-  /// Runs [signInFn], then routes the user based on profile completeness.
-  /// Incomplete/new users are sent to CreateAccountScreen for profile
-  /// completion — reusing the exact same onboarding form.
-  Future<void> _handleSocialSignIn(
-      Future<UserCredential?> Function() signInFn) async {
+  Future<void> _handleSocialSignIn(Future<UserCredential?> Function() signInFn) async {
     if (_loading || _socialLoading) return;
-    setState(() => _socialLoading = true);
+    setState(() {
+      _socialLoading = true;
+      _loginError = null;
+    });
+
     try {
       final cred = await signInFn();
-      if (cred == null || !mounted) return; // user cancelled or widget gone
+      if (cred == null || !mounted) return;
 
       final user = cred.user!;
-      // Single O(1) read — determines full routing with one doc fetch.
       final profile = await FirebaseService.getProfile(user.uid);
       if (!mounted) return;
 
       if (FirebaseService.isProfileComplete(profile)) {
         _routeByRole((profile!['role'] as String? ?? 'customer').trim());
       } else {
-        // New or incomplete profile — send to onboarding completion.
-        // Pre-fill whatever the provider gave us; the form still requires
-        // phone, role (and service if technician) before submission.
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
-            builder: (_) => CreateAccountScreen(
+            builder: (_) => RoleSelectionScreen(
               prefillUid: user.uid,
               prefillEmail: user.email ?? '',
               prefillName: user.displayName ?? '',
@@ -117,26 +134,24 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         );
       }
-    } catch (e) {
+    } catch (_) {
       if (!mounted) return;
       final isEn = Localizations.localeOf(context).languageCode == 'en';
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(isEn
-            ? 'Sign-in failed. Please try again.'
-            : 'فشل تسجيل الدخول. حاول مجدداً.'),
-      ));
+      setState(() {
+        _loginError = _t(
+          isEn,
+          'Social sign-in failed. Please try again.',
+          'فشل تسجيل الدخول الاجتماعي. حاول مرة أخرى.',
+        );
+      });
     } finally {
       if (mounted) setState(() => _socialLoading = false);
     }
   }
 
-  // ── Build ─────────────────────────────────────────────────────────────────
-
   @override
   Widget build(BuildContext context) {
     final isEn = Localizations.localeOf(context).languageCode == 'en';
-    // Show Apple Sign-In only where it is natively available.
-    final showApple = !kIsWeb && (Platform.isIOS || Platform.isMacOS);
 
     return Directionality(
       textDirection: isEn ? TextDirection.ltr : TextDirection.rtl,
@@ -145,28 +160,21 @@ class _LoginScreenState extends State<LoginScreen> {
         body: SafeArea(
           child: LayoutBuilder(
             builder: (context, constraints) => SingleChildScrollView(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               child: ConstrainedBox(
-                constraints:
-                    BoxConstraints(minHeight: constraints.maxHeight),
+                constraints: BoxConstraints(minHeight: constraints.maxHeight),
                 child: Column(
                   children: [
-                    // Language button
                     Row(
                       mainAxisAlignment: MainAxisAlignment.end,
                       children: [
                         IconButton(
                           onPressed: _switchLanguage,
-                          icon: const Icon(Icons.language,
-                              color: Colors.white),
+                          icon: const Icon(Icons.language, color: Colors.white),
                         ),
                       ],
                     ),
-
                     const SizedBox(height: 4),
-
-                    // Logo
                     Center(
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(28),
@@ -178,10 +186,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                       ),
                     ),
-
                     const SizedBox(height: 8),
-
-                    // Auth card
                     Padding(
                       padding: const EdgeInsets.all(16),
                       child: Container(
@@ -189,14 +194,11 @@ class _LoginScreenState extends State<LoginScreen> {
                         decoration: BoxDecoration(
                           color: Colors.white,
                           borderRadius: BorderRadius.circular(24),
-                          border: Border.all(
-                              color: Colors.grey.shade300),
-                          boxShadow: [
+                          boxShadow: const [
                             BoxShadow(
-                              color:
-                                  Colors.black.withOpacity(0.08),
-                              blurRadius: 10,
-                              spreadRadius: 2,
+                              color: Color(0x0F000000),
+                              blurRadius: 8,
+                              offset: Offset(0, 3),
                             ),
                           ],
                         ),
@@ -204,174 +206,139 @@ class _LoginScreenState extends State<LoginScreen> {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Text(
-                              isEn ? "Login" : "تسجيل الدخول",
+                              _t(isEn, 'Login', 'تسجيل الدخول'),
                               style: const TextStyle(
                                 fontSize: 26,
                                 fontWeight: FontWeight.bold,
                                 color: Colors.black,
                               ),
                             ),
-                            const SizedBox(height: 32),
-
+                            const SizedBox(height: 20),
                             _buildTextField(
                               controller: _emailController,
-                              label: isEn ? "Email" : "الإيميل",
-                              icon: Icons.email,
-                              keyboardType:
-                                  TextInputType.emailAddress,
+                              label: _t(isEn, 'Email', 'البريد الإلكتروني'),
+                              icon: Icons.email_outlined,
+                              keyboardType: TextInputType.emailAddress,
+                              onChanged: (_) {
+                                if (_loginError != null) setState(() => _loginError = null);
+                              },
                             ),
-                            const SizedBox(height: 16),
+                            const SizedBox(height: 14),
                             _buildTextField(
                               controller: _passwordController,
-                              label: isEn
-                                  ? "Password"
-                                  : "الباسورد",
-                              icon: Icons.lock,
+                              label: _t(isEn, 'Password', 'كلمة المرور'),
+                              icon: Icons.lock_outline,
                               obscure: true,
+                              onChanged: (_) {
+                                if (_loginError != null) setState(() => _loginError = null);
+                              },
                             ),
-                            const SizedBox(height: 24),
-
-                            // Login button
+                            if (_loginError != null) ...[
+                              const SizedBox(height: 12),
+                              _errorBox(_loginError!),
+                            ],
+                            const SizedBox(height: 20),
                             SizedBox(
                               width: double.infinity,
                               height: 52,
-                              child: _loading
-                                  ? const Center(
-                                      child:
-                                          CircularProgressIndicator(
-                                              color: syanatBlue))
-                                  : ElevatedButton(
-                                      onPressed: _login,
-                                      style:
-                                          ElevatedButton.styleFrom(
-                                        backgroundColor:
-                                            syanatBlue,
-                                        foregroundColor:
-                                            Colors.white,
-                                        shape:
-                                            RoundedRectangleBorder(
-                                          borderRadius:
-                                              BorderRadius.circular(
-                                                  14),
+                              child: ElevatedButton(
+                                onPressed: _loading ? null : _login,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: syanatBlue,
+                                  foregroundColor: Colors.white,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                ),
+                                child: _loading
+                                    ? const SizedBox(
+                                        width: 22,
+                                        height: 22,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2.2,
+                                          color: Colors.white,
                                         ),
-                                      ),
-                                      child: Text(
-                                        isEn ? "Login" : "دخول",
+                                      )
+                                    : Text(
+                                        _t(isEn, 'Login', 'دخول'),
                                         style: const TextStyle(
                                           fontSize: 18,
-                                          fontWeight:
-                                              FontWeight.bold,
+                                          fontWeight: FontWeight.bold,
                                         ),
                                       ),
-                                    ),
-                            ),
-                            const SizedBox(height: 12),
-
-                            // Create account button
-                            SizedBox(
-                              width: double.infinity,
-                              height: 48,
-                              child: OutlinedButton(
-                                onPressed: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) =>
-                                          const CreateAccountScreen(),
-                                    ),
-                                  );
-                                },
-                                style: OutlinedButton.styleFrom(
-                                  side: BorderSide(
-                                      color: syanatBlue, width: 2),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius:
-                                        BorderRadius.circular(14),
-                                  ),
-                                ),
-                                child: Text(
-                                  isEn
-                                      ? "Create Account"
-                                      : "إنشاء حساب جديد",
-                                  style: TextStyle(
-                                    fontSize: 17,
-                                    fontWeight: FontWeight.w600,
-                                    color: syanatBlue,
-                                  ),
-                                ),
                               ),
                             ),
-
-                            // ── Social sign-in section ─────────────────
-                            Padding(
-                              padding: const EdgeInsets.symmetric(
-                                  vertical: 20),
-                              child: Row(
-                                children: [
-                                  Expanded(
-                                      child: Divider(
-                                          color: Colors
-                                              .grey.shade300)),
-                                  Padding(
-                                    padding:
-                                        const EdgeInsets.symmetric(
-                                            horizontal: 12),
-                                    child: Text(
-                                      isEn
-                                          ? 'or continue with'
-                                          : 'أو تابع عبر',
-                                      style: TextStyle(
-                                          color: Colors.grey.shade500,
-                                          fontSize: 13),
-                                    ),
+                            const SizedBox(height: 20),
+                            Row(
+                              children: [
+                                Expanded(child: Divider(color: Colors.grey.shade300)),
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                                  child: Text(
+                                    _t(isEn, 'or', 'أو'),
+                                    style: TextStyle(color: Colors.grey.shade500, fontSize: 13),
                                   ),
-                                  Expanded(
-                                      child: Divider(
-                                          color: Colors
-                                              .grey.shade300)),
-                                ],
-                              ),
+                                ),
+                                Expanded(child: Divider(color: Colors.grey.shade300)),
+                              ],
                             ),
-
-                            // Google button
-                            _socialButton(
-                              onPressed: _socialLoading
+                            const SizedBox(height: 14),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _socialIconButton(
+                                    enabled: !_socialLoading && !_loading,
+                                    onTap: () => _handleSocialSignIn(FirebaseService.signInWithGoogle),
+                                    child: _socialLoading
+                                        ? const SizedBox(
+                                            width: 20,
+                                            height: 20,
+                                            child: CircularProgressIndicator(strokeWidth: 2, color: syanatBlue),
+                                          )
+                                        : SizedBox(width: 28, height: 28, child: FittedBox(child: _googleIcon())),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: _socialIconButton(
+                                    enabled: !_socialLoading && !_loading,
+                                    onTap: () => _handleSocialSignIn(FirebaseService.signInWithApple),
+                                    child: _socialLoading
+                                        ? const SizedBox(
+                                            width: 20,
+                                            height: 20,
+                                            child: CircularProgressIndicator(strokeWidth: 2, color: syanatBlue),
+                                          )
+                                        : const Icon(Icons.apple, size: 30, color: Colors.black87),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            TextButton(
+                              onPressed: (_loading || _socialLoading)
                                   ? null
-                                  : () => _handleSocialSignIn(
-                                      FirebaseService.signInWithGoogle),
-                              label: isEn
-                                  ? 'Continue with Google'
-                                  : 'الدخول بـ Google',
-                              icon: _googleIcon(),
-                            ),
-
-                            // Apple button — iOS / macOS only
-                            if (showApple) ...[
-                              const SizedBox(height: 12),
-                              _socialButton(
-                                onPressed: _socialLoading
-                                    ? null
-                                    : () => _handleSocialSignIn(
-                                        FirebaseService.signInWithApple),
-                                label: isEn
-                                    ? 'Continue with Apple'
-                                    : 'الدخول بـ Apple',
-                                icon: const Icon(Icons.apple,
-                                    color: Colors.black87, size: 20),
-                              ),
-                            ],
-
-                            if (_socialLoading)
-                              const Padding(
-                                padding: EdgeInsets.only(top: 12),
-                                child: SizedBox(
-                                  height: 18,
-                                  width: 18,
-                                  child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: syanatBlue),
+                                  : () {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) => const RoleSelectionScreen(),
+                                        ),
+                                      );
+                                    },
+                              child: Text(
+                                _t(
+                                  isEn,
+                                  "Don't have an account? Create one",
+                                  'ليس لديك حساب؟ أنشئ واحداً',
+                                ),
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                  color: syanatBlue,
                                 ),
                               ),
+                            ),
                           ],
                         ),
                       ),
@@ -386,44 +353,37 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  // ── Helpers ──────────────────────────────────────────────────────────────
-
-  Widget _socialButton({
-    required VoidCallback? onPressed,
-    required String label,
-    required Widget icon,
+  Widget _socialIconButton({
+    required Widget child,
+    required VoidCallback onTap,
+    required bool enabled,
   }) {
-    return SizedBox(
-      width: double.infinity,
-      height: 48,
-      child: OutlinedButton(
-        onPressed: onPressed,
-        style: OutlinedButton.styleFrom(
-          side: BorderSide(color: Colors.grey.shade300, width: 1.5),
-          shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14)),
-          backgroundColor: Colors.white,
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            icon,
-            const SizedBox(width: 10),
-            Text(
-              label,
-              style: const TextStyle(
-                color: Colors.black87,
-                fontSize: 15,
-                fontWeight: FontWeight.w600,
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        onTap: enabled ? onTap : null,
+        borderRadius: BorderRadius.circular(16),
+        child: Ink(
+          height: 56,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.grey.shade300, width: 1.5),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x0F000000),
+                blurRadius: 8,
+                offset: Offset(0, 3),
               ),
-            ),
-          ],
+            ],
+          ),
+          child: Center(child: child),
         ),
       ),
     );
   }
 
-  /// Minimal branded 'G' badge — no external asset required.
   Widget _googleIcon() {
     return Container(
       width: 20,
@@ -450,6 +410,7 @@ class _LoginScreenState extends State<LoginScreen> {
     required IconData icon,
     bool obscure = false,
     TextInputType keyboardType = TextInputType.text,
+    ValueChanged<String>? onChanged,
   }) {
     return Container(
       decoration: BoxDecoration(
@@ -461,14 +422,38 @@ class _LoginScreenState extends State<LoginScreen> {
         controller: controller,
         obscureText: obscure,
         keyboardType: keyboardType,
+        onChanged: onChanged,
         decoration: InputDecoration(
           labelText: label,
-          labelStyle: const TextStyle(color: Colors.black54),
+          labelStyle: const TextStyle(fontSize: 13, color: Colors.black54),
           prefixIcon: Icon(icon, color: Colors.black54),
           border: InputBorder.none,
-          contentPadding: const EdgeInsets.symmetric(
-              horizontal: 20, vertical: 16),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
         ),
+      ),
+    );
+  }
+
+  Widget _errorBox(String message) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFEBEB),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.red.shade300),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.error_outline, color: Colors.red, size: 16),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              message,
+              style: TextStyle(color: Colors.red.shade800, fontSize: 13),
+            ),
+          ),
+        ],
       ),
     );
   }

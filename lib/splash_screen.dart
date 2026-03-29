@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import '../firebase_service.dart';
-import 'create_account_screen.dart';
+import 'firebase_service.dart';
 import 'login_screen.dart';
+import 'role_selection_screen.dart';
 import 'tech_home_screen.dart';
 import 'user_home_screen.dart';
 
@@ -68,7 +68,7 @@ class _SplashScreenState extends State<SplashScreen>
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
-            builder: (_) => CreateAccountScreen(
+            builder: (_) => RoleSelectionScreen(
               prefillUid: user.uid,
               prefillEmail: user.email ?? '',
               prefillName: user.displayName ?? '',

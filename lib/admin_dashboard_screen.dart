@@ -797,6 +797,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         job['customerName'] as String? ?? job['customerId'] as String? ?? '—';
     final description = job['description'] as String? ?? '';
     final urgency = job['urgencyType'] as String? ?? '';
+    final status = job['status'] as String? ?? '';
     final locationAddress = job['locationAddress'] as String? ?? '';
     final locationLabel = job['locationLabel'] as String? ?? '';
     final createdAt = job['createdAt'];
@@ -905,6 +906,22 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               Text(dateStr,
                   style:
                       const TextStyle(fontSize: 11, color: Colors.black38)),
+            ],
+            if (status == 'requested') ...[
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: onTap,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: syanatBlue,
+                    foregroundColor: Colors.white,
+                  ),
+                  child: Text(
+                    isEn ? 'Assign Technician' : 'تعيين فني',
+                  ),
+                ),
+              ),
             ],
           ],
         ),
@@ -1580,16 +1597,48 @@ class _RequestedJobSheetState extends State<_RequestedJobSheet> {
 
   Future<void> _loadTechs() async {
     try {
-      final techs = await FirebaseService.getAvailableTechniciansByService(
-          widget.serviceKey);
+      final results = await Future.wait([
+        FirebaseService.firestore
+            .collection('users')
+            .where('role', isEqualTo: 'technician')
+            .where('available', isEqualTo: true)
+            .limit(50)
+            .get(),
+        FirebaseService.firestore
+            .collection('jobs')
+            .where('status', whereIn: ['accepted', 'en_route', 'payment_pending'])
+            .limit(50)
+            .get(),
+      ]);
+      final techSnap = results[0];
+      final activeSnap = results[1];
+      final busyTechIds = activeSnap.docs
+          .map((doc) => doc.data()['assignedTechnicianId'] as String? ?? '')
+          .where((id) => id.isNotEmpty)
+          .toSet();
+      final techs = techSnap.docs
+          .map((doc) => {'id': doc.id, ...doc.data()})
+          .where((tech) => !busyTechIds.contains(tech['id'] as String? ?? ''))
+          .toList();
       if (mounted) {
         setState(() {
           _techs = techs;
           _loadingTechs = false;
         });
       }
-    } catch (_) {
-      if (mounted) setState(() => _loadingTechs = false);
+    } catch (e) {
+      if (mounted) {
+        setState(() => _loadingTechs = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              widget.isEn
+                  ? 'Failed to load technicians: $e'
+                  : 'فشل تحميل قائمة الفنيين',
+            ),
+          ),
+        );
+      }
     }
   }
 
@@ -1618,6 +1667,10 @@ class _RequestedJobSheetState extends State<_RequestedJobSheet> {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text('Error: $e')));
       }
+    } finally {
+      if (mounted && _assigningTechId != null) {
+        setState(() => _assigningTechId = null);
+      }
     }
   }
 
@@ -1630,7 +1683,6 @@ class _RequestedJobSheetState extends State<_RequestedJobSheet> {
     final customerName =
         job['customerName'] as String? ?? job['customerId'] as String? ?? '—';
     final description = job['description'] as String? ?? '';
-    final phoneNumber = job['phoneNumber'] as String? ?? '';
     final locationLabel = job['locationLabel'] as String? ?? '';
     final locationAddress = job['locationAddress'] as String? ?? '';
     final urgencyType = job['urgencyType'] as String? ?? '';
@@ -1682,8 +1734,6 @@ class _RequestedJobSheetState extends State<_RequestedJobSheet> {
             const SizedBox(height: 16),
             _infoRow(Icons.build, isEn ? 'Service' : 'الخدمة', serviceCategory),
             _infoRow(Icons.person, isEn ? 'Customer' : 'العميل', customerName),
-            if (phoneNumber.isNotEmpty)
-              _infoRow(Icons.phone, isEn ? 'Phone' : 'الهاتف', phoneNumber),
             if (locationLabel.isNotEmpty || locationAddress.isNotEmpty)
               _infoRow(
                   Icons.location_on,

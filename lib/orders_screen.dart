@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'firebase_service.dart';
+import 'support_chat_screen.dart';
 
 const Color _syanatBlue = Color(0xFF3C21C8);
 
@@ -9,7 +12,14 @@ const Color _syanatBlue = Color(0xFF3C21C8);
 // ---------------------------------------------------------------------------
 
 /// Statuses that appear in the "Ongoing" tab.
-const _ongoingStatuses = {'requested', 'accepted', 'in_progress', 'inprogress'};
+const _ongoingStatuses = {
+  'requested',
+  'accepted',
+  'en_route',
+  'payment_pending',
+  'in_progress',
+  'inprogress'
+};
 
 /// Statuses that appear in the "Recent" (completed) tab.
 const _recentStatuses = {'completed'};
@@ -31,15 +41,28 @@ class OrdersScreen extends StatefulWidget {
 class _OrdersScreenState extends State<OrdersScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
+  StreamSubscription<Map<String, dynamic>?>? _pendingPaymentSub;
+  Map<String, dynamic>? _pendingPayment;
+  bool _confirmingPendingPayment = false;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
+    final user = FirebaseService.getCurrentUser();
+    if (user != null) {
+      _pendingPaymentSub =
+          FirebaseService.streamCustomerActivePayment(user.uid).listen((job) {
+        if (mounted) {
+          setState(() => _pendingPayment = job);
+        }
+      });
+    }
   }
 
   @override
   void dispose() {
+    _pendingPaymentSub?.cancel();
     _tabController.dispose();
     super.dispose();
   }
@@ -131,6 +154,7 @@ class _OrdersScreenState extends State<OrdersScreen>
               emptyIcon: Icons.pending_actions,
               emptyLabel: isEn ? 'No ongoing orders' : 'لا توجد طلبات جارية',
               isEn: isEn,
+              topWidget: _buildPendingPaymentBanner(uid, isEn),
             ),
             _buildJobList(
               jobs: recent,
@@ -159,17 +183,159 @@ class _OrdersScreenState extends State<OrdersScreen>
     required IconData emptyIcon,
     required String emptyLabel,
     required bool isEn,
+    Widget? topWidget,
   }) {
-    if (jobs.isEmpty) {
+    if (jobs.isEmpty && topWidget == null) {
       return _buildEmptyState(icon: emptyIcon, label: emptyLabel);
     }
 
     return ListView.separated(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      itemCount: jobs.length,
+      itemCount: jobs.length + (topWidget == null ? 0 : 1),
       separatorBuilder: (_, __) => const SizedBox(height: 12),
-      itemBuilder: (context, index) => _buildJobCard(jobs[index], isEn),
+      itemBuilder: (context, index) {
+        if (topWidget != null && index == 0) {
+          return topWidget;
+        }
+        final jobIndex = topWidget == null ? index : index - 1;
+        if (jobIndex >= jobs.length) {
+          return _buildEmptyState(icon: emptyIcon, label: emptyLabel);
+        }
+        return _buildJobCard(jobs[jobIndex], isEn);
+      },
     );
+  }
+
+  Widget? _buildPendingPaymentBanner(String uid, bool isEn) {
+    final payment = _pendingPayment;
+    if (payment == null) return null;
+
+    final amount = (payment['technicianPaymentAmount'] as num?)?.toDouble();
+    final jobId = payment['id'] as String? ?? '';
+    if (amount == null || jobId.isEmpty) return null;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF8E1),
+        borderRadius: BorderRadius.circular(16),
+        border: const Border(
+          left: BorderSide(color: Color(0xFFFF9800), width: 4),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0x0F000000),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            isEn ? 'Payment Confirmation Required' : 'مطلوب تأكيد الدفع',
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Colors.black87,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '${amount.toStringAsFixed(2)} EGP',
+            style: const TextStyle(
+              fontSize: 28,
+              fontWeight: FontWeight.bold,
+              color: Colors.black87,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            isEn
+                ? 'Only confirm the exact amount you paid. Do not confirm if the amount was changed. This protects your rights and ensures accurate service records.'
+                : 'قم بالتأكيد فقط إذا كان هذا هو المبلغ الذي دفعته بالضبط. لا تقبل أي تعديل على المبلغ. هذا يحمي حقوقك ويضمن دقة سجلات الخدمة.',
+            style: TextStyle(
+              color: Colors.red.shade700,
+              fontSize: 13,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: _confirmingPendingPayment
+                      ? null
+                      : () => _confirmPendingPayment(jobId, uid, isEn),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                  ),
+                  child: _confirmingPendingPayment
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : Text(isEn ? 'Confirm' : 'تأكيد'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const SupportChatScreen(),
+                      ),
+                    );
+                  },
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.red,
+                    side: const BorderSide(color: Colors.red),
+                  ),
+                  child: Text(isEn ? 'Report Issue' : 'الإبلاغ عن مشكلة'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _confirmPendingPayment(String jobId, String uid, bool isEn) async {
+    setState(() => _confirmingPendingPayment = true);
+    try {
+      await FirebaseService.confirmCustomerPayment(jobId, uid);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isEn ? 'Payment confirmed successfully.' : 'تم تأكيد الدفع بنجاح.',
+          ),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(isEn ? 'Error: $e' : 'خطأ: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _confirmingPendingPayment = false);
+      }
+    }
   }
 
   // -----------------------------------------------------------------------
@@ -469,6 +635,18 @@ class _OrdersScreenState extends State<OrdersScreen>
           'label': isEn ? 'Accepted' : 'مقبول',
           'color': const Color(0xFF3B82F6),
           'icon': Icons.thumb_up_alt_outlined,
+        };
+      case 'en_route':
+        return {
+          'label': isEn ? 'En Route' : 'في الطريق',
+          'color': const Color(0xFF2563EB),
+          'icon': Icons.directions_car,
+        };
+      case 'payment_pending':
+        return {
+          'label': isEn ? 'Payment Pending' : 'بانتظار الدفع',
+          'color': const Color(0xFFF59E0B),
+          'icon': Icons.payments_outlined,
         };
       case 'in_progress':
         return {

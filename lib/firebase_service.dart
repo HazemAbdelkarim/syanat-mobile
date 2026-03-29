@@ -65,6 +65,28 @@ class FirebaseService {
     return doc.exists ? doc.data() : null;
   }
 
+  /// Updates a technician's editable profile fields (username, phone, email,
+  /// and optionally photoUrl). Only the caller's own UID is written — the UID
+  /// must come from [getCurrentUser], never from UI input.
+  static Future<void> updateTechnicianProfile({
+    required String uid,
+    required String username,
+    required String phone,
+    required String email,
+    String? photoUrl,
+  }) async {
+    final Map<String, dynamic> updates = {
+      'username': username.trim(),
+      'phone': phone.trim(),
+      'email': email.trim().toLowerCase(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+    if (photoUrl != null && photoUrl.isNotEmpty) {
+      updates['photoUrl'] = photoUrl;
+    }
+    await firestore.collection('users').doc(uid).update(updates);
+  }
+
   /// Returns true when the Firestore profile has all fields required to use the app.
   /// A Firebase Auth account alone is NOT considered complete — phone, role, and
   /// username are required by the onboarding flow before the user is admitted.
@@ -953,7 +975,6 @@ class FirebaseService {
       'serviceCategory': serviceCategory,
       'subservice': subservice,
       'description': description,
-      'phoneNumber': phoneNumber,
       'locationLabel': locationLabel,
       'locationAddress': locationAddress,
       'urgencyType': urgencyType,
@@ -992,12 +1013,25 @@ class FirebaseService {
     required String technicianId,
     required String technicianName,
   }) async {
-    await firestore.collection('jobs').doc(jobId).update({
-      'assignedTechnicianId': technicianId,
-      'technicianId': technicianId, // kept for existing stream queries
-      'assignedTechnicianName': technicianName,
-      'status': 'accepted',
-      'updatedAt': FieldValue.serverTimestamp(),
+    await firestore.runTransaction((tx) async {
+      final ref = firestore.collection('jobs').doc(jobId);
+      final snap = await tx.get(ref);
+      if (!snap.exists) {
+        throw Exception('Job not found');
+      }
+
+      final data = snap.data()!;
+      if (data['status'] != 'requested') {
+        throw Exception('Job is no longer available for assignment');
+      }
+
+      tx.update(ref, {
+        'assignedTechnicianId': technicianId,
+        'technicianId': technicianId, // kept for existing stream queries
+        'assignedTechnicianName': technicianName,
+        'status': 'accepted',
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
     });
     // Move counter: one fewer requested, one more ongoing.
     try {
@@ -1006,6 +1040,178 @@ class FirebaseService {
         'jobsOngoing': FieldValue.increment(1),
       }, SetOptions(merge: true));
     } catch (_) {}
+  }
+
+  static Future<void> markArrived(String jobId, String technicianId) async {
+    await firestore.runTransaction((tx) async {
+      final ref = firestore.collection('jobs').doc(jobId);
+      final snap = await tx.get(ref);
+      if (!snap.exists) {
+        throw Exception('Job not found');
+      }
+
+      final data = snap.data()!;
+      if (data['status'] != 'accepted') {
+        throw Exception('Job is not ready for arrival confirmation');
+      }
+      if (data['assignedTechnicianId'] != technicianId) {
+        throw Exception('You are not assigned to this job');
+      }
+
+      tx.update(ref, {
+        'status': 'en_route',
+        'arrivedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    });
+  }
+
+  static Future<void> markJobComplete(String jobId, String technicianId) async {
+    await firestore.runTransaction((tx) async {
+      final ref = firestore.collection('jobs').doc(jobId);
+      final snap = await tx.get(ref);
+      if (!snap.exists) {
+        throw Exception('Job not found');
+      }
+
+      final data = snap.data()!;
+      if (data['status'] != 'en_route') {
+        throw Exception('Job is not ready for completion');
+      }
+      if (data['assignedTechnicianId'] != technicianId) {
+        throw Exception('You are not assigned to this job');
+      }
+
+      tx.update(ref, {
+        'status': 'payment_pending',
+        'jobCompletedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    });
+  }
+
+  static Future<void> submitTechnicianPayment(
+    String jobId,
+    String technicianId,
+    double amount,
+  ) async {
+    if (!amount.isFinite) {
+      throw ArgumentError('Invalid payment amount');
+    }
+    final normalizedAmount = (amount * 100).round() / 100;
+    if (normalizedAmount <= 0 || normalizedAmount > 50000) {
+      throw ArgumentError('Invalid payment amount');
+    }
+
+    await firestore.runTransaction((tx) async {
+      final ref = firestore.collection('jobs').doc(jobId);
+      final snap = await tx.get(ref);
+      if (!snap.exists) {
+        throw Exception('Job not found');
+      }
+
+      final data = snap.data()!;
+      if (data['status'] != 'payment_pending') {
+        throw Exception('Job is not waiting for payment');
+      }
+      if (data['assignedTechnicianId'] != technicianId) {
+        throw Exception('You are not assigned to this job');
+      }
+      if (data['technicianPaymentAmount'] != null) {
+        throw Exception('Payment amount was already submitted');
+      }
+
+      tx.update(ref, {
+        'technicianPaymentAmount': normalizedAmount,
+        'technicianPaymentSubmittedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    });
+  }
+
+  static Future<void> confirmCustomerPayment(String jobId, String customerId) async {
+    double amountPaid = 0.0;
+
+    await firestore.runTransaction((tx) async {
+      final ref = firestore.collection('jobs').doc(jobId);
+      final snap = await tx.get(ref);
+      if (!snap.exists) {
+        throw Exception('Job not found');
+      }
+
+      final data = snap.data()!;
+      if (data['status'] != 'payment_pending') {
+        throw Exception('Job is not waiting for payment confirmation');
+      }
+      if (data['customerId'] != customerId) {
+        throw Exception('You are not allowed to confirm this payment');
+      }
+
+      final rawAmount = data['technicianPaymentAmount'];
+      if (rawAmount == null) {
+        throw Exception('Technician payment amount is missing');
+      }
+
+      amountPaid = (rawAmount as num).toDouble();
+      tx.update(ref, {
+        'status': 'completed',
+        'amountPaid': amountPaid,
+        'price': amountPaid,
+        'customerConfirmedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    });
+
+    try {
+      await firestore.doc('stats/global').set({
+        'totalEarnings': FieldValue.increment(amountPaid),
+        'jobsCompleted': FieldValue.increment(1),
+        'jobsOngoing': FieldValue.increment(-1),
+      }, SetOptions(merge: true));
+    } catch (_) {}
+
+    try {
+      await firestore.collection('activity_log').add({
+        'type': 'job_completed',
+        'description': 'Job closed - ${amountPaid.toStringAsFixed(0)} EGP',
+        'jobId': jobId,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+    } catch (_) {}
+  }
+
+  static Stream<Map<String, dynamic>?> streamTechnicianActiveJob(String technicianId) {
+    return firestore
+        .collection('jobs')
+        .where('assignedTechnicianId', isEqualTo: technicianId)
+        .where('status', whereIn: ['accepted', 'en_route', 'payment_pending'])
+        .limit(1)
+        .snapshots()
+        .map((snap) {
+      if (snap.docs.isEmpty) return null;
+      final doc = snap.docs.first;
+      return {
+        'id': doc.id,
+        ...Map<String, dynamic>.from(doc.data()),
+      };
+    });
+  }
+
+  static Stream<Map<String, dynamic>?> streamCustomerActivePayment(String customerId) {
+    return firestore
+        .collection('jobs')
+        .where('customerId', isEqualTo: customerId)
+        .where('status', isEqualTo: 'payment_pending')
+        .limit(1)
+        .snapshots()
+        .map((snap) {
+      if (snap.docs.isEmpty) return null;
+      final doc = snap.docs.first;
+      return {
+        'id': doc.id,
+        ...Map<String, dynamic>.from(doc.data()),
+      };
+    });
   }
 
   /// Admin closes an active job with the exact amount paid.
@@ -1074,7 +1280,13 @@ class FirebaseService {
   static Stream<List<Map<String, dynamic>>> streamActiveJobsAdmin() {
     return firestore
         .collection('jobs')
-        .where('status', whereIn: ['accepted', 'in_progress', 'inprogress'])
+        .where('status', whereIn: [
+          'accepted',
+          'en_route',
+          'payment_pending',
+          'in_progress',
+          'inprogress'
+        ])
         .orderBy('createdAt', descending: true)
         .limit(50)
         .snapshots()

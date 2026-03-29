@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../glass_card.dart';
 import '../firebase_service.dart';
@@ -29,6 +31,7 @@ class _ServiceDetailsScreenState extends State<ServiceDetailsScreen>
   List<Service> _services = [];
   List<String> _subcategories = [];
   bool _isLoading = true;
+  bool _sheetOpen = false;
   String? _selectedSubcategory;
   String _errorMessage = '';
 
@@ -103,44 +106,86 @@ class _ServiceDetailsScreenState extends State<ServiceDetailsScreen>
   }
 
   Future<void> _showQuickOrderSheet() async {
+    if (_sheetOpen) return;
+
     final user = FirebaseService.getCurrentUser();
     if (user == null) return;
 
-    final results = await Future.wait([
-      FirebaseService.getProfile(user.uid),
-      FirebaseService.getSavedLocations(user.uid),
-    ]);
+    setState(() => _sheetOpen = true);
 
-    if (!mounted) return;
+    try {
+      final results = await Future.wait([
+        FirebaseService.getProfile(user.uid),
+        FirebaseService.getSavedLocations(user.uid),
+      ]).timeout(const Duration(seconds: 15));
 
-    final profile = results[0] as Map<String, dynamic>?;
-    final locations = results[1] as List<Map<String, dynamic>>;
-    final isEn = Localizations.localeOf(context).languageCode == 'en';
+      if (!mounted) return;
 
-    final ctrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 400),
-    );
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      transitionAnimationController: ctrl,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (ctx) => _OrderRequestSheet(
-        uid: user.uid,
-        customerName: profile?['username'] as String? ??
-            profile?['email'] as String? ?? '',
-        serviceKey: widget.serviceKey,
-        serviceCategory: isEn ? widget.labelEn : widget.labelAr,
-        subservice: '',
-        savedLocations: locations,
-        initialPhone: profile?['phone'] as String? ?? '',
-        isEn: isEn,
-        isQuickOrder: true,
-      ),
-    );
-    ctrl.dispose();
+      final profile = results[0] as Map<String, dynamic>?;
+      final locations = results[1] as List<Map<String, dynamic>>;
+      final isEn = Localizations.localeOf(context).languageCode == 'en';
+
+      final ctrl = AnimationController(
+        vsync: this,
+        duration: const Duration(milliseconds: 400),
+      );
+      try {
+        final result = await showModalBottomSheet<String?>(
+          context: context,
+          isScrollControlled: true,
+          transitionAnimationController: ctrl,
+          shape: const RoundedRectangleBorder(
+              borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+          builder: (ctx) => _OrderRequestSheet(
+            uid: user.uid,
+            customerName: profile?['username'] as String? ??
+                profile?['email'] as String? ?? '',
+            serviceKey: widget.serviceKey,
+            serviceCategory: isEn ? widget.labelEn : widget.labelAr,
+            subservice: '',
+            savedLocations: locations,
+            initialPhone: profile?['phone'] as String? ?? '',
+            isEn: isEn,
+            isQuickOrder: true,
+          ),
+        );
+        if (result != null && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(result),
+              backgroundColor: Colors.green,
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        }
+      } finally {
+        ctrl.dispose();
+      }
+    } on TimeoutException {
+      if (mounted) {
+        final isEn = Localizations.localeOf(context).languageCode == 'en';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(isEn
+                ? 'Request timed out. Please try again.'
+                : 'انتهت مهلة الطلب. حاول مرة أخرى.'),
+          ),
+        );
+      }
+
+
+    } catch (e) {
+      if (mounted) {
+        final isEn = Localizations.localeOf(context).languageCode == 'en';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(isEn ? 'Error: $e' : 'خطأ: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _sheetOpen = false);
+      }
+    }
   }
 
   void _openServiceTechnicians(Service service) {
@@ -148,46 +193,84 @@ class _ServiceDetailsScreenState extends State<ServiceDetailsScreen>
   }
 
   Future<void> _showOrderRequestSheet(Service service) async {
+    if (_sheetOpen) return;
+
     final user = FirebaseService.getCurrentUser();
     if (user == null) return;
 
-    // Load profile + saved locations before showing the sheet.
-    final results = await Future.wait([
-      FirebaseService.getProfile(user.uid),
-      FirebaseService.getSavedLocations(user.uid),
-    ]);
+    setState(() => _sheetOpen = true);
 
-    if (!mounted) return;
+    try {
+      final results = await Future.wait([
+        FirebaseService.getProfile(user.uid),
+        FirebaseService.getSavedLocations(user.uid),
+      ]).timeout(const Duration(seconds: 15));
 
-    final profile = results[0] as Map<String, dynamic>?;
-    final locations = results[1] as List<Map<String, dynamic>>;
-    final isEn = Localizations.localeOf(context).languageCode == 'en';
-    final subservice =
-        isEn ? service.serviceNameEn : service.serviceNameAr;
+      if (!mounted) return;
 
-    final ctrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 400),
-    );
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      transitionAnimationController: ctrl,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (ctx) => _OrderRequestSheet(
-        uid: user.uid,
-        customerName: profile?['username'] as String? ??
-            profile?['email'] as String? ?? '',
-        serviceKey: widget.serviceKey,
-        serviceCategory: isEn ? widget.labelEn : widget.labelAr,
-        subservice: subservice,
-        savedLocations: locations,
-        initialPhone: profile?['phone'] as String? ?? '',
-        isEn: isEn,
-      ),
-    );
-    ctrl.dispose();
+      final profile = results[0] as Map<String, dynamic>?;
+      final locations = results[1] as List<Map<String, dynamic>>;
+      final isEn = Localizations.localeOf(context).languageCode == 'en';
+      final subservice = isEn ? service.serviceNameEn : service.serviceNameAr;
+
+      final ctrl = AnimationController(
+        vsync: this,
+        duration: const Duration(milliseconds: 400),
+      );
+      try {
+        final result = await showModalBottomSheet<String?>(
+          context: context,
+          isScrollControlled: true,
+          transitionAnimationController: ctrl,
+          shape: const RoundedRectangleBorder(
+              borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+          builder: (ctx) => _OrderRequestSheet(
+            uid: user.uid,
+            customerName: profile?['username'] as String? ??
+                profile?['email'] as String? ?? '',
+            serviceKey: widget.serviceKey,
+            serviceCategory: isEn ? widget.labelEn : widget.labelAr,
+            subservice: subservice,
+            savedLocations: locations,
+            initialPhone: profile?['phone'] as String? ?? '',
+            isEn: isEn,
+          ),
+        );
+        if (result != null && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(result),
+              backgroundColor: Colors.green,
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        }
+      } finally {
+        ctrl.dispose();
+      }
+    } on TimeoutException {
+      if (mounted) {
+        final isEn = Localizations.localeOf(context).languageCode == 'en';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(isEn
+                ? 'Request timed out. Please try again.'
+                : 'انتهت مهلة الطلب. حاول مرة أخرى.'),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        final isEn = Localizations.localeOf(context).languageCode == 'en';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(isEn ? 'Error: $e' : 'خطأ: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _sheetOpen = false);
+      }
+    }
   }
 
   @override
@@ -268,8 +351,17 @@ class _ServiceDetailsScreenState extends State<ServiceDetailsScreen>
                             width: double.infinity,
                             height: 56,
                             child: ElevatedButton.icon(
-                              onPressed: _showQuickOrderSheet,
-                              icon: const Icon(Icons.flash_on, color: Colors.white),
+                              onPressed: _sheetOpen ? null : _showQuickOrderSheet,
+                              icon: _sheetOpen
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: syanatBlue,
+                                      ),
+                                    )
+                                  : const Icon(Icons.flash_on, color: Colors.white),
                               label: Text(
                                 isEn ? 'Quick Order - 200 EGP' : 'طلب سريع - ٢٠٠ جنيه',
                                 style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
@@ -370,7 +462,9 @@ class _ServiceDetailsScreenState extends State<ServiceDetailsScreen>
                                 return Padding(
                                   padding: const EdgeInsets.only(bottom: 14),
                                   child: GestureDetector(
-                                    onTap: () => _openServiceTechnicians(service),
+                                    onTap: _sheetOpen
+                                        ? null
+                                        : () => _openServiceTechnicians(service),
                                     child: Container(
                                       width: double.infinity,
                                       padding: const EdgeInsets.all(18),
@@ -530,6 +624,7 @@ class _OrderRequestSheetState extends State<_OrderRequestSheet> {
   DateTime? _scheduledTime;
   bool _submitting = false;
   bool _submitted = false; // duplicate-submit guard
+  String? _inlineError;
 
   @override
   void initState() {
@@ -774,24 +869,28 @@ class _OrderRequestSheetState extends State<_OrderRequestSheet> {
     }
     if (description.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(_t('Please describe your request',
-              'يرجى وصف طلبك أولاً'))));
+          content: Text(_t('Please describe your request', 'يرجى وصف طلبك أولاً'))));
       return;
     }
     if (phone.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content:
-              Text(_t('Please enter a phone number', 'أدخل رقم هاتفك أولاً'))));
+          content: Text(_t('Please enter a phone number', 'أدخل رقم هاتفك أولاً'))));
       return;
     }
     if (_urgencyType == 'scheduled' && _scheduledTime == null) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(
-              _t('Please pick a scheduled time', 'اختر الوقت المناسب'))));
+          content: Text(_t('Please pick a scheduled time', 'اختر الوقت المناسب'))));
       return;
     }
 
-    setState(() { _submitting = true; _submitted = true; });
+
+
+
+    setState(() {
+      _submitting = true;
+      _submitted = true;
+      _inlineError = null;
+    });
 
     try {
       final locationLabel =
@@ -812,7 +911,7 @@ class _OrderRequestSheetState extends State<_OrderRequestSheet> {
         urgencyType: widget.isQuickOrder ? 'urgent' : _urgencyType,
         scheduledTime: widget.isQuickOrder ? null : _scheduledTime,
         price: widget.isQuickOrder ? 200.0 : 0.0,
-      );
+      ).timeout(const Duration(seconds: 15));
 
       // Fire-and-forget: notify available technicians (never blocks submit).
       FirebaseService.notifyAvailableTechnicians(
@@ -822,24 +921,36 @@ class _OrderRequestSheetState extends State<_OrderRequestSheet> {
         customerName: widget.customerName,
         locationAddress: locationAddress,
         urgencyType: _urgencyType,
-      );
+      ).catchError((_) {});
 
       if (!mounted) return;
-      Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(widget.isQuickOrder
-            ? _t('Quick order confirmed! A technician will be dispatched shortly.',
-                'تم تأكيد الطلب السريع! سيتم إرسال فني قريباً.')
-            : _t('Request submitted! We will assign a technician shortly.',
-                'تم إرسال الطلب! سنقوم بتعيين فني قريباً.')),
-        backgroundColor: Colors.green,
-        duration: const Duration(seconds: 4),
-      ));
+      Navigator.pop(
+        context,
+        widget.isQuickOrder
+            ? _t(
+                'Quick order confirmed! A technician will be dispatched shortly.',
+                'تم تأكيد الطلب السريع! سيتم إرسال فني قريباً.',
+              )
+            : _t(
+                'Request submitted! We will assign a technician shortly.',
+                'تم إرسال الطلب! سنقوم بتعيين فني قريباً.',
+              ),
+      );
+
+
+
     } catch (e) {
       if (mounted) {
-        setState(() { _submitting = false; _submitted = false; });
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Error: $e')));
+        setState(() {
+          _submitted = false;
+          _inlineError = _t('Error: $e', 'خطأ: $e');
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _submitting = false;
+        });
       }
     }
   }
@@ -886,6 +997,29 @@ class _OrderRequestSheetState extends State<_OrderRequestSheet> {
               style: TextStyle(
                   fontSize: 14, color: Colors.grey.shade600),
             ),
+            if (_inlineError != null) ...[
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFEBEB),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.red.shade300),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.error_outline, color: Colors.red, size: 16),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _inlineError!,
+                        style: TextStyle(color: Colors.red.shade800, fontSize: 13),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 20),
 
             // ── Saved Locations ────────────────────────────────────────────
