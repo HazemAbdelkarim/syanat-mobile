@@ -14,11 +14,18 @@ const Color _syanatBlue = Color(0xFF3C21C8);
 /// Statuses that appear in the "Ongoing" tab.
 const _ongoingStatuses = {
   'requested',
+  // new flow
+  'active',
+  'technician_accepted',
+  'technician_arrived',
+  'work_finished',
+  'awaiting_customer_approval',
+  // legacy statuses (backward compat for existing data)
   'accepted',
   'en_route',
   'payment_pending',
   'in_progress',
-  'inprogress'
+  'inprogress',
 };
 
 /// Statuses that appear in the "Recent" (completed) tab.
@@ -41,9 +48,8 @@ class OrdersScreen extends StatefulWidget {
 class _OrdersScreenState extends State<OrdersScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  StreamSubscription<Map<String, dynamic>?>? _pendingPaymentSub;
-  Map<String, dynamic>? _pendingPayment;
-  bool _confirmingPendingPayment = false;
+  StreamSubscription<Map<String, dynamic>?>? _pendingReceiptSub;
+  Map<String, dynamic>? _pendingReceipt;
 
   @override
   void initState() {
@@ -51,10 +57,10 @@ class _OrdersScreenState extends State<OrdersScreen>
     _tabController = TabController(length: 3, vsync: this);
     final user = FirebaseService.getCurrentUser();
     if (user != null) {
-      _pendingPaymentSub =
-          FirebaseService.streamCustomerActivePayment(user.uid).listen((job) {
+      _pendingReceiptSub =
+          FirebaseService.streamCustomerPendingReceipt(user.uid).listen((job) {
         if (mounted) {
-          setState(() => _pendingPayment = job);
+          setState(() => _pendingReceipt = job);
         }
       });
     }
@@ -62,7 +68,7 @@ class _OrdersScreenState extends State<OrdersScreen>
 
   @override
   void dispose() {
-    _pendingPaymentSub?.cancel();
+    _pendingReceiptSub?.cancel();
     _tabController.dispose();
     super.dispose();
   }
@@ -94,12 +100,13 @@ class _OrdersScreenState extends State<OrdersScreen>
           ),
           bottom: TabBar(
             controller: _tabController,
+            indicatorSize: TabBarIndicatorSize.label,
             indicatorColor: Colors.white,
-            indicatorWeight: 3,
+            indicatorWeight: 4,
             labelColor: Colors.white,
-            unselectedLabelColor: Colors.white60,
-            labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-            unselectedLabelStyle: const TextStyle(fontSize: 13),
+            unselectedLabelColor: Colors.white.withOpacity(0.6),
+            labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+            unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
             tabs: [
               Tab(text: isEn ? 'Ongoing' : 'جارية'),
               Tab(text: isEn ? 'Recent' : 'حديثة'),
@@ -154,7 +161,7 @@ class _OrdersScreenState extends State<OrdersScreen>
               emptyIcon: Icons.pending_actions,
               emptyLabel: isEn ? 'No ongoing orders' : 'لا توجد طلبات جارية',
               isEn: isEn,
-              topWidget: _buildPendingPaymentBanner(uid, isEn),
+              topWidget: _buildPendingReceiptBanner(uid, isEn),
             ),
             _buildJobList(
               jobs: recent,
@@ -206,136 +213,95 @@ class _OrdersScreenState extends State<OrdersScreen>
     );
   }
 
-  Widget? _buildPendingPaymentBanner(String uid, bool isEn) {
-    final payment = _pendingPayment;
-    if (payment == null) return null;
+  Widget? _buildPendingReceiptBanner(String uid, bool isEn) {
+    final receipt = _pendingReceipt;
+    if (receipt == null) return null;
 
-    final amount = (payment['technicianPaymentAmount'] as num?)?.toDouble();
-    final jobId = payment['id'] as String? ?? '';
-    if (amount == null || jobId.isEmpty) return null;
+    final jobId = receipt['id'] as String? ?? '';
+    if (jobId.isEmpty) return null;
 
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFFF8E1),
-        borderRadius: BorderRadius.circular(16),
-        border: const Border(
-          left: BorderSide(color: Color(0xFFFF9800), width: 4),
+    final receiptData = receipt['receipt'] as Map<String, dynamic>?;
+    final grandTotal =
+        (receiptData?['grandTotal'] as num?)?.toDouble() ?? 0.0;
+    final techName =
+        receipt['assignedTechnicianName'] as String? ?? '';
+
+    return GestureDetector(
+      onTap: () => _showReceiptApprovalSheet(
+          context, uid, jobId, receipt, receiptData, isEn),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF3F0FF),
+          borderRadius: BorderRadius.circular(16),
+          border: const Border(
+            left: BorderSide(color: _syanatBlue, width: 4),
+          ),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x0F000000),
+              blurRadius: 10,
+              offset: Offset(0, 4),
+            ),
+          ],
         ),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0x0F000000),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            isEn ? 'Payment Confirmation Required' : 'مطلوب تأكيد الدفع',
-            style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Colors.black87,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '${amount.toStringAsFixed(2)} EGP',
-            style: const TextStyle(
-              fontSize: 28,
-              fontWeight: FontWeight.bold,
-              color: Colors.black87,
-            ),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            isEn
-                ? 'Only confirm the exact amount you paid. Do not confirm if the amount was changed. This protects your rights and ensures accurate service records.'
-                : 'قم بالتأكيد فقط إذا كان هذا هو المبلغ الذي دفعته بالضبط. لا تقبل أي تعديل على المبلغ. هذا يحمي حقوقك ويضمن دقة سجلات الخدمة.',
-            style: TextStyle(
-              color: Colors.red.shade700,
-              fontSize: 13,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              Expanded(
-                child: ElevatedButton(
-                  onPressed: _confirmingPendingPayment
-                      ? null
-                      : () => _confirmPendingPayment(jobId, uid, isEn),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green,
-                    foregroundColor: Colors.white,
+        child: Row(
+          children: [
+            const Icon(Icons.receipt_long, color: _syanatBlue, size: 28),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    isEn
+                        ? 'Receipt Ready for Review'
+                        : 'الإيصال جاهز للمراجعة',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87,
+                    ),
                   ),
-                  child: _confirmingPendingPayment
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : Text(isEn ? 'Confirm' : 'تأكيد'),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const SupportChatScreen(),
-                      ),
-                    );
-                  },
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.red,
-                    side: const BorderSide(color: Colors.red),
+                  const SizedBox(height: 4),
+                  Text(
+                    isEn
+                        ? 'Total: ${grandTotal.toStringAsFixed(0)} EGP${techName.isNotEmpty ? ' · $techName' : ''}'
+                        : 'الإجمالي: ${grandTotal.toStringAsFixed(0)} جنيه${techName.isNotEmpty ? ' · $techName' : ''}',
+                    style: TextStyle(
+                        fontSize: 13, color: Colors.grey.shade600),
                   ),
-                  child: Text(isEn ? 'Report Issue' : 'الإبلاغ عن مشكلة'),
-                ),
+                ],
               ),
-            ],
-          ),
-        ],
+            ),
+            Icon(Icons.chevron_right, color: _syanatBlue.withOpacity(0.6)),
+          ],
+        ),
       ),
     );
   }
 
-  Future<void> _confirmPendingPayment(String jobId, String uid, bool isEn) async {
-    setState(() => _confirmingPendingPayment = true);
-    try {
-      await FirebaseService.confirmCustomerPayment(jobId, uid);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            isEn ? 'Payment confirmed successfully.' : 'تم تأكيد الدفع بنجاح.',
-          ),
-          backgroundColor: Colors.green,
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(isEn ? 'Error: $e' : 'خطأ: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    } finally {
-      if (mounted) {
-        setState(() => _confirmingPendingPayment = false);
-      }
-    }
+  void _showReceiptApprovalSheet(
+    BuildContext context,
+    String uid,
+    String jobId,
+    Map<String, dynamic> job,
+    Map<String, dynamic>? receiptData,
+    bool isEn,
+  ) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _ReceiptApprovalSheet(
+        uid: uid,
+        jobId: jobId,
+        receiptData: receiptData,
+        isEn: isEn,
+        onApproved: () => FirebaseService.approveReceipt(jobId, uid),
+        approving: false,
+      ),
+    );
   }
 
   // -----------------------------------------------------------------------
@@ -354,87 +320,102 @@ class _OrdersScreenState extends State<OrdersScreen>
     String dateStr = '';
     if (createdAt is Timestamp) {
       final dt = createdAt.toDate();
-      dateStr =
-          '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+      dateStr = '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
     }
 
     final statusInfo = _statusInfo(status, isEn);
+    final isOngoing = _ongoingStatuses.contains(status);
 
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
+        borderRadius: BorderRadius.circular(20), // Premium softer radius
+        boxShadow: const [
           BoxShadow(
-            color: const Color(0x0F000000), // black @ 6% opacity
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+            color: Color(0x0A000000), // even softer shadow
+            blurRadius: 15,
+            offset: Offset(0, 5),
           ),
         ],
       ),
       child: Column(
         children: [
           // ── Top strip: service key + status badge ─────────────────────
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            decoration: BoxDecoration(
-              color: const Color(0x0D3C21C8), // _syanatBlue @ 5% opacity
-              borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(16)),
-            ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 // Service icon + key
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: const Color(0x1F3C21C8), // _syanatBlue @ 12% opacity
-                        borderRadius: BorderRadius.circular(10),
+                Expanded(
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: _syanatBlue.withOpacity(0.08),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(
+                          Icons.home_repair_service,
+                          color: _syanatBlue,
+                          size: 22,
+                        ),
                       ),
-                      child: const Icon(
-                        Icons.home_repair_service,
-                        color: _syanatBlue,
-                        size: 20,
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _serviceLabel(serviceKey, isEn),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                                color: Colors.black87,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '#${jobId.length > 6 ? jobId.substring(0, 6).toUpperCase() : jobId.toUpperCase()}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey.shade500,
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 10),
-                    Text(
-                      _serviceLabel(serviceKey, isEn),
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 15,
-                        color: Colors.black87,
-                      ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
 
                 // Status badge
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                   decoration: BoxDecoration(
-                    color: statusInfo['color'] as Color,
+                    color: (statusInfo['color'] as Color).withOpacity(0.1),
                     borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: (statusInfo['color'] as Color).withOpacity(0.3)),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(
                         statusInfo['icon'] as IconData,
-                        color: Colors.white,
-                        size: 13,
+                        color: statusInfo['color'] as Color,
+                        size: 14,
                       ),
                       const SizedBox(width: 4),
                       Text(
                         statusInfo['label'] as String,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
+                        style: TextStyle(
+                          color: statusInfo['color'] as Color,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
                         ),
                       ),
                     ],
@@ -444,9 +425,11 @@ class _OrdersScreenState extends State<OrdersScreen>
             ),
           ),
 
+          const Divider(height: 1, thickness: 1, color: Color(0xFFF0F0F0)),
+
           // ── Body ─────────────────────────────────────────────────────
           Padding(
-            padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -454,14 +437,15 @@ class _OrdersScreenState extends State<OrdersScreen>
                 if (description.isNotEmpty) ...[
                   Text(
                     description,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 14,
-                      color: Colors.black54,
+                      color: Colors.grey.shade700,
+                      height: 1.4,
                     ),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 12),
                 ],
 
                 // Price + date row
@@ -471,84 +455,70 @@ class _OrdersScreenState extends State<OrdersScreen>
                     // Price
                     Row(
                       children: [
-                        Icon(Icons.payments_outlined,
-                            size: 16, color: Colors.green.shade600),
-                        const SizedBox(width: 4),
+                        Icon(Icons.payments_outlined, size: 18, color: Colors.green.shade600),
+                        const SizedBox(width: 6),
                         Text(
-                          price > 0
-                              ? '${price.toStringAsFixed(0)} EGP'
-                              : (isEn ? 'TBD' : 'سيُحدَّد'),
+                          price > 0 ? '${price.toStringAsFixed(0)} EGP' : (isEn ? 'Price TBD' : 'السعر سيُحدَّد'),
                           style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: price > 0
-                                ? Colors.green.shade700
-                                : Colors.grey.shade500,
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: price > 0 ? Colors.green.shade700 : Colors.grey.shade600,
                           ),
                         ),
                       ],
-                    ),
-
-                    // Job ID chip
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade100,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        '#${jobId.length > 6 ? jobId.substring(0, 6).toUpperCase() : jobId.toUpperCase()}',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: Colors.grey.shade600,
-                          letterSpacing: 0.5,
-                        ),
-                      ),
                     ),
 
                     // Date
                     if (dateStr.isNotEmpty)
                       Row(
                         children: [
-                          Icon(Icons.calendar_today_outlined,
-                              size: 13, color: Colors.grey.shade500),
-                          const SizedBox(width: 4),
+                          Icon(Icons.calendar_today_outlined, size: 14, color: Colors.grey.shade400),
+                          const SizedBox(width: 6),
                           Text(
                             dateStr,
                             style: TextStyle(
-                              fontSize: 12,
+                              fontSize: 13,
                               color: Colors.grey.shade500,
+                              fontWeight: FontWeight.w500,
                             ),
                           ),
                         ],
                       ),
                   ],
                 ),
+                
+                // Timeline tracking for Ongoing
+                if (isOngoing) ...[
+                  const SizedBox(height: 16),
+                  _OrderTimeline(status: status, isEn: isEn),
+                ],
               ],
             ),
           ),
 
           // ── Bottom action buttons ────────────────────────────────────
-          if (_ongoingStatuses.contains(status))
+          if (isOngoing)
             Container(
               decoration: const BoxDecoration(
-                border: Border(top: BorderSide(color: Color(0xFFEEEEEE))),
+                color: Color(0xFFFAFAFA),
+                borderRadius: BorderRadius.vertical(bottom: Radius.circular(20)),
+                border: Border(top: BorderSide(color: Color(0xFFF0F0F0))),
               ),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               child: SizedBox(
                 width: double.infinity,
-                height: 40,
-                child: ElevatedButton.icon(
+                height: 48,
+                child: TextButton.icon(
                   onPressed: () => _showCancelDialog(context, jobId, isEn),
                   icon: const Icon(Icons.close, size: 18),
-                  label: Text(isEn ? 'Cancel Order' : 'إلغاء الطلب'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.red.shade400,
-                    foregroundColor: Colors.white,
-                    elevation: 0,
+                  label: Text(
+                    isEn ? 'Cancel Order' : 'إلغاء الطلب',
+                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                  ),
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.red.shade400,
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
+                      borderRadius: BorderRadius.circular(12),
                     ),
                   ),
                 ),
@@ -630,6 +600,38 @@ class _OrdersScreenState extends State<OrdersScreen>
           'color': const Color(0xFFF59E0B),
           'icon': Icons.hourglass_top,
         };
+      // New flow statuses
+      case 'active':
+        return {
+          'label': isEn ? 'Assigned' : 'تم التعيين',
+          'color': const Color(0xFF3B82F6),
+          'icon': Icons.person_pin_outlined,
+        };
+      case 'technician_accepted':
+        return {
+          'label': isEn ? 'Tech Accepted' : 'قبل الفني',
+          'color': const Color(0xFF6366F1),
+          'icon': Icons.thumb_up_alt_outlined,
+        };
+      case 'technician_arrived':
+        return {
+          'label': isEn ? 'Tech Arrived' : 'الفني وصل',
+          'color': const Color(0xFF2563EB),
+          'icon': Icons.directions_walk,
+        };
+      case 'work_finished':
+        return {
+          'label': isEn ? 'Work Done' : 'اكتمل العمل',
+          'color': const Color(0xFF8B5CF6),
+          'icon': Icons.construction,
+        };
+      case 'awaiting_customer_approval':
+        return {
+          'label': isEn ? 'Awaiting Approval' : 'بانتظار موافقتك',
+          'color': const Color(0xFFF59E0B),
+          'icon': Icons.receipt_long_outlined,
+        };
+      // Legacy statuses
       case 'accepted':
         return {
           'label': isEn ? 'Accepted' : 'مقبول',
@@ -719,11 +721,22 @@ class _OrdersScreenState extends State<OrdersScreen>
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 72, color: Colors.grey.shade300),
-          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: _syanatBlue.withOpacity(0.05),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, size: 64, color: _syanatBlue.withOpacity(0.5)),
+          ),
+          const SizedBox(height: 24),
           Text(
             label,
-            style: TextStyle(color: Colors.grey.shade400, fontSize: 16),
+            style: const TextStyle(
+              color: Colors.black54,
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ],
       ),
@@ -769,6 +782,484 @@ class _OrdersScreenState extends State<OrdersScreen>
           ],
         ),
       ),
+    );
+  }
+}
+
+class _OrderTimeline extends StatelessWidget {
+  final String status;
+  final bool isEn;
+
+  const _OrderTimeline({required this.status, required this.isEn});
+
+  @override
+  Widget build(BuildContext context) {
+    // Unified timeline covering both new and legacy status flows
+    final Map<String, String> stepsLabelEn = {
+      'requested': 'Requested',
+      'active': 'Assigned',
+      'technician_arrived': 'Arrived',
+      'work_finished': 'Work Done',
+      'awaiting_customer_approval': 'Approval',
+    };
+    final Map<String, String> stepsLabelAr = {
+      'requested': 'مطلوب',
+      'active': 'معيَّن',
+      'technician_arrived': 'وصل',
+      'work_finished': 'اكتمل',
+      'awaiting_customer_approval': 'موافقة',
+    };
+
+    final List<String> stepKeys = [
+      'requested',
+      'active',
+      'technician_arrived',
+      'work_finished',
+      'awaiting_customer_approval',
+    ];
+
+    // Map legacy and intermediate statuses to the closest timeline step
+    String normalizedStatus = status;
+    const _legacyMap = {
+      'accepted': 'active',
+      'technician_accepted': 'active',
+      'en_route': 'technician_arrived',
+      'in_progress': 'work_finished',
+      'inprogress': 'work_finished',
+      'payment_pending': 'awaiting_customer_approval',
+    };
+    normalizedStatus = _legacyMap[status] ?? status;
+
+    int currentStepIndex = stepKeys.indexOf(normalizedStatus);
+    if (currentStepIndex == -1) {
+      if (status == 'completed') {
+        currentStepIndex = stepKeys.length;
+      } else {
+        currentStepIndex = 0;
+      }
+    }
+
+    final labels = isEn ? stepsLabelEn : stepsLabelAr;
+
+    return Container(
+      padding: const EdgeInsets.only(top: 16, bottom: 8),
+      child: Column(
+        children: [
+          Row(
+            children: List.generate(stepKeys.length * 2 - 1, (index) {
+              if (index % 2 == 0) {
+                // Circle
+                final stepIndex = index ~/ 2;
+                final isCompleted = stepIndex <= currentStepIndex;
+                final isActive = stepIndex == currentStepIndex;
+
+                return Container(
+                  width: 24,
+                  height: 24,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: isCompleted ? const Color(0xFF3C21C8) : Colors.grey.shade200,
+                    border: isActive
+                        ? Border.all(color: const Color(0xFF3C21C8).withOpacity(0.3), width: 4)
+                        : null,
+                  ),
+                  child: Center(
+                    child: isCompleted
+                        ? const Icon(Icons.check, size: 14, color: Colors.white)
+                        : null,
+                  ),
+                );
+              } else {
+                // Line
+                final stepIndex = index ~/ 2;
+                final isCompleted = stepIndex < currentStepIndex;
+                return Expanded(
+                  child: Container(
+                    height: 2,
+                    color: isCompleted ? const Color(0xFF3C21C8) : Colors.grey.shade200,
+                  ),
+                );
+              }
+            }),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: List.generate(stepKeys.length, (index) {
+              final isCompleted = index <= currentStepIndex;
+              final isActive = index == currentStepIndex;
+              return Expanded(
+                child: Center(
+                  child: Text(
+                    labels[stepKeys[index]]!,
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
+                      color: isCompleted ? const Color(0xFF3C21C8) : Colors.grey.shade400,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              );
+            }),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Receipt approval bottom sheet (customer-side)
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _ReceiptApprovalSheet extends StatefulWidget {
+  final String uid;
+  final String jobId;
+  final Map<String, dynamic>? receiptData;
+  final bool isEn;
+  final Future<void> Function() onApproved;
+  // approving param kept for API compat but loading managed locally
+  final bool approving;
+
+  const _ReceiptApprovalSheet({
+    required this.uid,
+    required this.jobId,
+    required this.receiptData,
+    required this.isEn,
+    required this.onApproved,
+    required this.approving,
+  });
+
+  @override
+  State<_ReceiptApprovalSheet> createState() => _ReceiptApprovalSheetState();
+}
+
+class _ReceiptApprovalSheetState extends State<_ReceiptApprovalSheet> {
+  bool _approving = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final isEn = widget.isEn;
+    final receiptData = widget.receiptData;
+    final services = (receiptData?['services'] as List<dynamic>? ?? [])
+        .cast<Map<String, dynamic>>();
+    final parts = (receiptData?['parts'] as List<dynamic>? ?? [])
+        .cast<Map<String, dynamic>>();
+    final servicesSubtotal =
+        (receiptData?['servicesSubtotal'] as num?)?.toDouble() ?? 0.0;
+    final partsSubtotal =
+        (receiptData?['partsSubtotal'] as num?)?.toDouble() ?? 0.0;
+    final grandTotal =
+        (receiptData?['grandTotal'] as num?)?.toDouble() ?? 0.0;
+    final notes = receiptData?['notes'] as String? ?? '';
+
+    return Directionality(
+      textDirection: isEn ? TextDirection.ltr : TextDirection.rtl,
+      child: Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: DraggableScrollableSheet(
+          initialChildSize: 0.9,
+          minChildSize: 0.5,
+          maxChildSize: 0.95,
+          expand: false,
+          builder: (ctx, scrollCtrl) => ListView(
+            controller: scrollCtrl,
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+            children: [
+              // Handle
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 20),
+                  decoration: BoxDecoration(
+                      color: Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(2)),
+                ),
+              ),
+
+              // Title
+              Row(
+                children: [
+                  const Icon(Icons.receipt_long,
+                      color: _syanatBlue, size: 24),
+                  const SizedBox(width: 10),
+                  Text(
+                    isEn ? 'Service Receipt' : 'إيصال الخدمة',
+                    style: const TextStyle(
+                        fontSize: 20, fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+
+              // ── Disclaimer (customer-only) ─────────────────────────
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFF3CD),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFE6A817)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.warning_amber_rounded,
+                            color: Color(0xFFCC8400), size: 18),
+                        const SizedBox(width: 8),
+                        Text(
+                          isEn ? 'Important Notice' : 'تنبيه مهم',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                            color: Color(0xFF7A4F00),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      isEn
+                          ? 'Please make sure the prices listed here match exactly what you paid. Any manipulation in prices must not be tolerated. The technician must enter the exact prices paid by you — these are our official reference for any complaint, dispute, or use of the 14-day free checkup guarantee.'
+                          : 'تأكد من أن الأسعار المدرجة هنا تطابق تمامًا ما دفعته. أي تلاعب في الأسعار يجب عدم التسامح معه. يجب على الفني إدخال الأسعار الفعلية التي دفعتها — هذه هي مرجعنا الرسمي في حالة أي شكوى أو خلاف أو استخدام ضمان الفحص المجاني لمدة 14 يومًا.',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: Color(0xFF7A4F00),
+                        height: 1.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // ── Services ──────────────────────────────────────────
+              if (services.isNotEmpty) ...[
+                _sectionTitle(
+                    isEn ? 'Services Performed' : 'الخدمات المنجزة', isEn),
+                const SizedBox(height: 10),
+                ...services.map((s) => _receiptRow(
+                      s['title'] as String? ?? '',
+                      (s['price'] as num?)?.toDouble() ?? 0.0,
+                    )),
+                const SizedBox(height: 6),
+                _subtotalRow(
+                    isEn ? 'Services Subtotal' : 'إجمالي الخدمات',
+                    servicesSubtotal),
+              ],
+
+              // ── Parts ─────────────────────────────────────────────
+              if (parts.isNotEmpty) ...[
+                const SizedBox(height: 20),
+                _sectionTitle(
+                    isEn ? 'Parts Used' : 'القطع المستخدمة', isEn),
+                const SizedBox(height: 10),
+                ...parts.map((p) => _receiptRow(
+                      p['name'] as String? ?? '',
+                      (p['price'] as num?)?.toDouble() ?? 0.0,
+                    )),
+                const SizedBox(height: 6),
+                _subtotalRow(
+                    isEn ? 'Parts Subtotal' : 'إجمالي القطع',
+                    partsSubtotal),
+              ],
+
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 16),
+                child: Divider(thickness: 1.5),
+              ),
+
+              // ── Grand Total ───────────────────────────────────────
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    isEn ? 'Grand Total' : 'الإجمالي الكلي',
+                    style: const TextStyle(
+                        fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  Text(
+                    '${grandTotal.toStringAsFixed(0)} EGP',
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      color: _syanatBlue,
+                    ),
+                  ),
+                ],
+              ),
+
+              // ── Notes ─────────────────────────────────────────────
+              if (notes.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade50,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.grey.shade200),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        isEn ? 'Technician Note' : 'ملاحظة الفني',
+                        style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.grey.shade600),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(notes,
+                          style: const TextStyle(
+                              fontSize: 14, height: 1.4)),
+                    ],
+                  ),
+                ),
+              ],
+
+              const SizedBox(height: 28),
+
+              // ── Action buttons ────────────────────────────────────
+              SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: ElevatedButton.icon(
+                  onPressed: _approving
+                      ? null
+                      : () async {
+                          setState(() => _approving = true);
+                          try {
+                            await widget.onApproved();
+                            if (!mounted) return;
+                            Navigator.pop(context);
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                              content: Text(widget.isEn
+                                  ? 'Order completed successfully.'
+                                  : 'تم إتمام الطلب بنجاح.'),
+                              backgroundColor: Colors.green,
+                            ));
+                          } catch (e) {
+                            if (!mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                              content: Text(widget.isEn
+                                  ? 'Error: $e'
+                                  : 'خطأ: $e'),
+                              backgroundColor: Colors.red,
+                            ));
+                          } finally {
+                            if (mounted) setState(() => _approving = false);
+                          }
+                        },
+                  icon: _approving
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: Colors.white))
+                      : const Icon(Icons.check_circle_outline),
+                  label: Text(
+                    isEn ? 'Approve Receipt' : 'الموافقة على الإيصال',
+                    style: const TextStyle(
+                        fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF10B981),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14)),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => const SupportChatScreen()),
+                    );
+                  },
+                  icon: const Icon(Icons.flag_outlined),
+                  label: Text(
+                    isEn ? 'Report an Issue' : 'الإبلاغ عن مشكلة',
+                    style: const TextStyle(
+                        fontSize: 15, fontWeight: FontWeight.w600),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.red.shade600,
+                    side: BorderSide(color: Colors.red.shade300),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14)),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _sectionTitle(String title, bool isEn) {
+    return Text(
+      title,
+      style: TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w700,
+          color: Colors.grey.shade600,
+          letterSpacing: 0.3),
+    );
+  }
+
+  Widget _receiptRow(String label, double price) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Expanded(
+            child: Text(label,
+                style: const TextStyle(fontSize: 14, height: 1.3)),
+          ),
+          const SizedBox(width: 16),
+          Text(
+            '${price.toStringAsFixed(0)} EGP',
+            style: const TextStyle(
+                fontSize: 14, fontWeight: FontWeight.w600),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _subtotalRow(String label, double amount) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label,
+            style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey.shade500,
+                fontWeight: FontWeight.w500)),
+        Text(
+          '${amount.toStringAsFixed(0)} EGP',
+          style: TextStyle(
+              fontSize: 12,
+              color: Colors.grey.shade600,
+              fontWeight: FontWeight.w600),
+        ),
+      ],
     );
   }
 }

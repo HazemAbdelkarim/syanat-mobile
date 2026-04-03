@@ -164,10 +164,17 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
 
       final active = jobs
           .where(
-            (j) =>
-                j['status'] == 'accepted' ||
-                j['status'] == 'in_progress' ||
-                j['status'] == 'inprogress',
+            (j) {
+              final s = j['status'] as String? ?? '';
+              return s == 'active' ||
+                  s == 'technician_accepted' ||
+                  s == 'technician_arrived' ||
+                  s == 'work_finished' ||
+                  s == 'awaiting_customer_approval' ||
+                  s == 'accepted' ||
+                  s == 'in_progress' ||
+                  s == 'inprogress';
+            },
           )
           .length;
 

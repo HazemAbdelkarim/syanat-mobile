@@ -1,6 +1,7 @@
 import 'dart:io' show File;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -295,6 +296,8 @@ class _TechnicianSignupFlowState extends State<TechnicianSignupFlow> {
       _submissionError = null;
     });
 
+    User? createdAuthUser;
+
     try {
       await _getLocation();
       if (!mounted) return;
@@ -316,6 +319,7 @@ class _TechnicianSignupFlowState extends State<TechnicianSignupFlow> {
         );
         final user = credential.user;
         if (user == null) throw Exception(_t(isEn, 'Unable to create account.', 'تعذر إنشاء الحساب.'));
+        createdAuthUser = user;
         uid = user.uid;
         email = _emailController.text.trim().toLowerCase();
       }
@@ -367,6 +371,13 @@ class _TechnicianSignupFlowState extends State<TechnicianSignupFlow> {
         MaterialPageRoute(builder: (_) => const TechHomeScreen()),
       );
     } catch (e) {
+      if (createdAuthUser != null) {
+        try {
+          await createdAuthUser!.delete();
+        } catch (_) {
+          await FirebaseService.auth.signOut();
+        }
+      }
       if (!mounted) return;
       setState(() {
         _submissionError = _t(isEn, 'Could not create your technician account. $e', 'تعذر إنشاء حساب الفني. $e');

@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import 'firebase_service.dart';
@@ -209,6 +210,8 @@ class _CustomerSignupFlowState extends State<CustomerSignupFlow> {
       _submissionError = null;
     });
 
+    User? createdAuthUser;
+
     try {
       final username = _nameController.text.trim();
       final phone = _phoneController.text.trim();
@@ -227,6 +230,7 @@ class _CustomerSignupFlowState extends State<CustomerSignupFlow> {
         );
         final user = credential.user;
         if (user == null) throw Exception(_t(isEn, 'Unable to create account.', 'تعذر إنشاء الحساب.'));
+        createdAuthUser = user;
         uid = user.uid;
         email = _emailController.text.trim().toLowerCase();
       }
@@ -247,6 +251,13 @@ class _CustomerSignupFlowState extends State<CustomerSignupFlow> {
         MaterialPageRoute(builder: (_) => const UserHomeScreen()),
       );
     } catch (e) {
+      if (createdAuthUser != null) {
+        try {
+          await createdAuthUser!.delete();
+        } catch (_) {
+          await FirebaseService.auth.signOut();
+        }
+      }
       if (!mounted) return;
       setState(() {
         _submissionError = _t(

@@ -939,9 +939,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     final adminClosedAt = job['adminClosedAt'];
     final createdAt = job['createdAt'];
 
+    final customerApprovedAt = job['customerApprovedAt'];
+    final closedTimestamp = adminClosedAt ?? customerApprovedAt;
     String closedStr = '';
-    if (adminClosedAt is Timestamp) {
-      final dt = adminClosedAt.toDate();
+    if (closedTimestamp is Timestamp) {
+      final dt = closedTimestamp.toDate();
       closedStr =
           '${dt.day}/${dt.month}/${dt.year} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
     }
@@ -1032,7 +1034,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           if (closedStr.isNotEmpty) ...[
             const SizedBox(height: 4),
             Text(
-              '${isEn ? 'Closed' : 'أُغلق'}: $closedStr',
+              '${isEn ? 'Completed' : 'اكتمل'}: $closedStr',
               style: const TextStyle(fontSize: 11, color: Colors.black38),
             ),
           ],
@@ -1606,7 +1608,16 @@ class _RequestedJobSheetState extends State<_RequestedJobSheet> {
             .get(),
         FirebaseService.firestore
             .collection('jobs')
-            .where('status', whereIn: ['accepted', 'en_route', 'payment_pending'])
+            .where('status', whereIn: [
+              'active',
+              'technician_accepted',
+              'technician_arrived',
+              'work_finished',
+              'awaiting_customer_approval',
+              'accepted',
+              'en_route',
+              'payment_pending',
+            ])
             .limit(50)
             .get(),
       ]);
@@ -1888,96 +1899,45 @@ class _RequestedJobSheetState extends State<_RequestedJobSheet> {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// _ActiveJobSheet — Admin views an active job and closes it with payment
+// _ActiveJobSheet — Admin views an active job (read-only monitoring)
 // ═════════════════════════════════════════════════════════════════════════════
 
-class _ActiveJobSheet extends StatefulWidget {
+class _ActiveJobSheet extends StatelessWidget {
   final Map<String, dynamic> job;
   final bool isEn;
 
   const _ActiveJobSheet({required this.job, required this.isEn});
 
-  @override
-  State<_ActiveJobSheet> createState() => _ActiveJobSheetState();
-}
+  static const _statusLabelsEn = {
+    'active': 'Active — Awaiting Tech Acceptance',
+    'technician_accepted': 'Tech Accepted',
+    'technician_arrived': 'Tech Arrived',
+    'work_finished': 'Work Finished — Awaiting Receipt',
+    'awaiting_customer_approval': 'Awaiting Customer Approval',
+    'completed': 'Completed',
+    'cancelled': 'Cancelled',
+    'accepted': 'Active',
+    'en_route': 'En Route',
+    'payment_pending': 'Payment Pending',
+  };
 
-class _ActiveJobSheetState extends State<_ActiveJobSheet> {
-  final _amountController = TextEditingController();
-  bool _closing = false;
-
-  @override
-  void dispose() {
-    _amountController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _closeJob() async {
-    final raw = _amountController.text.trim();
-    final amount = double.tryParse(raw);
-    if (amount == null || amount <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(widget.isEn
-            ? 'Please enter a valid amount'
-            : 'أدخل مبلغاً صحيحاً'),
-      ));
-      return;
-    }
-
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(widget.isEn ? 'Confirm Close' : 'تأكيد الإغلاق'),
-        content: Text(widget.isEn
-            ? 'Close this job with payment of ${amount.toStringAsFixed(2)} EGP?'
-            : 'إغلاق هذا الطلب بمبلغ ${amount.toStringAsFixed(2)} جنيه؟'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: Text(widget.isEn ? 'Cancel' : 'إلغاء')),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(
-                backgroundColor: syanatBlue, foregroundColor: Colors.white),
-            child: Text(widget.isEn ? 'Confirm' : 'تأكيد'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirm != true) return;
-    setState(() => _closing = true);
-
-    try {
-      final jobId = widget.job['id'] as String? ?? '';
-      final closed =
-          await FirebaseService.adminCloseJob(jobId: jobId, amountPaid: amount);
-      if (!mounted) return;
-      Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(closed
-            ? (widget.isEn
-                ? 'Job closed. Revenue updated.'
-                : 'تم إغلاق الطلب وتحديث الإيرادات.')
-            : (widget.isEn
-                ? 'Job was already closed.'
-                : 'الطلب مغلق مسبقاً.')),
-        backgroundColor: closed ? Colors.green : Colors.orange,
-      ));
-    } catch (e) {
-      if (mounted) {
-        setState(() => _closing = false);
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Error: $e')));
-      }
-    }
-  }
+  static const _statusLabelsAr = {
+    'active': 'نشط — في انتظار قبول الفني',
+    'technician_accepted': 'قبل الفني',
+    'technician_arrived': 'الفني وصل',
+    'work_finished': 'اكتمل العمل — في انتظار الإيصال',
+    'awaiting_customer_approval': 'في انتظار موافقة العميل',
+    'completed': 'مكتمل',
+    'cancelled': 'ملغي',
+    'accepted': 'نشط',
+    'en_route': 'في الطريق',
+    'payment_pending': 'بانتظار الدفع',
+  };
 
   @override
   Widget build(BuildContext context) {
-    final job = widget.job;
-    final isEn = widget.isEn;
-    final serviceCategory = job['serviceCategory'] as String? ??
-        job['serviceKey'] as String? ?? '—';
+    final serviceCategory =
+        job['serviceCategory'] as String? ?? job['serviceKey'] as String? ?? '—';
     final customerName =
         job['customerName'] as String? ?? job['customerId'] as String? ?? '—';
     final techName = job['assignedTechnicianName'] as String? ?? '—';
@@ -1987,6 +1947,9 @@ class _ActiveJobSheetState extends State<_ActiveJobSheet> {
     final locationAddress = job['locationAddress'] as String? ?? '';
     final status = job['status'] as String? ?? '';
     final createdAt = job['createdAt'];
+    final receipt = job['receipt'] as Map<String, dynamic>?;
+
+    final statusLabel = (isEn ? _statusLabelsEn : _statusLabelsAr)[status] ?? status;
 
     String dateStr = '';
     if (createdAt is Timestamp) {
@@ -2040,70 +2003,123 @@ class _ActiveJobSheetState extends State<_ActiveJobSheet> {
             if (description.isNotEmpty)
               _infoRow(Icons.description,
                   isEn ? 'Description' : 'الوصف', description),
-            _infoRow(Icons.info_outline, isEn ? 'Status' : 'الحالة', status),
+            _infoRow(Icons.info_outline, isEn ? 'Status' : 'الحالة',
+                statusLabel),
             if (dateStr.isNotEmpty)
               _infoRow(Icons.access_time,
                   isEn ? 'Created' : 'وقت الإنشاء', dateStr),
-            const Divider(height: 32),
-            Text(
-              isEn
-                  ? 'Close Job & Record Payment'
-                  : 'إغلاق الطلب وتسجيل المبلغ',
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _amountController,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              decoration: InputDecoration(
-                labelText: isEn
-                    ? 'Exact amount paid (EGP)'
-                    : 'المبلغ المدفوع بالضبط (جنيه)',
-                hintText: '0.00',
-                border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12)),
-                prefixIcon:
-                    const Icon(Icons.payments, color: syanatBlue),
+            if (receipt != null) ...[
+              const Divider(height: 32),
+              Text(
+                isEn ? 'Submitted Receipt' : 'الإيصال المقدَّم',
+                style: const TextStyle(
+                    fontSize: 16, fontWeight: FontWeight.bold),
               ),
-            ),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              height: 52,
-              child: ElevatedButton.icon(
-                onPressed: _closing ? null : _closeJob,
-                icon: _closing
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.white))
-                    : const Icon(Icons.lock),
-                label: Text(
-                  isEn ? 'Close & Record Revenue' : 'إغلاق وتسجيل الإيراد',
-                  style: const TextStyle(
-                      fontSize: 16, fontWeight: FontWeight.bold),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: syanatBlue,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)),
-                ),
+              const SizedBox(height: 12),
+              _receiptPreview(receipt, isEn),
+            ],
+            Container(
+              margin: const EdgeInsets.only(top: 24),
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF0F4FF),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFF3C21C8).withOpacity(0.2)),
               ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              isEn
-                  ? 'Revenue only updates when you close the job here.'
-                  : 'الإيراد يُضاف فقط عند الإغلاق من هنا.',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+              child: Row(
+                children: [
+                  const Icon(Icons.info_outline,
+                      size: 18, color: Color(0xFF3C21C8)),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      isEn
+                          ? 'Order completion is now handled by the technician and customer. No manual closure required.'
+                          : 'إتمام الطلب الآن يتم من قِبل الفني والعميل. لا يلزم إغلاق يدوي.',
+                      style: const TextStyle(
+                          fontSize: 13, color: Color(0xFF3C21C8)),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _receiptPreview(Map<String, dynamic> receipt, bool isEn) {
+    final services =
+        (receipt['services'] as List<dynamic>? ?? []).cast<Map<String, dynamic>>();
+    final parts =
+        (receipt['parts'] as List<dynamic>? ?? []).cast<Map<String, dynamic>>();
+    final grandTotal =
+        (receipt['grandTotal'] as num?)?.toDouble() ?? 0.0;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (services.isNotEmpty) ...[
+          Text(isEn ? 'Services' : 'الخدمات',
+              style: const TextStyle(
+                  fontWeight: FontWeight.w600, fontSize: 13,
+                  color: Colors.black54)),
+          const SizedBox(height: 6),
+          ...services.map((s) => Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                        child: Text(s['title'] as String? ?? '',
+                            style: const TextStyle(fontSize: 14))),
+                    Text(
+                        '${(s['price'] as num?)?.toStringAsFixed(0) ?? '0'} EGP',
+                        style: const TextStyle(
+                            fontSize: 14, fontWeight: FontWeight.w600)),
+                  ],
+                ),
+              )),
+        ],
+        if (parts.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Text(isEn ? 'Parts' : 'قطع الغيار',
+              style: const TextStyle(
+                  fontWeight: FontWeight.w600, fontSize: 13,
+                  color: Colors.black54)),
+          const SizedBox(height: 6),
+          ...parts.map((p) => Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                        child: Text(p['name'] as String? ?? '',
+                            style: const TextStyle(fontSize: 14))),
+                    Text(
+                        '${(p['price'] as num?)?.toStringAsFixed(0) ?? '0'} EGP',
+                        style: const TextStyle(
+                            fontSize: 14, fontWeight: FontWeight.w600)),
+                  ],
+                ),
+              )),
+        ],
+        const Divider(height: 20),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(isEn ? 'Grand Total' : 'الإجمالي',
+                style: const TextStyle(
+                    fontWeight: FontWeight.bold, fontSize: 15)),
+            Text('${grandTotal.toStringAsFixed(0)} EGP',
+                style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15,
+                    color: Color(0xFF3C21C8))),
+          ],
+        ),
+      ],
     );
   }
 

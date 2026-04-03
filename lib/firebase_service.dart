@@ -501,7 +501,14 @@ class FirebaseService {
       };
       if (prevStatus == 'requested') {
         statsUpdate['jobsRequested'] = FieldValue.increment(-1);
-      } else if (prevStatus == 'accepted' ||
+      } else if (prevStatus == 'active' ||
+          prevStatus == 'technician_accepted' ||
+          prevStatus == 'technician_arrived' ||
+          prevStatus == 'work_finished' ||
+          prevStatus == 'awaiting_customer_approval' ||
+          prevStatus == 'accepted' ||
+          prevStatus == 'en_route' ||
+          prevStatus == 'payment_pending' ||
           prevStatus == 'in_progress' ||
           prevStatus == 'inprogress') {
         statsUpdate['jobsOngoing'] = FieldValue.increment(-1);
@@ -1029,7 +1036,7 @@ class FirebaseService {
         'assignedTechnicianId': technicianId,
         'technicianId': technicianId, // kept for existing stream queries
         'assignedTechnicianName': technicianName,
-        'status': 'accepted',
+        'status': 'active',
         'updatedAt': FieldValue.serverTimestamp(),
       });
     });
@@ -1184,7 +1191,17 @@ class FirebaseService {
     return firestore
         .collection('jobs')
         .where('assignedTechnicianId', isEqualTo: technicianId)
-        .where('status', whereIn: ['accepted', 'en_route', 'payment_pending'])
+        .where('status', whereIn: [
+          'active',
+          'technician_accepted',
+          'technician_arrived',
+          'work_finished',
+          'awaiting_customer_approval',
+          // legacy: keep until all in-flight documents are migrated
+          'accepted',
+          'en_route',
+          'payment_pending',
+        ])
         .limit(1)
         .snapshots()
         .map((snap) {
@@ -1281,11 +1298,16 @@ class FirebaseService {
     return firestore
         .collection('jobs')
         .where('status', whereIn: [
+          'active',
+          'technician_accepted',
+          'technician_arrived',
+          'work_finished',
+          'awaiting_customer_approval',
           'accepted',
           'en_route',
           'payment_pending',
           'in_progress',
-          'inprogress'
+          'inprogress',
         ])
         .orderBy('createdAt', descending: true)
         .limit(50)
@@ -1425,6 +1447,213 @@ class FirebaseService {
               data['id'] = d.id;
               return data;
             }).toList());
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // TECHNICIAN EXECUTION FLOW (new 3-step flow)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /// Step 1: Technician accepts an assigned job.
+  /// Transitions: active → technician_accepted.
+  static Future<void> acceptAssignment(
+      String jobId, String technicianId) async {
+    await firestore.runTransaction((tx) async {
+      final ref = firestore.collection('jobs').doc(jobId);
+      final snap = await tx.get(ref);
+      if (!snap.exists) throw Exception('Job not found');
+      final data = snap.data()!;
+      if (data['status'] != 'active') {
+        throw Exception('Job is not ready for acceptance');
+      }
+      if (data['assignedTechnicianId'] != technicianId) {
+        throw Exception('You are not assigned to this job');
+      }
+      tx.update(ref, {
+        'status': 'technician_accepted',
+        'technicianAcceptedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    });
+  }
+
+  /// Step 2: Technician confirms arrival at the customer location.
+  /// Transitions: technician_accepted → technician_arrived.
+  static Future<void> markTechnicianArrived(
+      String jobId, String technicianId) async {
+    await firestore.runTransaction((tx) async {
+      final ref = firestore.collection('jobs').doc(jobId);
+      final snap = await tx.get(ref);
+      if (!snap.exists) throw Exception('Job not found');
+      final data = snap.data()!;
+      if (data['status'] != 'technician_accepted') {
+        throw Exception('Job is not ready for arrival confirmation');
+      }
+      if (data['assignedTechnicianId'] != technicianId) {
+        throw Exception('You are not assigned to this job');
+      }
+      tx.update(ref, {
+        'status': 'technician_arrived',
+        'technicianArrivedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    });
+  }
+
+  /// Step 3: Technician confirms the physical work is done.
+  /// Transitions: technician_arrived → work_finished.
+  /// Does NOT complete the order — receipt + customer approval still required.
+  static Future<void> markWorkFinished(
+      String jobId, String technicianId) async {
+    await firestore.runTransaction((tx) async {
+      final ref = firestore.collection('jobs').doc(jobId);
+      final snap = await tx.get(ref);
+      if (!snap.exists) throw Exception('Job not found');
+      final data = snap.data()!;
+      if (data['status'] != 'technician_arrived') {
+        throw Exception('Job is not ready for work completion');
+      }
+      if (data['assignedTechnicianId'] != technicianId) {
+        throw Exception('You are not assigned to this job');
+      }
+      tx.update(ref, {
+        'status': 'work_finished',
+        'workFinishedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    });
+  }
+
+  /// Technician submits a structured receipt after finishing work.
+  /// Transitions: work_finished → awaiting_customer_approval.
+  ///
+  /// Totals are RECOMPUTED from the line items here and override any values
+  /// passed in from the client, so a buggy or modified client cannot persist
+  /// inconsistent billing numbers.
+  static Future<void> submitReceipt({
+    required String jobId,
+    required String technicianId,
+    required List<Map<String, dynamic>> services,
+    required List<Map<String, dynamic>> parts,
+    String notes = '',
+    // subtotals/grandTotal params kept for call-site compat but ignored —
+    // values are always recomputed from line items below.
+    double servicesSubtotal = 0,
+    double partsSubtotal = 0,
+    double grandTotal = 0,
+  }) async {
+    if (services.isEmpty) {
+      throw ArgumentError('Receipt must include at least one service');
+    }
+
+    // Recompute from line items — never trust client-aggregated totals.
+    double computedServicesSub = 0;
+    for (final s in services) {
+      final p = (s['price'] as num?)?.toDouble() ?? 0.0;
+      if (!p.isFinite || p < 0) throw ArgumentError('Invalid service price');
+      computedServicesSub += p;
+    }
+    double computedPartsSub = 0;
+    for (final p in parts) {
+      final price = (p['price'] as num?)?.toDouble() ?? 0.0;
+      if (!price.isFinite || price < 0) throw ArgumentError('Invalid part price');
+      computedPartsSub += price;
+    }
+    final computedGrand = computedServicesSub + computedPartsSub;
+
+    await firestore.runTransaction((tx) async {
+      final ref = firestore.collection('jobs').doc(jobId);
+      final snap = await tx.get(ref);
+      if (!snap.exists) throw Exception('Job not found');
+      final data = snap.data()!;
+      if (data['status'] != 'work_finished') {
+        throw Exception('Work must be finished before submitting receipt');
+      }
+      if (data['assignedTechnicianId'] != technicianId) {
+        throw Exception('You are not assigned to this job');
+      }
+      tx.update(ref, {
+        'status': 'awaiting_customer_approval',
+        'receipt': {
+          'services': services,
+          'parts': parts,
+          'servicesSubtotal': computedServicesSub,
+          'partsSubtotal': computedPartsSub,
+          'grandTotal': computedGrand,
+          'notes': notes,
+        },
+        'receiptSubmittedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    });
+  }
+
+  /// Customer approves the submitted receipt.
+  /// Transitions: awaiting_customer_approval → completed.
+  ///
+  /// The grand total used as amountPaid is the server-stored computed value
+  /// from submitReceipt — not a re-read from the client.
+  /// Stats/global is updated inside the same transaction so completion and
+  /// accounting are atomic and cannot silently diverge on a partial failure.
+  static Future<void> approveReceipt(
+      String jobId, String customerId) async {
+    double amountPaid = 0.0;
+    await firestore.runTransaction((tx) async {
+      final jobRef = firestore.collection('jobs').doc(jobId);
+      final statsRef = firestore.doc('stats/global');
+
+      final snap = await tx.get(jobRef);
+      if (!snap.exists) throw Exception('Job not found');
+      final data = snap.data()!;
+      if (data['status'] != 'awaiting_customer_approval') {
+        throw Exception('Order is not awaiting approval');
+      }
+      if (data['customerId'] != customerId) {
+        throw Exception('You are not authorized to approve this order');
+      }
+      final receipt = data['receipt'] as Map<String, dynamic>?;
+      if (receipt == null) throw Exception('No receipt found on this order');
+      amountPaid = (receipt['grandTotal'] as num?)?.toDouble() ?? 0.0;
+
+      tx.update(jobRef, {
+        'status': 'completed',
+        'amountPaid': amountPaid,
+        'price': amountPaid,
+        'customerApprovedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      // Stats increment is inside the same transaction — atomic with completion.
+      tx.set(statsRef, {
+        'totalEarnings': FieldValue.increment(amountPaid),
+        'jobsCompleted': FieldValue.increment(1),
+        'jobsOngoing': FieldValue.increment(-1),
+      }, SetOptions(merge: true));
+    });
+    // Activity log is fire-and-forget (non-critical audit trail only).
+    try {
+      await firestore.collection('activity_log').add({
+        'type': 'job_completed',
+        'description':
+            'Job completed — ${amountPaid.toStringAsFixed(0)} EGP',
+        'jobId': jobId,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+    } catch (_) {}
+  }
+
+  /// Streams the job awaiting customer receipt approval for a given customer.
+  static Stream<Map<String, dynamic>?> streamCustomerPendingReceipt(
+      String customerId) {
+    return firestore
+        .collection('jobs')
+        .where('customerId', isEqualTo: customerId)
+        .where('status', isEqualTo: 'awaiting_customer_approval')
+        .limit(1)
+        .snapshots()
+        .map((snap) {
+      if (snap.docs.isEmpty) return null;
+      final doc = snap.docs.first;
+      return {'id': doc.id, ...Map<String, dynamic>.from(doc.data())};
+    });
   }
 
   // ─────────────────────────────────────────────────────────────────────────

@@ -659,6 +659,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                                       ? 'assets/syanat_banner.jpeg'
                                       : 'assets/syanat_banner_ar.png',
                                   width: double.infinity,
+                                  height: 190,
                                   fit: BoxFit.cover,
                                 ),
                               ),
