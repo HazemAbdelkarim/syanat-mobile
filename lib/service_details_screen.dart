@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../glass_card.dart';
 import '../firebase_service.dart';
 import 'services_integration.dart';
@@ -69,7 +70,7 @@ class _ServiceDetailsScreenState extends State<ServiceDetailsScreen>
       });
     } catch (e) {
       setState(() {
-        _errorMessage = 'Error loading services: $e';
+        _errorMessage = 'Error loading services. Please try again.';
         _isLoading = false;
       });
     }
@@ -175,10 +176,11 @@ class _ServiceDetailsScreenState extends State<ServiceDetailsScreen>
 
 
     } catch (e) {
+      debugPrint('Quick order error: $e');
       if (mounted) {
         final isEn = Localizations.localeOf(context).languageCode == 'en';
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(isEn ? 'Error: $e' : 'خطأ: $e')),
+          SnackBar(content: Text(isEn ? 'Something went wrong. Please try again.' : 'حدث خطأ. يرجى المحاولة مرة أخرى.')),
         );
       }
     } finally {
@@ -260,10 +262,11 @@ class _ServiceDetailsScreenState extends State<ServiceDetailsScreen>
         );
       }
     } catch (e) {
+      debugPrint('Order sheet error: $e');
       if (mounted) {
         final isEn = Localizations.localeOf(context).languageCode == 'en';
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(isEn ? 'Error: $e' : 'خطأ: $e')),
+          SnackBar(content: Text(isEn ? 'Something went wrong. Please try again.' : 'حدث خطأ. يرجى المحاولة مرة أخرى.')),
         );
       }
     } finally {
@@ -849,9 +852,10 @@ class _OrderRequestSheetState extends State<_OrderRequestSheet> {
         });
       }
     } catch (e) {
+      debugPrint('Add location error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Error: $e')));
+            .showSnackBar(SnackBar(content: Text(_t('Could not save location. Please try again.', 'تعذر حفظ الموقع. يرجى المحاولة مرة أخرى.'))));
       }
     }
   }
@@ -872,9 +876,14 @@ class _OrderRequestSheetState extends State<_OrderRequestSheet> {
           content: Text(_t('Please describe your request', 'يرجى وصف طلبك أولاً'))));
       return;
     }
-    if (phone.isEmpty) {
+    // Egyptian mobile: 01 + (0|1|2|5) + 8 digits = 11 digits total.
+    final egyptianMobileRegex = RegExp(r'^01[0125]\d{8}$');
+    if (phone.isEmpty || !egyptianMobileRegex.hasMatch(phone)) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(_t('Please enter a phone number', 'أدخل رقم هاتفك أولاً'))));
+          content: Text(_t(
+            'Enter a valid Egyptian mobile number (e.g. 01XXXXXXXXX)',
+            'أدخل رقم هاتف مصري صحيح (مثال: 01XXXXXXXXX)',
+          ))));
       return;
     }
     if (_urgencyType == 'scheduled' && _scheduledTime == null) {
@@ -943,7 +952,10 @@ class _OrderRequestSheetState extends State<_OrderRequestSheet> {
       if (mounted) {
         setState(() {
           _submitted = false;
-          _inlineError = _t('Error: $e', 'خطأ: $e');
+          _inlineError = _t(
+            'Something went wrong. Please try again.',
+            'حدث خطأ. يرجى المحاولة مرة أخرى.',
+          );
         });
       }
     } finally {
@@ -1149,7 +1161,10 @@ class _OrderRequestSheetState extends State<_OrderRequestSheet> {
             TextField(
               controller: _phoneController,
               keyboardType: TextInputType.phone,
+              maxLength: 11,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
               decoration: InputDecoration(
+                counterText: '',
                 hintText: _t('01XXXXXXXXX', '01XXXXXXXXX'),
                 filled: true,
                 fillColor: Colors.grey.shade50,

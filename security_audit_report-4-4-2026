@@ -1,0 +1,682 @@
+# Syanat — Security & Cost Audit Report
+
+> **Audit Type:** Read-only  
+> **Auditor:** Senior Application Security & Firebase Review  
+> **Scope:** All Dart source files in `lib/`, `firestore.rules`, `storage.rules`  
+> **Date:** 2026-04-04  
+
+---
+
+## Executive Summary
+
+The application is **generally well-structured** and contains several good practices already in place (server-side timestamps, `FieldValue.increment`, transaction-gated status machines, duplicate-submit guards, receipt total recomputation). However, there are **several real-world exploitable gaps** that must be closed before a production launch. The most critical issues are in Firestore Rules authorization where the **new job status flow (technician_accepted → technician_arrived → work_finished → awaiting_customer_approval → receipt_disputed) is entirely absent from the server-side rules**, making all those transitions bypassable or blockable by any client-side manipulation.
+
+---
+
+## Severity Legend
+
+| Severity | Meaning |
+|---|---|
+| 🔴 CRITICAL | Exploitable today with no special access. Data theft, privilege escalation, or billing bomb. |
+| 🟠 HIGH | Requires authenticated access. Significant business impact. |
+| 🟡 MEDIUM | Non-trivial to exploit but measurable risk. |
+| 🟢 LOW | Best-practice deviation; low real-world impact. |
+| ℹ️ INFO | Observation or positive finding. |
+
+---
+
+## Section 1 — Input Sanitization
+
+### 🟠 HIGH — S1-01: No Server-Side Message Length Cap on Chat Messages
+
+**File:** `lib/chat_screen.dart` (L81–89), `lib/support_chat_screen.dart` (L82–87)  
+**Evidence:** Both chat screens write directly to Firestore with no maximum length on the `text` field:
+```dart
+// chat_screen.dart L81-89
+await FirebaseService.firestore
+    .collection('chats')
+    .doc(widget.chatId)
+    .collection('messages')
+    .add({
+  'text': text,           // ← No maxLength enforced before write
+  'senderId': user.uid,
+  'createdAt': FieldValue.serverTimestamp(),
+});
+```
+The UI `TextField` in `chat_screen.dart` has `maxLines: 3` which is a soft UI constraint only. An attacker using the Firebase SDK directly can write megabytes per message.
+
+**Impact:** A single malicious user can write ~1 MB messages in a loop, causing:
+1. Firestore document reads that are billed per 4 KB. One 1 MB message = 250 Firestore read operations per viewer.
+2. Potential Firestore document size violations (1 MB document limit) which silently corrupt the conversation.
+3. Storage of attacker-controlled HTML/script content displayed in the mobile UI (not XSS in Flutter native, but visible to admin in any web-based admin portal).
+
+**Fix Required:** Add a server-side Firestore rule to cap `text` field size, e.g.:
+```
+request.resource.data.text is string
+&& request.resource.data.text.size() <= 2000
+```
+
+---
+
+### 🟡 MEDIUM — S1-02: No Phone Number Format Validation Before Persistence
+
+**File:** `lib/service_details_screen.dart` (L875–879, L1149–1163)  
+**Evidence:** Phone number is only checked for non-empty with `phone.isEmpty`. Any arbitrary string (e.g., `"<script>DROP"`, 500 chars) is written to Firestore `jobs.phoneNumber`:
+```dart
+if (phone.isEmpty) {
+    // only check — no regex, no max length
+}
+```
+
+**Impact:** Admin dashboard renders `phoneNumber` in a list tile. Arbitrary strings display as contact info and could confuse operators. No XSS risk in Flutter, but the data quality and admin UI are affected.
+
+**Fix Required:** Validate with an Egyptian phone regex: `RegExp(r'^(01[0125]\d{8})$')` and enforce `maxLength: 11` on the TextField.
+
+---
+
+### 🟡 MEDIUM — S1-03: Free-Text Description Has No Server-Side Length Enforcement
+
+**File:** `lib/service_details_screen.dart` (L1126–1143), `lib/firebase_service.dart` (L984)  
+**Evidence:** The description field has a UI `maxLength: 300` enforcer. However, the `createOrderRequest()` service function writes the raw `description` parameter to Firestore without any length check:
+```dart
+static Future<String> createOrderRequest({
+    ...
+    required String description,   // ← accepted as-is
+```
+A direct SDK call bypasses the Flutter UI limit entirely.
+
+**Fix Required:** Add a Firestore rule assertion:
+```
+request.resource.data.description is string
+&& request.resource.data.description.size() <= 500
+```
+
+---
+
+### 🟡 MEDIUM — S1-04: Location Fields Have No Sanitization
+
+**File:** `lib/service_details_screen.dart` (L808–843)  
+**Evidence:** `label`, `street`, `city`, `building`, `notes` are validated for non-empty (`label`, `street`, `city` required). No max-length or content checks. These are written to `users/{uid}/locations/{locationId}` and later copied verbatim into every job as `locationLabel` and `locationAddress`.
+
+**Impact:** An attacker can store a 10,000-character location address that gets embedded in every job they create, dramatically increasing read costs for every admin/technician that renders those jobs.
+
+**Fix Required:** Enforce `maxLength` on all TextFields (e.g., 100 chars for label, 200 for address fields).
+
+---
+
+### ℹ️ INFO — S1-05 (Positive Finding): Receipt Totals Are Recomputed Server-Side
+
+**File:** `lib/firebase_service.dart` (L1551–1590)  
+The `submitReceipt()` function completely ignores `grandTotal` passed from the client and recomputes it from line items:
+```dart
+// "never trust client-aggregated totals"
+final computedGrand = computedServicesSub + computedPartsSub;
+```
+This is an excellent pattern that prevents billing manipulation by a rogue technician client.
+
+---
+
+### ℹ️ INFO — S1-06 (Positive Finding): Payment Amount Validated Before Write
+
+**File:** `lib/firebase_service.dart` (L1106–1112)  
+`submitTechnicianPayment()` validates `isFinite`, `> 0`, and `<= 50000` before any Firestore write. Good defensive coding.
+
+---
+
+## Section 2 — Authorization / Access Control
+
+### 🔴 CRITICAL — A2-01: Entire New Status Flow Has NO Firestore Rule Coverage
+
+**File:** `firestore.rules` (L59–103)  
+**Evidence:** The Firestore rules for the `jobs` collection only authorize the **legacy** status flow:
+- `requested` → `accepted` (admin)
+- `accepted` → `en_route` (technician)
+- `en_route` → `payment_pending` (technician)
+- `payment_pending` → `payment_pending` (technician submitting amount)
+- `payment_pending` → `completed` (customer)
+- `requested/accepted` → `cancelled`
+
+The **entire new 6-step flow used by the actual app** has zero rule coverage:
+
+| Transition | Who | Firestore Rule? |
+|---|---|---|
+| `active` → `technician_accepted` | Technician | ❌ NOT AUTHORIZED |
+| `technician_accepted` → `technician_arrived` | Technician | ❌ NOT AUTHORIZED |
+| `technician_arrived` → `work_finished` | Technician | ❌ NOT AUTHORIZED |
+| `work_finished` → `awaiting_customer_approval` | Technician | ❌ NOT AUTHORIZED |
+| `awaiting_customer_approval` → `completed` | Customer | ❌ NOT AUTHORIZED |
+| `awaiting_customer_approval` → `receipt_disputed` | Customer | ❌ NOT AUTHORIZED |
+| `receipt_disputed` → any | Admin | ❌ NOT AUTHORIZED |
+
+**What this means in practice:** Because none of these transitions are authorized in the rules, they all currently fail for non-admin users unless App Check / offline caching is masking it. But more dangerously, if the rules ever had a catch-all `allow update: if isSignedIn()` fallback (which this file does not, fortunately), any authenticated user could move any job to any status.
+
+The real immediate risk: All `acceptAssignment()`, `markTechnicianArrived()`, `markWorkFinished()`, `submitReceipt()`, `approveReceipt()`, and `rejectReceipt()` calls in `firebase_service.dart` are **currently failing in production** with permission denied — unless they are being masked by App Check disabled-enforcement, offline mode, or the admin SDK. This is the most critical finding of the audit.
+
+**Fix Required:** Add transition rules for every step of the new flow in `firestore.rules`.
+
+---
+
+### 🔴 CRITICAL — A2-02: `services` Collection Is Writable by Any Authenticated User
+
+**File:** `firestore.rules` (L51–54)  
+```
+match /services/{serviceId} {
+    allow read:  if true;
+    allow write: if isSignedIn();   // ← ANY signed-in user
+}
+```
+**Evidence:** The comment acknowledges this is for technician registration (`ensureServiceExists + techCount++`). However, this rule allows any signed-in customer, technician, or attacker who creates an account to:
+1. **Delete or overwrite all service documents**, wiping out the services catalog.
+2. **Add fake services** with malicious descriptions/pricing.
+3. **Modify `techCount`** on any service arbitrarily.
+
+**Impact:** A single authenticated user can destroy the entire services catalog or corrupt pricing data visible to all users.
+
+**Fix Required:** Restrict write to admin only, and move `ensureServiceExists` to a Cloud Function or to a role-checked write rule:
+```
+allow write: if isAdmin();
+```
+
+---
+
+### 🟠 HIGH — A2-03: `stats/global` Is Writable by Any Authenticated User
+
+**File:** `firestore.rules` (L200–215)  
+```
+allow write: if isAdmin()
+    || (isSignedIn()
+        && request.resource.data.keys().hasOnly([...counters...]));
+```
+**Evidence:** The rule restricts which *keys* can be written, but does not restrict the *values*. Any signed-in user can write:
+```json
+{ "totalEarnings": 9999999, "jobsCompleted": 9999999 }
+```
+This would immediately corrupt the admin dashboard's KPIs with fake stats.
+
+**Impact:** The admin dashboard (and any decisions made from it) can be fed completely fabricated statistics by any authenticated user.
+
+**Fix Required:** This stat document should only be writable by the Firebase admin SDK (via Cloud Functions) or exclusively by admin users. If you must keep client-side writes, additionally validate that each field is an increment operation and not an absolute value — which requires Cloud Functions, since Firestore rules cannot inspect `FieldValue.increment`.
+
+---
+
+### 🟠 HIGH — A2-04: `activity_log` Schema Allows Unverified `type` Values
+
+**File:** `firestore.rules` (L226–232)  
+```
+allow create: if isSignedIn()
+    && request.resource.data.keys().hasOnly(['type', 'description', 'createdAt', 'jobId', 'userId', 'role'])
+    && request.resource.data.type is string    // ← any string
+    && request.resource.data.createdAt is timestamp;
+```
+**Evidence:** The `type` field is only checked to be a string. Any authenticated user can create activity log entries with arbitrary `type` values (e.g., `"payment_confirmed"`, `"admin_action"`, `"data_breach"`) and arbitrary `description` text.
+
+**Impact:** Admin sees a fabricated audit trail. In a financial or legal dispute, this poisons the evidence log.
+
+**Fix Required:** Restrict `type` to a whitelist of valid values:
+```
+&& request.resource.data.type in ['job_requested', 'job_completed', 'receipt_rejected', 'dispute_resolved']
+```
+
+---
+
+### 🟠 HIGH — A2-05: Technician Can Read Other Technicians' Profiles
+
+**File:** `firestore.rules` (L35–44)  
+```
+match /users/{uid} {
+    allow read: if isSignedIn() && (request.auth.uid == uid || isAdmin());
+```
+**Evidence:** This correctly restricts profile reads to own user or admin. **However**, at line 36:
+
+```dart
+// firebase_service.dart L1331-1340
+static Future<List<Map<String, dynamic>>> getAvailableTechniciansByService(String serviceKey) async {
+    final snap = await firestore
+        .collection('users')
+        .where('role', isEqualTo: 'technician')
+        ...
+        .get();
+```
+**A collection query** on `users` will be **denied** by the rule for a non-admin caller. Only individual `get()` on own document works. This query call path in `notifyAvailableTechnicians()` runs in the customer's app context and will throw a permission-denied error currently — silently swallowed by the `catch (_) {}` wrapper.
+
+**Impact (dual):**
+1. Customer notification fan-out silently fails — technicians never get pinged about new orders.
+2. If the rule is ever weakened to fix this, it could expose technician PII (phone, address) to all customers.
+
+**Fix Required:** Move `getAvailableTechniciansByService()` and `notifyAvailableTechnicians()` to a Cloud Function triggered on job creation, running with Admin SDK privileges.
+
+---
+
+### 🟡 MEDIUM — A2-06: Customer Can Cancel `active` Jobs in Firestore Rules But Not in App Logic
+
+**File:** `firestore.rules` (L95–100) vs `lib/orders_screen.dart`  
+**Evidence:** The Firestore rules allow customers to cancel jobs in `requested` OR `accepted` status. The app's UI restricts this to `requested` or `active`. However, the rules use the legacy `accepted` status, not `active`. So:
+- A customer with a job in `active` status cannot cancel it via the rules (rule checks for `accepted`, not `active`).
+- If cancellation is attempted, it silently fails at the Firestore level.
+
+**Impact:** The cancellation UX is broken for jobs in the `active` state. Users see a cancel button but the operation fails.
+
+**Fix Required:** Update the cancellation rule to match the current status names:
+```
+&& (resource.data.status == 'requested' || resource.data.status == 'active')
+```
+
+---
+
+### 🟡 MEDIUM — A2-07: `support_chats` Update Is Too Permissive
+
+**File:** `firestore.rules` (L173–174)  
+```
+allow update: if isSignedIn()
+    && (resource.data.userId == request.auth.uid || isAdmin());
+```
+**Evidence:** A user can update any field on their own support chat document — including `status` (to reopen a closed ticket), `adminNotes`, or any future sensitive field. Only the message `read` flag should be user-settable.
+
+**Fix Required:** Restrict the user-writable fields:
+```
+allow update: if isAdmin()
+    || (isSignedIn()
+        && resource.data.userId == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastMessage', 'updatedAt']));
+```
+
+---
+
+### 🟡 MEDIUM — A2-08: `notifications` Are Creatable by Any Authenticated User With Any Content
+
+**File:** `firestore.rules` (L249)  
+```
+allow create: if isSignedIn();
+```
+**Evidence:** Any signed-in user can create a notification document targeting any technician ID with any content. There is no schema validation on the `notifications` writes.
+
+**Impact:**
+1. An attacker can spam any technician ID with thousands of fake notifications.
+2. The `technicianId` can be set to a victim technician's UID, flooding their notification badges and screens.
+3. Arbitrary `jobId`, `serviceKey` values can be injected.
+
+**Fix Required:** At minimum, add schema constraints:
+```
+allow create: if isSignedIn()
+    && request.resource.data.keys().hasOnly(['technicianId','jobId','serviceKey','serviceCategory','customerName','locationAddress','urgencyType','read','createdAt'])
+    && request.resource.data.read == false
+    && request.resource.data.createdAt is timestamp;
+```
+Ideally, move notification creation to a Cloud Function.
+
+---
+
+### ℹ️ INFO — A2-09 (Positive Finding): Job Transitions Use Firestore Transactions
+
+All status machine transitions (`acceptAssignment`, `markTechnicianArrived`, `markWorkFinished`, `submitReceipt`, `approveReceipt`, `rejectReceipt`) use `firestore.runTransaction()` with pre-condition checks. This prevents TOCTOU (Time-of-Check/Time-of-Use) race conditions.
+
+---
+
+## Section 3 — Rate Limiting & Abuse Prevention
+
+### 🔴 CRITICAL — R3-01: No Rate Limiting on Order Creation
+
+**File:** `lib/service_details_screen.dart` (`_submit()` method), `lib/firebase_service.dart` (`createOrderRequest()`)  
+**Evidence:** The submit button has a single-session duplicate-submit guard (`_submitted = true`). However, this is a UI-only control. An attacker using the Firebase SDK directly can call `createOrderRequest()` in a loop.
+
+**Impact:** 
+1. A malicious or buggy client can create thousands of jobs per second.
+2. Each job creation also triggers `stats/global` writes and `activity_log` writes.
+3. The notification fan-out creates N documents per order (one per available technician). At 30 technicians, one batch of 1,000 orders = 30,000 Firestore writes.
+4. **Billing bomb**: 31,000 writes per 1,000 orders × Firestore write cost = potentially hundreds of dollars from a single attacker.
+
+**Fix Required:**
+- Implement a Cloud Function to handle order creation with rate limiting (e.g., Firebase Extensions or custom token-bucket logic).
+- Add a Firestore rule to check timestamp of the most recent job by same customer (advanced, best done in Cloud Function).
+- At minimum: add App Check enforcement in the Firebase console.
+
+---
+
+### 🟠 HIGH — R3-02: Chat Message Rate Limit Is Client-Enforced Only
+
+**File:** `lib/chat_screen.dart` (L64–76)  
+**Evidence:** The 2-message limit for non-technician users is enforced by `_currentUserMessageCount >= 2`. This is read from a one-time query on screen load. An attacker:
+1. Sends 2 messages through the UI.
+2. Kills the app, relaunches, gets a fresh session with `_currentUserMessageCount = 0` (if the count query returns cached/stale result).
+3. Sends 2 more messages.
+
+More critically, the check is purely client-side. Using the Firebase SDK directly, there is no server-side limit at all — no Firestore rule enforces the 2-message cap per user per chat.
+
+**Fix Required:** Enforce the message cap in Firestore rules:
+```
+// In messages match block:
+allow create: if isChatParticipant(chatId)
+    && request.auth.uid == request.resource.data.senderId
+    && (
+        // Technicians: unlimited
+        get(/databases/$(database)/documents/chats/$(chatId)).data.technicianId == request.auth.uid
+        ||
+        // Customers: server-enforced 2-message cap
+        getAfter(/databases/$(database)/documents/chats/$(chatId)/messages).size() <= 2
+    );
+```
+Note: The `getAfter` approach requires a count index. The cleanest solution is a Cloud Function.
+
+---
+
+### 🟠 HIGH — R3-03: No Rate Limiting on Support Chat Message Sends
+
+**File:** `lib/support_chat_screen.dart`  
+**Evidence:** The `_sending` boolean prevents double-sends within one interaction, but a determined user can send messages as fast as they can tap. There are no server-side limits on support message volume per user.
+
+**Impact:** A user can flood the admin support inbox with thousands of messages.
+
+**Fix Required:** Add a Firestore rule or Cloud Function to enforce a minimum interval between messages (e.g., 1 message per 3 seconds, or 100 messages per day per user).
+
+---
+
+### 🟠 HIGH — R3-04: Notification Fan-Out Has No Cap
+
+**File:** `lib/firebase_service.dart` (L1359–1379)  
+**Evidence:**
+```dart
+final techs = await getAvailableTechniciansByService(serviceKey);
+// Batch-write all notifications in a single round-trip.
+final batch = firestore.batch();
+for (final tech in techs) { ... }
+await batch.commit();
+```
+The fan-out is limited to 30 technicians by `limit(30)`. However, Firestore batch commits are limited to 500 operations. At 30 notifications per order, this is within limit. **However**, if the technician count limit is ever increased, or if this is called multiple times, a batch can exceed 500 and fail.
+
+**More importantly,** as noted in A2-05, this call fails silently due to permission-denied. If that is fixed (via Cloud Function), the fan-out needs a per-order guard to prevent duplicate notification storms.
+
+---
+
+### 🟡 MEDIUM — R3-05: Account Creation Has No Rate Limit
+
+**File:** `lib/role_selection_screen.dart` (not reviewed inline, but inferred from `firebase_service.dart` `createUser()`)  
+**Evidence:** Firebase Authentication natively rate-limits account creation per IP. However, the `createUser()` function in `firebase_service.dart` also increments `stats/global.totalUsers` and writes to `activity_log`. An automated attacker can:
+1. Create thousands of accounts (Firebase Auth rate limits are generous by default).
+2. Each creation costs 2 Firestore writes beyond the Auth cost.
+
+**Fix Required:** Enable App Check to ensure only legitimate app clients can authenticate.
+
+---
+
+### ℹ️ INFO — R3-06 (Positive Finding): Duplicate-Submit Guards on Critical Operations
+
+Multiple critical flows have proper duplicate-submit protections:
+- `_OrderRequestSheetState._submit()`: `_submitted` boolean
+- `_supportChatScreenState._sendMessage()`: `_sending` boolean
+- `AdminDashboardScreen._loadAllStats()`: `_fetching` boolean
+- `confirmCustomerPayment()`: Server-side `adminClosedAt` idempotency guard
+
+These are good patterns that prevent accidental double-submissions.
+
+---
+
+## Section 4 — Firebase Billing / Cost Leaks
+
+### 🟠 HIGH — B4-01: `streamTechnicianUnreadNotifCount` Reads All Unread Docs Instead of Aggregating
+
+**File:** `lib/firebase_service.dart` (L1402–1410)  
+```dart
+static Stream<int> streamTechnicianUnreadNotifCount(String techId) {
+    return firestore
+        .collection('notifications')
+        .where('technicianId', isEqualTo: techId)
+        .where('read', isEqualTo: false)
+        .limit(100)
+        .snapshots()
+        .map((snap) => snap.docs.length);  // ← Reads 100 docs to count
+}
+```
+A badge counter is subscribed as a live stream on the tech home screen. This reads up to 100 document payloads on every listener attach and on every change to any notification. For notification badges, only the `count()` is needed.
+
+**Impact:** If a technician has 100 unread notifications, every badge update costs 100 document reads instead of 1 aggregation query.
+
+**Fix Required:** Use `count()` aggregation:
+```dart
+.where('read', isEqualTo: false).count().get()
+```
+Note: aggregations cannot be streamed natively; poll on a timer or use a Cloud Function to maintain a counter field.
+
+---
+
+### 🟡 MEDIUM — B4-02: Admin Dashboard Has an Expensive Slow-Path Fallback
+
+**File:** `lib/admin_dashboard_screen.dart` (L122–145)  
+**Evidence:** If `stats/global` is missing any counter field, the dashboard falls back to 10 parallel `count()` aggregation queries. This is significantly more expensive than 1 document read and runs on every dashboard load for a fresh Firebase project.
+
+**Impact:** Until `stats/global` is fully initialized, every admin dashboard load costs 10 aggregation reads instead of 1.
+
+**Fix Required:** Pre-populate `stats/global` with all required fields during initial project setup, or initialize them in a Cloud Function on project deploy.
+
+---
+
+### 🟡 MEDIUM — B4-03: Admin `streamActiveJobsAdmin()` Uses `whereIn` With 11 Values
+
+**File:** `lib/firebase_service.dart` (L1300–1322)  
+```dart
+.where('status', whereIn: [
+    'active', 'technician_accepted', 'technician_arrived',
+    'work_finished', 'awaiting_customer_approval', 'receipt_disputed',
+    'accepted', 'en_route', 'payment_pending', 'in_progress', 'inprogress',
+])
+```
+Firestore `whereIn` with arrays greater than 10 values triggers multiple underlying queries (Firestore limit: 10 per `whereIn`). With 11 values, this is at the boundary and may silently fail or split into 2 queries in future SDK versions.
+
+**Fix Required:** Reduce legacy status names by running a data migration to normalize old statuses. Remove `in_progress`, `inprogress`, `accepted`, `en_route`, `payment_pending` once all historical documents are migrated.
+
+---
+
+### 🟡 MEDIUM — B4-04: `streamRecentUsers` Is an Open-Ended Real-Time Stream in Admin
+
+**File:** `lib/admin_dashboard_screen.dart` (L565–657)  
+**Evidence:** `streamRecentUsers(limit: 3)` is a Firestore `.snapshots()` stream that stays open for the lifetime of the admin's Users tab. It is never cancelled. Every new user registration triggers a re-delivery of 3 full user documents to all admin clients.
+
+**Fix Required:** Use a one-time `.get()` for the recent users section and manually refresh on demand, or cancel the subscription in `dispose()`.
+
+---
+
+### 🟡 MEDIUM — B4-05: `streamRecentActivity` Streams 10 Activity Docs Continuously
+
+**File:** `lib/firebase_service.dart` (L1779–1790), `lib/admin_dashboard_screen.dart` (`_activityCard()`)  
+**Evidence:** The activity feed is a constant live stream. Every new `activity_log` document (which is created on every job event) re-delivers 10 documents to the admin dashboard.
+
+**Fix Required:** Make this a one-time fetch with a manual refresh button, or implement pagination.
+
+---
+
+### 🟢 LOW — B4-06: `getCancelledJobsCount()` Is No Longer Needed
+
+**File:** `lib/firebase_service.dart` (L1424–1432)  
+**Evidence:** The `getCancelledJobsCount()` method does a `count()` aggregation query on cancelled jobs. The dashboard `_loadAllStats()` now reads this count from `stats/global.jobsCancelled`. The standalone method is dead code that could be accidentally called.
+
+**Fix Required:** Remove the method or add a `@deprecated` annotation.
+
+---
+
+### ℹ️ INFO — B4-07 (Positive Finding): Stats Updates Use `FieldValue.increment`
+
+All counter updates use `FieldValue.increment` in a `SetOptions(merge: true)` write. This is the correct Firebase-recommended pattern for maintaining aggregate counters without read-modify-write cycles.
+
+---
+
+### ℹ️ INFO — B4-08 (Positive Finding): All Queries Are Bounded With `.limit()`
+
+Every `collection()` query in `firebase_service.dart` includes an explicit `.limit()` call. This prevents runaway reads on large datasets. The limits are reasonable (20–100 for lists, 1 for singletons).
+
+---
+
+## Section 5 — General Security Risk Sweep
+
+### 🟠 HIGH — G5-01: Role Assignment Is Fully Client-Controlled
+
+**File:** `lib/role_selection_screen.dart` (inferred from `firebase_service.dart`)  
+**Evidence:** During registration, the client writes the `role` field to `users/{uid}`:
+```dart
+// firestore.rules L37
+allow create: if isSignedIn() && request.auth.uid == uid;
+```
+There is no Firestore rule that restricts `role` to valid values (`customer`, `technician`). A malicious user who signs up can set `role: 'admin'` at account creation time by calling the Firebase SDK directly, gaining admin-level access everywhere.
+
+**Impact:** **An attacker can self-assign the admin role.** The `isAdmin()` helper reads the user's own document — a document the user created with a self-declared role. This is a full privilege escalation attack.
+
+**Fix Required:** **Immediately.** Add a create-time restriction:
+```
+allow create: if isSignedIn()
+    && request.auth.uid == uid
+    && request.resource.data.role in ['customer', 'technician'];
+    // Never allow 'admin' in client-created documents
+```
+Or, add a rule that admin users are never client-created:
+```
+&& request.resource.data.get('role', 'customer') != 'admin'
+```
+
+---
+
+### 🟠 HIGH — G5-02: `storage.rules` Allows Any File Size and Type in `payment_proofs/`
+
+**File:** `storage.rules`  
+**Evidence:** (From prior read) The storage rules allow authenticated users to write to `payment_proofs/{paymentId}` with no file size or content-type restriction beyond authentication.
+
+**Impact:**
+1. An attacker can upload a 100 MB file to Storage — costing you in Google Cloud Storage egress and storage fees.
+2. The `uploadPaymentProof()` function in `firebase_service.dart` does compress images in Dart before upload (good), but a direct SDK upload bypasses this.
+
+**Fix Required:**
+```
+allow write: if request.auth != null
+    && request.resource.size < 5 * 1024 * 1024  // 5 MB max
+    && request.resource.contentType.matches('image/.*');
+```
+
+---
+
+### 🟡 MEDIUM — G5-03: Error Messages Expose Internal Details
+
+**File:** `lib/service_details_screen.dart` (L946), `lib/support_chat_screen.dart` (L104)  
+**Evidence:**
+```dart
+_inlineError = _t('Error: $e', 'خطأ: $e');
+// and:
+Text('Failed to send message: $e', ...);
+```
+Raw Dart exception messages (including Firestore error codes, document paths, and stack trace fragments) are rendered directly in the UI.
+
+**Impact:** An attacker probing the app can read Firestore collection names, rule rejection reasons, and SDK version information from error messages.
+
+**Fix Required:** Replace raw `$e` interpolation with user-friendly generic messages in production. Keep raw errors in internal logging only.
+
+---
+
+### 🟡 MEDIUM — G5-04: `isAdmin()` Function Performs a Document Read on Every Rule Evaluation
+
+**File:** `firestore.rules` (L17–21)  
+```
+function isAdmin() {
+    return isSignedIn()
+        && get(/databases/$(database)/documents/users/$(request.auth.uid))
+             .data.get('role', '') == 'admin';
+}
+```
+**Evidence:** This function is called in many rules (jobs read/write, users delete, payments, etc.). Each `get()` in a Firestore rule counts as **1 additional Firestore read per rule evaluation**. Admins performing bulk operations (viewing 50 jobs) trigger 50+ rule-evaluation reads against the admin's own user document.
+
+**Impact:** On every admin dashboard load (50 jobs rendered), ~100+ user-document reads are billed just for rule evaluation overhead. This is unavoidable with the current architecture but should be understood.
+
+**Fix Required (Best Practice):** Set a custom claim `role: 'admin'` in Firebase Auth via the Admin SDK/Cloud Functions on account creation. Then `isAdmin()` becomes `request.auth.token.role == 'admin'` — zero extra reads.
+
+---
+
+### 🟡 MEDIUM — G5-05: `signInWithApple` is Available on Android
+
+**File:** `lib/login_screen.dart` (L302–313)  
+**Evidence:** Apple Sign-In button is rendered on all platforms. While Apple Sign-In is technically callable on Android via the `sign_in_with_apple` package, Apple only mandates it for iOS App Store apps. Displaying it on Android is non-standard and may confuse users, and may fail silently if the Apple configuration is not set up for web/Android redirect flows.
+
+**Fix (Low Priority):** Gate the Apple Sign-In button behind `Platform.isIOS || kIsWeb`.
+
+---
+
+### 🟢 LOW — G5-06: Admin Dashboard Logout Goes Through `LoginScreen` Not `SplashScreen`
+
+**File:** `lib/admin_dashboard_screen.dart` (L197–201)  
+**Evidence:**
+```dart
+Navigator.pushAndRemoveUntil(
+    context,
+    MaterialPageRoute(builder: (_) => const LoginScreen()),
+    (route) => false,
+);
+```
+The logout pushes directly to `LoginScreen`, bypassing `SplashScreen`. If `SplashScreen` has any session-cleanup logic, it will be skipped.
+
+**Impact (Low):** Minor inconsistency. If `SplashScreen` has auth-state listeners or cache clearing, those are skipped. Currently `SplashScreen` only routes based on `FirebaseAuth.currentUser`, so this is low impact.
+
+---
+
+### 🟢 LOW — G5-07: Firestore Offline Persistence May Serve Stale Authorization Data
+
+**Evidence:** If Firestore offline persistence is enabled (common in Flutter Firebase setup), a user who has been demoted from `technician` to a banned status may continue to see data from their cache for hours after the server denies them.
+
+**Fix:** Ensure role changes trigger Auth token revocation (via Firebase Admin SDK) which forces a token refresh, invalidating the session.
+
+---
+
+## Summary Table
+
+| ID | Severity | Category | Title |
+|---|---|---|---|
+| A2-01 | 🔴 CRITICAL | Authorization | New status flow has NO rule coverage |
+| A2-02 | 🔴 CRITICAL | Authorization | `services` collection writable by any user |
+| G5-01 | 🔴 CRITICAL | Security | Client can self-assign `admin` role |
+| A2-03 | 🟠 HIGH | Authorization | `stats/global` values can be forged by any user |
+| A2-04 | 🟠 HIGH | Authorization | Activity log accepts arbitrary `type` values |
+| A2-05 | 🟠 HIGH | Authorization | Notification fan-out silently fails + PII risk if fixed naively |
+| S1-01 | 🟠 HIGH | Input | No server-side chat message length limit |
+| R3-01 | 🔴 CRITICAL | Rate Limiting | No rate limit on order creation — billing bomb risk |
+| R3-02 | 🟠 HIGH | Rate Limiting | 2-message chat cap is client-enforced only |
+| R3-03 | 🟠 HIGH | Rate Limiting | No rate limit on support messages |
+| B4-01 | 🟠 HIGH | Cost | Notification count stream reads 100 docs instead of 1 |
+| G5-02 | 🟠 HIGH | Security | Storage allows unlimited file sizes |
+| S1-02 | 🟡 MEDIUM | Input | No phone number format validation |
+| S1-03 | 🟡 MEDIUM | Input | Description length only client-enforced |
+| S1-04 | 🟡 MEDIUM | Input | Location fields have no length limits |
+| A2-06 | 🟡 MEDIUM | Authorization | Cancellation rule uses legacy status name `accepted` |
+| A2-07 | 🟡 MEDIUM | Authorization | Support chat update too permissive |
+| A2-08 | 🟡 MEDIUM | Authorization | Notifications creatable with any content |
+| R3-04 | 🟠 HIGH | Rate Limiting | Notification fan-out has no per-job dedup guard |
+| R3-05 | 🟡 MEDIUM | Rate Limiting | No rate limit on account creation |
+| B4-02 | 🟡 MEDIUM | Cost | Admin dashboard expensive slow-path fallback |
+| B4-03 | 🟡 MEDIUM | Cost | `whereIn` at 11-value Firestore limit |
+| B4-04 | 🟡 MEDIUM | Cost | Unbounded real-time stream for recent users |
+| B4-05 | 🟡 MEDIUM | Cost | Activity feed streamed, not polled |
+| G5-03 | 🟡 MEDIUM | Security | Raw exceptions exposed in UI |
+| G5-04 | 🟡 MEDIUM | Security/Cost | `isAdmin()` costs 1 read per rule evaluation |
+| B4-06 | 🟢 LOW | Cost | Dead `getCancelledJobsCount()` method |
+| G5-05 | 🟢 LOW | Security | Apple Sign-In shown on Android |
+| G5-06 | 🟢 LOW | Security | Logout bypasses SplashScreen |
+| G5-07 | 🟢 LOW | Security | Offline persistence may serve stale auth |
+
+---
+
+## Recommended Fix Priority
+
+### P0 — Fix Before Any Public Launch
+1. **G5-01**: Block `role: 'admin'` in client-created user documents.
+2. **A2-01**: Add complete Firestore rules for the new status flow.
+3. **R3-01**: Enforce rate limiting on order creation (App Check at minimum, Cloud Function ideally).
+4. **A2-02**: Restrict `services` writes to admin only.
+
+### P1 — Fix Within First Sprint Post-Launch
+5. **A2-03**: Move stats writes to Cloud Function or restrict to admin.
+6. **S1-01**: Add server-side message length cap in Firestore rules.
+7. **G5-02**: Add file size and content-type restrictions to `storage.rules`.
+8. **A2-05**: Move notification fan-out to Cloud Function (also fixes the silent failure).
+
+### P2 — Fix Within 30 Days
+9. **A2-04**: Whitelist valid `activity_log` type values.
+10. **A2-06**: Fix cancellation rule to use `active` status.
+11. **A2-07, A2-08**: Tighten support chat and notification write rules.
+12. **R3-02, R3-03**: Server-side message caps.
+13. **G5-04**: Move admin role to Firebase Auth custom claims.
+
+---
+
+*This report is read-only. No code was modified during this audit.*

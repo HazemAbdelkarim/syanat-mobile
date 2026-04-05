@@ -380,7 +380,8 @@ class _TechnicianSignupFlowState extends State<TechnicianSignupFlow> {
       }
       if (!mounted) return;
       setState(() {
-        _submissionError = _t(isEn, 'Could not create your technician account. $e', 'تعذر إنشاء حساب الفني. $e');
+      debugPrint('Technician signup error: $e');
+        _submissionError = _t(isEn, 'Could not create your technician account. Please try again.', 'تعذر إنشاء حساب الفني. يرجى المحاولة مرة أخرى.');
       });
     } finally {
       if (mounted) setState(() => _isLoading = false);

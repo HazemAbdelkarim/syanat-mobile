@@ -224,7 +224,7 @@ class _TechniciansListScreenState extends State<TechniciansListScreen> {
       debugPrint("request job error: $e");
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Error: $e")),
+        SnackBar(content: Text(isEn ? "Something went wrong. Please try again." : "حدث خطأ. يرجى المحاولة مرة أخرى.")),
       );
     }
   }

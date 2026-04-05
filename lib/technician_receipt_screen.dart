@@ -115,9 +115,10 @@ class _TechnicianReceiptScreenState extends State<TechnicianReceiptScreen> {
         backgroundColor: Colors.green,
       ));
     } catch (e) {
+      debugPrint('Receipt submit error: $e');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(_t('Error: $e', 'خطأ: $e')),
+        content: Text(_t('Failed to submit receipt. Please try again.', 'فشل إرسال الإيصال. يرجى المحاولة مرة أخرى.')),
         backgroundColor: Colors.red,
       ));
     } finally {
@@ -128,15 +129,18 @@ class _TechnicianReceiptScreenState extends State<TechnicianReceiptScreen> {
   @override
   Widget build(BuildContext context) {
     final isEn = _isEn;
-    return Directionality(
-      textDirection: isEn ? TextDirection.ltr : TextDirection.rtl,
-      child: Scaffold(
-        backgroundColor: const Color(0xFFF7F7FB),
-        appBar: AppBar(
-          backgroundColor: _syanatBlue,
-          foregroundColor: Colors.white,
-          title: Text(_t('Submit Receipt', 'تقديم الإيصال')),
-        ),
+    return PopScope(
+      canPop: false,
+      child: Directionality(
+        textDirection: isEn ? TextDirection.ltr : TextDirection.rtl,
+        child: Scaffold(
+          backgroundColor: const Color(0xFFF7F7FB),
+          appBar: AppBar(
+            backgroundColor: _syanatBlue,
+            foregroundColor: Colors.white,
+            automaticallyImplyLeading: false,
+            title: Text(_t('Submit Receipt', 'تقديم الإيصال')),
+          ),
         body: Column(
           children: [
             Expanded(
@@ -315,6 +319,7 @@ class _TechnicianReceiptScreenState extends State<TechnicianReceiptScreen> {
             ),
           ],
         ),
+      ),
       ),
     );
   }

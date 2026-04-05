@@ -37,9 +37,10 @@ class _TechnicianActiveJobScreenState
         widget.technicianId,
       );
     } catch (e) {
+      debugPrint('Accept assignment error: $e');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(isEn ? 'Error: $e' : 'خطأ: $e')),
+        SnackBar(content: Text(isEn ? 'Could not accept job. Please try again.' : 'تعذر قبول الطلب. يرجى المحاولة مرة أخرى.')),
       );
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -55,9 +56,10 @@ class _TechnicianActiveJobScreenState
         widget.technicianId,
       );
     } catch (e) {
+      debugPrint('Mark arrived error: $e');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(isEn ? 'Error: $e' : 'خطأ: $e')),
+        SnackBar(content: Text(isEn ? 'Could not confirm arrival. Please try again.' : 'تعذر تأكيد الوصول. يرجى المحاولة مرة أخرى.')),
       );
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -84,9 +86,10 @@ class _TechnicianActiveJobScreenState
         ),
       );
     } catch (e) {
+      debugPrint('Mark work finished error: $e');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(isEn ? 'Error: $e' : 'خطأ: $e')),
+        SnackBar(content: Text(isEn ? 'Could not complete work. Please try again.' : 'تعذر إتمام العمل. يرجى المحاولة مرة أخرى.')),
       );
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -116,20 +119,34 @@ class _TechnicianActiveJobScreenState
     final address =
         (widget.job['locationAddress'] as String?)?.trim() ?? '';
 
-    return Directionality(
-      textDirection: isEn ? TextDirection.ltr : TextDirection.rtl,
-      child: Scaffold(
-        backgroundColor: const Color(0xFFF7F7FB),
-        appBar: AppBar(
-          backgroundColor: _syanatBlue,
-          foregroundColor: Colors.white,
-          title: Text(
-            serviceCategory?.isNotEmpty == true
-                ? serviceCategory!
-                : serviceKey,
+    // Lock navigation only during known active work steps.
+    // Passive waiting, disputed, and unknown/legacy statuses allow back nav
+    // so the technician is never trapped in a dead-end screen.
+    const _lockedStatuses = {
+      'active',
+      'technician_accepted',
+      'technician_arrived',
+      'work_finished',
+    };
+    final isLocked = _lockedStatuses.contains(status);
+
+    return PopScope(
+      canPop: !isLocked,
+      child: Directionality(
+        textDirection: isEn ? TextDirection.ltr : TextDirection.rtl,
+        child: Scaffold(
+          backgroundColor: const Color(0xFFF7F7FB),
+          appBar: AppBar(
+            backgroundColor: _syanatBlue,
+            foregroundColor: Colors.white,
+            automaticallyImplyLeading: !isLocked,
+            title: Text(
+              serviceCategory?.isNotEmpty == true
+                  ? serviceCategory!
+                  : serviceKey,
+            ),
           ),
-        ),
-        body: ListView(
+          body: ListView(
           padding: const EdgeInsets.all(20),
           children: [
             _addressCard(address, isEn),
@@ -147,6 +164,7 @@ class _TechnicianActiveJobScreenState
                 'technician_arrived',
                 'work_finished',
                 'awaiting_customer_approval',
+                'receipt_disputed',
                 'completed',
               ]),
               child: _stepStatus(status, 'active', []) == _StepStatus.active
@@ -172,6 +190,7 @@ class _TechnicianActiveJobScreenState
                 'technician_arrived',
                 'work_finished',
                 'awaiting_customer_approval',
+                'receipt_disputed',
                 'completed',
               ]),
               child:
@@ -200,6 +219,7 @@ class _TechnicianActiveJobScreenState
               status: _stepStatus(status, 'technician_arrived', [
                 'work_finished',
                 'awaiting_customer_approval',
+                'receipt_disputed',
                 'completed',
               ]),
               child:
@@ -226,9 +246,15 @@ class _TechnicianActiveJobScreenState
               _waitingForApprovalCard(isEn),
             ],
 
+            if (status == 'receipt_disputed') ...[
+              const SizedBox(height: 24),
+              _receiptDisputedCard(isEn),
+            ],
+
             const SizedBox(height: 32),
           ],
         ),
+      ),
       ),
     );
   }
@@ -355,6 +381,55 @@ class _TechnicianActiveJobScreenState
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12)),
               ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _receiptDisputedCard(bool isEn) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.red.shade200),
+        boxShadow: const [
+          BoxShadow(
+              color: Color(0x0F000000),
+              blurRadius: 8,
+              offset: Offset(0, 3)),
+        ],
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.gavel, color: Colors.red.shade400, size: 28),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  isEn
+                      ? 'Receipt Disputed'
+                      : 'تم الاعتراض على الإيصال',
+                  style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.red.shade700),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  isEn
+                      ? 'The customer has disputed the receipt. Admin is reviewing the case.'
+                      : 'اعترض العميل على الإيصال. الإدارة تراجع الحالة.',
+                  style: TextStyle(
+                      fontSize: 13,
+                      color: Colors.grey.shade600,
+                      height: 1.4),
+                ),
+              ],
             ),
           ),
         ],

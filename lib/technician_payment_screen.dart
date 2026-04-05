@@ -56,9 +56,10 @@ class _TechnicianPaymentScreenState extends State<TechnicianPaymentScreen> {
       Navigator.pop(context);
     } catch (e) {
       if (!mounted) return;
+      debugPrint('Payment submit error: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(isEn ? 'Error: $e' : 'خطأ: $e'),
+          content: Text(isEn ? 'Payment failed. Please try again.' : 'فشلت عملية الدفع. يرجى المحاولة مرة أخرى.'),
           backgroundColor: Colors.red,
         ),
       );

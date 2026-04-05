@@ -102,11 +102,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
       );
     } catch (e) {
       if (!mounted) return;
+      debugPrint('Password reset error: $e');
       _showInfoDialog(
         context,
         isEn,
         title: _t(isEn, 'Error', 'خطأ'),
-        message: '$e',
+        message: _t(isEn, 'Could not send reset link. Please try again.', 'تعذر إرسال رابط إعادة التعيين. يرجى المحاولة مرة أخرى.'),
         isError: true,
       );
     } finally {

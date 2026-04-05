@@ -45,7 +45,7 @@ class _ServicesScreenState extends State<ServicesScreen> {
       }
     } catch (e) {
       setState(() {
-        _errorMessage = 'Error loading categories: $e';
+        _errorMessage = 'Error loading categories. Please try again.';
         _isLoading = false;
       });
     }
@@ -62,7 +62,7 @@ class _ServicesScreenState extends State<ServicesScreen> {
         _loadServices(category, _selectedSubcategory!);
       }
     } catch (e) {
-      setState(() => _errorMessage = 'Error loading subcategories: $e');
+      setState(() => _errorMessage = 'Error loading subcategories. Please try again.');
     }
   }
 
@@ -77,7 +77,7 @@ class _ServicesScreenState extends State<ServicesScreen> {
       });
     } catch (e) {
       setState(() {
-        _errorMessage = 'Error loading services: $e';
+        _errorMessage = 'Error loading services. Please try again.';
         _isLoading = false;
       });
     }

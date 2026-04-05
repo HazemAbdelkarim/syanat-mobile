@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'firebase_service.dart';
-import 'support_chat_screen.dart';
 
 const Color _syanatBlue = Color(0xFF3C21C8);
 
@@ -20,6 +19,7 @@ const _ongoingStatuses = {
   'technician_arrived',
   'work_finished',
   'awaiting_customer_approval',
+  'receipt_disputed',
   // legacy statuses (backward compat for existing data)
   'accepted',
   'en_route',
@@ -497,7 +497,9 @@ class _OrdersScreenState extends State<OrdersScreen>
           ),
 
           // ── Bottom action buttons ────────────────────────────────────
-          if (isOngoing)
+          // Customer can only cancel before technician accepts (requested/active).
+          // After acceptance, only admin can cancel.
+          if (isOngoing && (status == 'requested' || status == 'active'))
             Container(
               decoration: const BoxDecoration(
                 color: Color(0xFFFAFAFA),
@@ -505,20 +507,23 @@ class _OrdersScreenState extends State<OrdersScreen>
                 border: Border(top: BorderSide(color: Color(0xFFF0F0F0))),
               ),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              child: SizedBox(
-                width: double.infinity,
-                height: 48,
-                child: TextButton.icon(
-                  onPressed: () => _showCancelDialog(context, jobId, isEn),
-                  icon: const Icon(Icons.close, size: 18),
-                  label: Text(
-                    isEn ? 'Cancel Order' : 'إلغاء الطلب',
-                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-                  ),
-                  style: TextButton.styleFrom(
-                    foregroundColor: Colors.red.shade400,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+              child: Align(
+                alignment: AlignmentDirectional.centerEnd,
+                child: SizedBox(
+                  height: 38,
+                  child: TextButton.icon(
+                    onPressed: () => _showCancelDialog(context, jobId, isEn),
+                    icon: const Icon(Icons.close, size: 18),
+                    label: Text(
+                      isEn ? 'Cancel Order' : 'إلغاء الطلب',
+                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                    ),
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.red.shade400,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
                     ),
                   ),
                 ),
@@ -569,7 +574,7 @@ class _OrdersScreenState extends State<OrdersScreen>
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text(
-                        isEn ? 'Failed to cancel order: $e' : 'فشل إلغاء الطلب: $e',
+                        isEn ? 'Failed to cancel order. Please try again.' : 'فشل إلغاء الطلب. يرجى المحاولة مرة أخرى.',
                       ),
                       backgroundColor: Colors.red,
                     ),
@@ -603,15 +608,15 @@ class _OrdersScreenState extends State<OrdersScreen>
       // New flow statuses
       case 'active':
         return {
-          'label': isEn ? 'Assigned' : 'تم التعيين',
-          'color': const Color(0xFF3B82F6),
-          'icon': Icons.person_pin_outlined,
+          'label': isEn ? 'Pending Acceptance' : 'بانتظار قبول الفني',
+          'color': const Color(0xFFF59E0B),
+          'icon': Icons.hourglass_bottom,
         };
       case 'technician_accepted':
         return {
-          'label': isEn ? 'Tech Accepted' : 'قبل الفني',
-          'color': const Color(0xFF6366F1),
-          'icon': Icons.thumb_up_alt_outlined,
+          'label': isEn ? 'Assigned' : 'تم التعيين',
+          'color': const Color(0xFF3B82F6),
+          'icon': Icons.person_pin_outlined,
         };
       case 'technician_arrived':
         return {
@@ -630,6 +635,12 @@ class _OrdersScreenState extends State<OrdersScreen>
           'label': isEn ? 'Awaiting Approval' : 'بانتظار موافقتك',
           'color': const Color(0xFFF59E0B),
           'icon': Icons.receipt_long_outlined,
+        };
+      case 'receipt_disputed':
+        return {
+          'label': isEn ? 'Disputed' : 'متنازع عليه',
+          'color': const Color(0xFFEF4444),
+          'icon': Icons.gavel,
         };
       // Legacy statuses
       case 'accepted':
@@ -797,14 +808,14 @@ class _OrderTimeline extends StatelessWidget {
     // Unified timeline covering both new and legacy status flows
     final Map<String, String> stepsLabelEn = {
       'requested': 'Requested',
-      'active': 'Assigned',
+      'technician_accepted': 'Assigned',
       'technician_arrived': 'Arrived',
       'work_finished': 'Work Done',
       'awaiting_customer_approval': 'Approval',
     };
     final Map<String, String> stepsLabelAr = {
       'requested': 'مطلوب',
-      'active': 'معيَّن',
+      'technician_accepted': 'تم التعيين',
       'technician_arrived': 'وصل',
       'work_finished': 'اكتمل',
       'awaiting_customer_approval': 'موافقة',
@@ -812,7 +823,7 @@ class _OrderTimeline extends StatelessWidget {
 
     final List<String> stepKeys = [
       'requested',
-      'active',
+      'technician_accepted',
       'technician_arrived',
       'work_finished',
       'awaiting_customer_approval',
@@ -821,12 +832,13 @@ class _OrderTimeline extends StatelessWidget {
     // Map legacy and intermediate statuses to the closest timeline step
     String normalizedStatus = status;
     const _legacyMap = {
-      'accepted': 'active',
-      'technician_accepted': 'active',
+      'active': 'requested', // admin assigned but tech hasn't accepted yet
+      'accepted': 'technician_accepted',
       'en_route': 'technician_arrived',
       'in_progress': 'work_finished',
       'inprogress': 'work_finished',
       'payment_pending': 'awaiting_customer_approval',
+      'receipt_disputed': 'awaiting_customer_approval',
     };
     normalizedStatus = _legacyMap[status] ?? status;
 
@@ -1146,11 +1158,12 @@ class _ReceiptApprovalSheetState extends State<_ReceiptApprovalSheet> {
                               backgroundColor: Colors.green,
                             ));
                           } catch (e) {
+                            debugPrint('Approve receipt error: $e');
                             if (!mounted) return;
                             ScaffoldMessenger.of(context).showSnackBar(SnackBar(
                               content: Text(widget.isEn
-                                  ? 'Error: $e'
-                                  : 'خطأ: $e'),
+                                  ? 'Something went wrong. Please try again.'
+                                  : 'حدث خطأ. يرجى المحاولة مرة أخرى.'),
                               backgroundColor: Colors.red,
                             ));
                           } finally {
@@ -1182,17 +1195,69 @@ class _ReceiptApprovalSheetState extends State<_ReceiptApprovalSheet> {
                 width: double.infinity,
                 height: 48,
                 child: OutlinedButton.icon(
-                  onPressed: () {
-                    Navigator.pop(context);
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (_) => const SupportChatScreen()),
-                    );
-                  },
-                  icon: const Icon(Icons.flag_outlined),
+                  onPressed: _approving
+                      ? null
+                      : () async {
+                          final confirm = await showDialog<bool>(
+                            context: context,
+                            builder: (ctx) => AlertDialog(
+                              title: Text(isEn
+                                  ? 'Reject Receipt?'
+                                  : 'رفض الإيصال؟'),
+                              content: Text(isEn
+                                  ? 'This will flag the order for admin review. The admin will mediate between you and the technician.'
+                                  : 'سيتم تحويل الطلب للإدارة للمراجعة. ستتوسط الإدارة بينك وبين الفني.'),
+                              actions: [
+                                TextButton(
+                                  onPressed: () =>
+                                      Navigator.pop(ctx, false),
+                                  child: Text(isEn ? 'Cancel' : 'إلغاء'),
+                                ),
+                                ElevatedButton(
+                                  onPressed: () =>
+                                      Navigator.pop(ctx, true),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.red.shade600,
+                                    foregroundColor: Colors.white,
+                                  ),
+                                  child: Text(
+                                      isEn ? 'Reject' : 'رفض'),
+                                ),
+                              ],
+                            ),
+                          );
+                          if (confirm != true || !mounted) return;
+                          setState(() => _approving = true);
+                          try {
+                            await FirebaseService.rejectReceipt(
+                                widget.jobId, widget.uid);
+                            if (!mounted) return;
+                            Navigator.pop(context);
+                            ScaffoldMessenger.of(context)
+                                .showSnackBar(SnackBar(
+                              content: Text(isEn
+                                  ? 'Receipt rejected. Admin will review.'
+                                  : 'تم رفض الإيصال. ستقوم الإدارة بالمراجعة.'),
+                              backgroundColor: Colors.orange,
+                            ));
+                          } catch (e) {
+                            debugPrint('Reject receipt error: $e');
+                            if (!mounted) return;
+                            ScaffoldMessenger.of(context)
+                                .showSnackBar(SnackBar(
+                              content: Text(
+                                  isEn ? 'Something went wrong. Please try again.' : 'حدث خطأ. يرجى المحاولة مرة أخرى.'),
+                              backgroundColor: Colors.red,
+                            ));
+                          } finally {
+                            if (mounted) {
+                              setState(() => _approving = false);
+                            }
+                          }
+                        },
+                  icon: const Icon(Icons.cancel_outlined),
                   label: Text(
-                    isEn ? 'Report an Issue' : 'الإبلاغ عن مشكلة',
+                    isEn ? 'Reject Receipt' : 'رفض الإيصال',
                     style: const TextStyle(
                         fontSize: 15, fontWeight: FontWeight.w600),
                   ),

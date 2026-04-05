@@ -98,10 +98,15 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
       // Restore message text so user does not lose it
       _msgController.text = text;
       if (mounted) {
+        final isPermission = e.toString().contains('PERMISSION_DENIED');
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              _t('Failed to send message: $e', 'فشل إرسال الرسالة: $e'),
+              isPermission
+                  ? _t('Please wait a moment before sending another message.',
+                        'يرجى الانتظار لحظة قبل إرسال رسالة أخرى.')
+                  : _t('Failed to send message. Please try again.',
+                        'فشل إرسال الرسالة. يرجى المحاولة مرة أخرى.'),
             ),
           ),
         );
@@ -337,8 +342,10 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
           Expanded(
             child: TextField(
               controller: _msgController,
+              maxLength: 2000,
               enabled: !closed,
               decoration: InputDecoration(
+                counterText: '',
                 hintText: closed
                     ? _t('Conversation closed', 'تم إغلاق المحادثة')
                     : _t('Describe your issue...', 'اشرح مشكلتك...'),

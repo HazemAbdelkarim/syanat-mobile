@@ -89,6 +89,8 @@ flutter:
     - assets/syanat_banner.png
     - assets/syanat_banner.jpeg
     - assets/syanat_banner_ar.png
+    - assets/Icons/
+    - assets/slider/
 
     # - assets/videos/
     # - assets/fonts/

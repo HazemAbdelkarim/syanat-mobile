@@ -132,7 +132,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
       );
     } catch (e) {
       debugPrint('Payment error: $e');
-      _showSnack(_isEn ? 'Payment error: $e' : 'خطأ في الدفع: $e');
+      _showSnack(_isEn ? 'Payment failed. Please try again.' : 'فشلت عملية الدفع. يرجى المحاولة مرة أخرى.');
     } finally {
       if (mounted) setState(() => _submitting = false);
     }

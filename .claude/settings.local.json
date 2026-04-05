@@ -31,7 +31,19 @@
       "Bash(powershell.exe -Command \"Get-Command firebase -ErrorAction SilentlyContinue; npm list -g firebase-tools 2>&1 | head -3; where.exe firebase 2>&1\")",
       "Bash(powershell.exe -Command \"cd 'C:\\\\Users\\\\LTC\\\\Syanat'; & 'C:\\\\Users\\\\LTC\\\\AppData\\\\Roaming\\\\npm\\\\firebase.cmd' deploy --only firestore:rules,firestore:indexes,storage 2>&1\")",
       "Bash(powershell.exe -Command \"cd 'C:\\\\Users\\\\LTC\\\\Syanat'; & 'C:\\\\Users\\\\LTC\\\\AppData\\\\Roaming\\\\npm\\\\firebase.cmd' deploy --only firestore:rules,firestore:indexes 2>&1\")",
-      "Bash(powershell.exe -Command \"cd 'C:\\\\Users\\\\LTC\\\\Syanat'; & 'C:\\\\Users\\\\LTC\\\\AppData\\\\Roaming\\\\npm\\\\firebase.cmd' deploy --only firestore:indexes --force 2>&1\")"
+      "Bash(powershell.exe -Command \"cd 'C:\\\\Users\\\\LTC\\\\Syanat'; & 'C:\\\\Users\\\\LTC\\\\AppData\\\\Roaming\\\\npm\\\\firebase.cmd' deploy --only firestore:indexes --force 2>&1\")",
+      "Skill(codex:setup)",
+      "Bash(node:*)",
+      "Bash(where dart:*)",
+      "Bash(where flutter:*)",
+      "Bash(cmd.exe /c \"where flutter 2>&1\")",
+      "Bash(cmd.exe /c \"where dart 2>&1\")",
+      "Bash(cmd.exe /c \"where python\")",
+      "Bash(cmd.exe /c \"where python3\")",
+      "Bash(cmd.exe /c \"where node\")",
+      "Bash(cmd //c \"where flutter\")",
+      "Bash(/c/Users/LTC/flutter/bin/flutter.bat analyze:*)",
+      "Bash(\"C:/Users/LTC/flutter/bin/flutter\" analyze:*)"
     ]
   }
 }

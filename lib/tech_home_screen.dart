@@ -100,9 +100,10 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
       await FirebaseService.updateAvailability(user.uid, newVal);
       // UI updates via profile stream
     } catch (e) {
+      debugPrint('Toggle availability error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Error: $e')));
+            .showSnackBar(SnackBar(content: Text('Could not update availability. Please try again.')));
       }
     }
   }
@@ -171,6 +172,7 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
                   s == 'technician_arrived' ||
                   s == 'work_finished' ||
                   s == 'awaiting_customer_approval' ||
+                  s == 'receipt_disputed' ||
                   s == 'accepted' ||
                   s == 'in_progress' ||
                   s == 'inprogress';
@@ -204,105 +206,28 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
     AppLocale.of(context).value = newLocale;
   }
 
-  Future<void> _acceptJob(String jobId) async {
-    try {
-      await FirebaseService.firestore.collection('jobs').doc(jobId).update({
-        'status': 'accepted',
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error accepting: $e')),
-      );
-    }
-  }
-
-  Future<void> _rejectJob(String jobId) async {
-    final isEn = Localizations.localeOf(context).languageCode == 'en';
-    try {
-      // Re-queue the job as urgent so it reappears in the admin "Requested" tab
-      // for reassignment to another technician.
-      await FirebaseService.firestore.collection('jobs').doc(jobId).update({
-        'status': 'requested',
-        'technicianId': '',
-        'assignedTechnicianId': null,
-        'assignedTechnicianName': null,
-        'urgencyType': 'urgent',
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(isEn
-              ? 'Job returned to admin for reassignment'
-              : 'تم إعادة الطلب للإدارة لإعادة التعيين'),
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${isEn ? "Error" : "خطأ"}: $e')),
-      );
-    }
-  }
-
-  Future<void> _completeJob(String jobId) async {
-    final isEn = Localizations.localeOf(context).languageCode == 'en';
-
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(isEn ? 'Mark Work Done' : 'تأكيد إنهاء العمل'),
-        content: Text(
-          isEn
-              ? 'Mark this job as done on your end? The admin will record the payment and officially close the order.'
-              : 'هل أنهيت العمل؟ الإدارة ستسجل المبلغ وتغلق الطلب رسمياً.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: Text(isEn ? 'Cancel' : 'إلغاء'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: syanatBlue,
-              foregroundColor: Colors.white,
-            ),
-            child: Text(isEn ? 'Mark Done' : 'تم الانتهاء'),
-          ),
-        ],
-      ),
-    );
-
-    if (ok != true) return;
-
-    try {
-      // Signal to admin that work is done; status moves to in_progress.
-      // Revenue is ONLY recorded when admin manually closes the job.
-      await FirebaseService.firestore.collection('jobs').doc(jobId).update({
-        'status': 'in_progress',
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
-        );
-      }
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final isEn = Localizations.localeOf(context).languageCode == 'en';
     final user = FirebaseService.getCurrentUser();
 
+    // Lock into active-job screen only during known active work steps.
+    // Passive waiting, disputed, and unknown statuses show home screen
+    // so the tech can access notifications, settings, etc.
+    const _lockedStatuses = {
+      'active',
+      'technician_accepted',
+      'technician_arrived',
+      'work_finished',
+    };
     if (_activeJob != null && user != null) {
-      return TechnicianActiveJobScreen(
-        job: _activeJob!,
-        technicianId: user.uid,
-      );
+      final activeStatus = _activeJob!['status'] as String? ?? '';
+      if (_lockedStatuses.contains(activeStatus)) {
+        return TechnicianActiveJobScreen(
+          job: _activeJob!,
+          technicianId: user.uid,
+        );
+      }
     }
 
     return Directionality(
@@ -471,6 +396,11 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
                           ],
                         ),
                         const SizedBox(height: 24),
+                        // Banner for passive-wait active job
+                        if (_activeJob != null && user != null) ...[
+                          _buildPassiveWaitBanner(isEn, user.uid),
+                          const SizedBox(height: 16),
+                        ],
                         Text(
                           isEn ? 'Active Jobs' : 'Active Jobs',
                           style: const TextStyle(
@@ -581,165 +511,9 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
                                                   ),
                                                 ],
                                               ),
-                                              trailing: Row(
-                                                mainAxisSize: MainAxisSize.min,
-                                                mainAxisAlignment:
-                                                    MainAxisAlignment.end,
-                                                children: [
-                                                  SizedBox(
-                                                    width: 72,
-                                                    child: ElevatedButton(
-                                                      onPressed: () async {
-                                                        final currentUser =
-                                                            FirebaseService
-                                                                .getCurrentUser();
-                                                        if (currentUser == null ||
-                                                            customerId.isEmpty) {
-                                                          return;
-                                                        }
-
-                                                        final chatId =
-                                                            await FirebaseService
-                                                                .getOrCreateChat(
-                                                          customerId,
-                                                          currentUser.uid,
-                                                          jobId: j['id'] as String,
-                                                        );
-
-                                                        if (!mounted) return;
-
-                                                        Navigator.push(
-                                                          context,
-                                                          MaterialPageRoute(
-                                                            builder: (_) =>
-                                                                ChatScreen(
-                                                              chatId: chatId,
-                                                              isTechnician: true,
-                                                            ),
-                                                          ),
-                                                        );
-                                                      },
-                                                      style: ElevatedButton
-                                                          .styleFrom(
-                                                        backgroundColor:
-                                                            syanatBlue,
-                                                        foregroundColor:
-                                                            Colors.white,
-                                                        padding:
-                                                            const EdgeInsets
-                                                                .symmetric(
-                                                          horizontal: 8,
-                                                          vertical: 6,
-                                                        ),
-                                                        textStyle:
-                                                            const TextStyle(
-                                                          fontSize: 13,
-                                                        ),
-                                                        minimumSize:
-                                                            const Size(72, 32),
-                                                        shape:
-                                                            RoundedRectangleBorder(
-                                                          borderRadius:
-                                                              BorderRadius
-                                                                  .circular(8),
-                                                        ),
-                                                      ),
-                                                      child: Text(
-                                                        isEn ? 'Chat' : 'Chat',
-                                                      ),
-                                                    ),
-                                                  ),
-                                                  const SizedBox(width: 6),
-                                                  if (status == 'requested') ...[
-                                                    Container(
-                                                      width: 24,
-                                                      height: 24,
-                                                      decoration:
-                                                          const BoxDecoration(
-                                                        color: syanatBlue,
-                                                        shape: BoxShape.circle,
-                                                      ),
-                                                      child: IconButton(
-                                                        icon: const Icon(
-                                                          Icons.check,
-                                                          color: Colors.white,
-                                                          size: 14,
-                                                        ),
-                                                        padding: EdgeInsets.zero,
-                                                        constraints:
-                                                            const BoxConstraints(),
-                                                        onPressed: () => _acceptJob(
-                                                          j['id'] as String,
-                                                        ),
-                                                      ),
-                                                    ),
-                                                    const SizedBox(width: 4),
-                                                    Container(
-                                                      width: 24,
-                                                      height: 24,
-                                                      decoration: BoxDecoration(
-                                                        color: syanatBlue
-                                                            .withOpacity(0.85),
-                                                        shape: BoxShape.circle,
-                                                      ),
-                                                      child: IconButton(
-                                                        icon: const Icon(
-                                                          Icons.close,
-                                                          color: Colors.white,
-                                                          size: 14,
-                                                        ),
-                                                        padding: EdgeInsets.zero,
-                                                        constraints:
-                                                            const BoxConstraints(),
-                                                        onPressed: () => _rejectJob(
-                                                          j['id'] as String,
-                                                        ),
-                                                      ),
-                                                    ),
-                                                  ] else if (status == 'accepted' ||
-                                                      status == 'in_progress' ||
-                                                      status == 'inprogress')
-                                                    SizedBox(
-                                                      width: 72,
-                                                      child: ElevatedButton(
-                                                        onPressed: () =>
-                                                            _completeJob(
-                                                          j['id'] as String,
-                                                        ),
-                                                        style: ElevatedButton
-                                                            .styleFrom(
-                                                          backgroundColor:
-                                                              syanatBlue,
-                                                          foregroundColor:
-                                                              Colors.white,
-                                                          padding:
-                                                              const EdgeInsets
-                                                                  .symmetric(
-                                                            horizontal: 8,
-                                                            vertical: 6,
-                                                          ),
-                                                          textStyle:
-                                                              const TextStyle(
-                                                            fontSize: 13,
-                                                          ),
-                                                          minimumSize:
-                                                              const Size(72, 32),
-                                                          shape:
-                                                              RoundedRectangleBorder(
-                                                            borderRadius:
-                                                                BorderRadius
-                                                                    .circular(8),
-                                                          ),
-                                                        ),
-                                                        child: Text(
-                                                          isEn
-                                                              ? 'Done'
-                                                              : 'تم',
-                                                        ),
-                                                      ),
-                                                    ),
-                                                ],
-                                              ),
+                                              trailing: _buildJobTrailing(
+                                                status, customerId,
+                                                j['id'] as String, isEn),
                                             ),
                                           ),
                                         );
@@ -755,6 +529,196 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildPassiveWaitBanner(bool isEn, String techId) {
+    final status = _activeJob!['status'] as String? ?? '';
+    final isDisputed = status == 'receipt_disputed';
+    final color = isDisputed ? Colors.red.shade400 : syanatBlue;
+    final icon = isDisputed ? Icons.gavel : Icons.hourglass_top;
+    final title = isDisputed
+        ? (isEn ? 'Receipt Disputed — Admin Reviewing' : 'إيصال متنازع عليه — الإدارة تراجع')
+        : (isEn ? 'Awaiting Customer Approval' : 'بانتظار موافقة العميل');
+
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => TechnicianActiveJobScreen(
+              job: _activeJob!,
+              technicianId: techId,
+            ),
+          ),
+        );
+      },
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.08),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: color.withOpacity(0.3)),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: color, size: 24),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                title,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: color,
+                ),
+              ),
+            ),
+            Icon(Icons.chevron_right, color: color.withOpacity(0.6)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Legacy statuses that have active work but may lack assignedTechnicianId,
+  /// meaning they won't be caught by the active-job stream.
+  static const _legacyActiveStatuses = {
+    'accepted', 'in_progress', 'inprogress', 'en_route', 'payment_pending',
+  };
+
+  /// Maps a legacy status to its closest new-flow equivalent.
+  static const _legacyStatusMap = {
+    'accepted': 'technician_accepted',
+    'en_route': 'technician_arrived',
+    'in_progress': 'work_finished',
+    'inprogress': 'work_finished',
+    'payment_pending': 'awaiting_customer_approval',
+  };
+
+  /// Migrates a legacy job to the new flow by setting assignedTechnicianId
+  /// AND normalizing the status so the active-job screen has a valid step.
+  Future<void> _migrateLegacyJob(
+      String jobId, String techId, String currentStatus) async {
+    final newStatus = _legacyStatusMap[currentStatus];
+    if (newStatus == null) return; // unknown — don't touch
+    try {
+      await FirebaseService.firestore.collection('jobs').doc(jobId).update({
+        'assignedTechnicianId': techId,
+        'status': newStatus,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      debugPrint('Job status update error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Something went wrong. Please try again.')),
+        );
+      }
+    }
+  }
+
+  Widget _buildJobTrailing(
+      String status, String customerId, String jobId, bool isEn) {
+    // Status badge color/label
+    Color badgeColor;
+    String badgeLabel;
+    switch (status) {
+      case 'completed':
+        badgeColor = const Color(0xFF10B981);
+        badgeLabel = isEn ? 'Done' : 'مكتمل';
+        break;
+      case 'cancelled':
+        badgeColor = const Color(0xFFEF4444);
+        badgeLabel = isEn ? 'Cancelled' : 'ملغي';
+        break;
+      default:
+        badgeColor = syanatBlue;
+        badgeLabel = isEn ? 'Active' : 'نشط';
+    }
+
+    final user = FirebaseService.getCurrentUser();
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Chat button for non-terminal statuses
+        if (status != 'completed' && status != 'cancelled')
+          SizedBox(
+            width: 64,
+            child: ElevatedButton(
+              onPressed: () async {
+                final currentUser = FirebaseService.getCurrentUser();
+                if (currentUser == null || customerId.isEmpty) return;
+                final chatId = await FirebaseService.getOrCreateChat(
+                  customerId,
+                  currentUser.uid,
+                  jobId: jobId,
+                );
+                if (!mounted) return;
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => ChatScreen(
+                      chatId: chatId,
+                      isTechnician: true,
+                    ),
+                  ),
+                );
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: syanatBlue,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+                textStyle: const TextStyle(fontSize: 12),
+                minimumSize: const Size(64, 30),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              child: Text(isEn ? 'Chat' : 'محادثة'),
+            ),
+          ),
+        // Legacy fallback: "Open" button migrates the job to the new flow
+        if (_legacyActiveStatuses.contains(status) && user != null)
+          Padding(
+            padding: const EdgeInsets.only(left: 6),
+            child: SizedBox(
+              width: 64,
+              child: ElevatedButton(
+                onPressed: () => _migrateLegacyJob(jobId, user.uid, status),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFF59E0B),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+                  textStyle: const TextStyle(fontSize: 12),
+                  minimumSize: const Size(64, 30),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                child: Text(isEn ? 'Open' : 'فتح'),
+              ),
+            ),
+          ),
+        const SizedBox(width: 6),
+        // Status badge
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: badgeColor.withOpacity(0.12),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Text(
+            badgeLabel,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              color: badgeColor,
+            ),
+          ),
+        ),
+      ],
     );
   }
 

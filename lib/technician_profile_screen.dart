@@ -260,7 +260,8 @@ class _TechnicianProfileScreenState extends State<TechnicianProfileScreen> {
       if (!mounted) return;
       final isEn2 = Localizations.localeOf(context).languageCode == 'en';
       setState(() {
-        _saveError = isEn2 ? 'Save failed: $e' : 'فشل الحفظ: $e';
+      debugPrint('Profile save error: $e');
+        _saveError = isEn2 ? 'Save failed. Please try again.' : 'فشل الحفظ. يرجى المحاولة مرة أخرى.';
       });
     } finally {
       if (mounted) setState(() => _saving = false);

@@ -78,17 +78,31 @@ class _ChatScreenState extends State<ChatScreen> {
     final text = _msgController.text.trim();
     if (text.isEmpty) return;
 
-    await FirebaseService.firestore
+    final chatRef = FirebaseService.firestore
         .collection('chats')
-        .doc(widget.chatId)
-        .collection('messages')
-        .add({
-      'text': text,
-      'senderId': user.uid,
-      'createdAt': FieldValue.serverTimestamp(),
-    });
+        .doc(widget.chatId);
 
-    if (!widget.isTechnician) {
+    if (widget.isTechnician) {
+      // Technician: no counter needed, direct write.
+      await chatRef.collection('messages').add({
+        'text': text,
+        'senderId': user.uid,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+    } else {
+      // Customer: atomic batch — bump counter + create message.
+      final batch = FirebaseService.firestore.batch();
+      batch.update(chatRef, {
+        'customerMessageCount': FieldValue.increment(1),
+      });
+      final msgRef = chatRef.collection('messages').doc();
+      batch.set(msgRef, {
+        'text': text,
+        'senderId': user.uid,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+      await batch.commit();
+
       setState(() {
         _currentUserMessageCount += 1;
       });
@@ -218,9 +232,11 @@ class _ChatScreenState extends State<ChatScreen> {
                   Expanded(
                     child: TextField(
                       controller: _msgController,
+                      maxLength: 2000,
                       enabled:
                           widget.isTechnician || _currentUserMessageCount < 2,
                       decoration: InputDecoration(
+                        counterText: '',
                         hintText: widget.isTechnician
                             ? (isEn
                                 ? "Type your message..."

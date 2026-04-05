@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../firebase_service.dart';
-import '../login_screen.dart';
+import '../splash_screen.dart';
 import '../admin_support_chat_screen.dart';
 
 const Color syanatBlue = Color(0xFF3C21C8);
@@ -42,11 +42,19 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   /// True while a stats fetch is already in-flight; prevents overlapping calls.
   bool _fetching = false;
 
+  /// One-time fetch for recent users — refreshed explicitly, not via stream.
+  late Future<List<Map<String, dynamic>>> _recentUsersFuture;
+
+  /// One-time fetch for recent activity — refreshed explicitly, not via stream.
+  late Future<List<Map<String, dynamic>>> _recentActivityFuture;
+
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 4, vsync: this);
     _jobsTabController = TabController(length: 3, vsync: this);
+    _recentUsersFuture = FirebaseService.fetchRecentUsers(limit: 3);
+    _recentActivityFuture = FirebaseService.fetchRecentActivity(limit: 10);
     _loadAllStats();
     _supportCountSub = FirebaseService.streamUnreadSupportCount().listen(
       (n) {
@@ -70,7 +78,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     // or rapid refresh taps while a fetch is already running.
     if (_fetching) return;
     _fetching = true;
-    if (mounted) setState(() => _loading = true);
+    if (mounted) setState(() {
+      _loading = true;
+      _recentUsersFuture = FirebaseService.fetchRecentUsers(limit: 3);
+      _recentActivityFuture = FirebaseService.fetchRecentActivity(limit: 10);
+    });
 
     try {
       final firestore = FirebaseService.firestore;
@@ -98,52 +110,28 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       // jobsCancelled is now stored in stats/global — no separate count() needed.
       final int? aggCancelled   = (statsData['jobsCancelled'] as num?)?.toInt();
 
-      int usersCount, custCount, techCount, reqCount, ongCount, finCount, chatCount, cancelledCount;
-
-      if (aggUsers != null &&
-          aggCustomers != null &&
-          aggTechnicians != null &&
-          aggRequested != null &&
-          aggOngoing != null &&
-          aggCompleted != null &&
-          aggChats != null &&
-          aggCancelled != null) {
-        // All counters present — entire dashboard is 1 document read.
-        usersCount     = aggUsers;
-        custCount      = aggCustomers;
-        techCount      = aggTechnicians;
-        reqCount       = aggRequested;
-        ongCount       = aggOngoing;
-        finCount       = aggCompleted;
-        chatCount      = aggChats;
-        cancelledCount = aggCancelled;
-      } else {
-        // ── Slow path: aggregate doc incomplete, fall back to count() queries ──
-        final results = await Future.wait([
-          firestore.collection('users').count().get(),
-          firestore.collection('users').where('role', isEqualTo: 'customer').count().get(),
-          firestore.collection('users').where('role', isEqualTo: 'technician').count().get(),
-          firestore.collection('jobs').where('status', isEqualTo: 'requested').count().get(),
-          firestore.collection('jobs').where('status', isEqualTo: 'accepted').count().get(),
-          firestore.collection('jobs').where('status', isEqualTo: 'in_progress').count().get(),
-          firestore.collection('jobs').where('status', isEqualTo: 'inprogress').count().get(),
-          firestore.collection('jobs').where('status', isEqualTo: 'completed').count().get(),
-          firestore.collection('support_chats').where('status', isEqualTo: 'open').count().get(),
-          firestore.collection('jobs').where('status', isEqualTo: 'cancelled').count().get(),
-        ]);
-
-        usersCount = (results[0] as AggregateQuerySnapshot).count ?? 0;
-        custCount  = (results[1] as AggregateQuerySnapshot).count ?? 0;
-        techCount  = (results[2] as AggregateQuerySnapshot).count ?? 0;
-        final accepted   = (results[4] as AggregateQuerySnapshot).count ?? 0;
-        final inProg     = (results[5] as AggregateQuerySnapshot).count ?? 0;
-        final inProgLeg  = (results[6] as AggregateQuerySnapshot).count ?? 0;
-        reqCount   = (results[3] as AggregateQuerySnapshot).count ?? 0;
-        ongCount   = accepted + inProg + inProgLeg;
-        finCount   = (results[7] as AggregateQuerySnapshot).count ?? 0;
-        chatCount  = (results[8] as AggregateQuerySnapshot).count ?? 0;
-        cancelledCount = (results[9] as AggregateQuerySnapshot).count ?? 0;
+      // Use stats/global values directly — defaults to 0 for any missing field.
+      // If the doc is missing or incomplete, log a warning so the admin can
+      // run the stats initializer rather than silently falling back to
+      // expensive aggregation queries.
+      if (!statsSnap.exists ||
+          aggUsers == null || aggCustomers == null || aggTechnicians == null ||
+          aggRequested == null || aggOngoing == null || aggCompleted == null ||
+          aggChats == null || aggCancelled == null) {
+        debugPrint(
+          '[AdminDashboard] stats/global is missing or incomplete — '
+          'run FirebaseService.initializeStatsGlobal() to seed counters.',
+        );
       }
+
+      final usersCount     = aggUsers ?? 0;
+      final custCount      = aggCustomers ?? 0;
+      final techCount      = aggTechnicians ?? 0;
+      final reqCount       = aggRequested ?? 0;
+      final ongCount       = aggOngoing ?? 0;
+      final finCount       = aggCompleted ?? 0;
+      final chatCount      = aggChats ?? 0;
+      final cancelledCount = aggCancelled ?? 0;
 
       if (!mounted) return;
       setState(() {
@@ -165,7 +153,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            _t(isEn, 'Error loading stats: $e', 'حصل خطأ في تحميل الإحصائيات: $e'),
+            _t(isEn, 'Error loading stats. Please try again.', 'حصل خطأ في تحميل الإحصائيات. حاول مرة أخرى.'),
           ),
         ),
       );
@@ -196,7 +184,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     // Navigate all the way back to root so MyApp rebuilds SplashScreen
     Navigator.pushAndRemoveUntil(
       context,
-      MaterialPageRoute(builder: (_) => const LoginScreen()),
+      MaterialPageRoute(builder: (_) => const SplashScreen()),
       (route) => false,
     );
   }
@@ -561,10 +549,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     );
   }
 
-  /// Streams the latest 3 signups directly from Firestore — cheap bounded query.
+  /// Fetches the latest 3 signups — one-time read, refreshed via pull-to-refresh.
   Widget _recentUsersSection(bool isEn) {
-    return StreamBuilder<List<Map<String, dynamic>>>(
-      stream: FirebaseService.streamRecentUsers(limit: 3),
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: _recentUsersFuture,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           return Padding(
@@ -1434,8 +1422,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 12),
-          StreamBuilder<List<Map<String, dynamic>>>(
-            stream: FirebaseService.streamRecentActivity(limit: 10),
+          FutureBuilder<List<Map<String, dynamic>>>(
+            future: _recentActivityFuture,
             builder: (context, snapshot) {
               if (snapshot.hasError) {
                 return Padding(
@@ -1614,6 +1602,7 @@ class _RequestedJobSheetState extends State<_RequestedJobSheet> {
               'technician_arrived',
               'work_finished',
               'awaiting_customer_approval',
+              'receipt_disputed',
               'accepted',
               'en_route',
               'payment_pending',
@@ -1644,8 +1633,8 @@ class _RequestedJobSheetState extends State<_RequestedJobSheet> {
           SnackBar(
             content: Text(
               widget.isEn
-                  ? 'Failed to load technicians: $e'
-                  : 'فشل تحميل قائمة الفنيين',
+                  ? 'Failed to load technicians. Please try again.'
+                  : 'فشل تحميل قائمة الفنيين. حاول مرة أخرى.',
             ),
           ),
         );
@@ -1675,8 +1664,9 @@ class _RequestedJobSheetState extends State<_RequestedJobSheet> {
     } catch (e) {
       if (mounted) {
         setState(() => _assigningTechId = null);
+        debugPrint('Assign technician error: $e');
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Error: $e')));
+            .showSnackBar(SnackBar(content: Text('Assignment failed. Please try again.')));
       }
     } finally {
       if (mounted && _assigningTechId != null) {
@@ -1902,11 +1892,18 @@ class _RequestedJobSheetState extends State<_RequestedJobSheet> {
 // _ActiveJobSheet — Admin views an active job (read-only monitoring)
 // ═════════════════════════════════════════════════════════════════════════════
 
-class _ActiveJobSheet extends StatelessWidget {
+class _ActiveJobSheet extends StatefulWidget {
   final Map<String, dynamic> job;
   final bool isEn;
 
   const _ActiveJobSheet({required this.job, required this.isEn});
+
+  @override
+  State<_ActiveJobSheet> createState() => _ActiveJobSheetState();
+}
+
+class _ActiveJobSheetState extends State<_ActiveJobSheet> {
+  bool _resolving = false;
 
   static const _statusLabelsEn = {
     'active': 'Active — Awaiting Tech Acceptance',
@@ -1914,6 +1911,7 @@ class _ActiveJobSheet extends StatelessWidget {
     'technician_arrived': 'Tech Arrived',
     'work_finished': 'Work Finished — Awaiting Receipt',
     'awaiting_customer_approval': 'Awaiting Customer Approval',
+    'receipt_disputed': 'Receipt Disputed — Needs Resolution',
     'completed': 'Completed',
     'cancelled': 'Cancelled',
     'accepted': 'Active',
@@ -1927,6 +1925,7 @@ class _ActiveJobSheet extends StatelessWidget {
     'technician_arrived': 'الفني وصل',
     'work_finished': 'اكتمل العمل — في انتظار الإيصال',
     'awaiting_customer_approval': 'في انتظار موافقة العميل',
+    'receipt_disputed': 'إيصال متنازع عليه — يحتاج حل',
     'completed': 'مكتمل',
     'cancelled': 'ملغي',
     'accepted': 'نشط',
@@ -1934,8 +1933,37 @@ class _ActiveJobSheet extends StatelessWidget {
     'payment_pending': 'بانتظار الدفع',
   };
 
+  Future<void> _resolveDispute(String resolution) async {
+    setState(() => _resolving = true);
+    try {
+      await FirebaseService.adminResolveDispute(
+        jobId: widget.job['id'] as String? ?? '',
+        resolution: resolution,
+      );
+      if (!mounted) return;
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(widget.isEn
+            ? 'Dispute resolved: $resolution'
+            : 'تم حل النزاع: $resolution'),
+        backgroundColor: Colors.green,
+      ));
+    } catch (e) {
+      debugPrint('Resolve dispute error: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Failed to resolve dispute. Please try again.'),
+        backgroundColor: Colors.red,
+      ));
+    } finally {
+      if (mounted) setState(() => _resolving = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final job = widget.job;
+    final isEn = widget.isEn;
     final serviceCategory =
         job['serviceCategory'] as String? ?? job['serviceKey'] as String? ?? '—';
     final customerName =
@@ -2018,6 +2046,117 @@ class _ActiveJobSheet extends StatelessWidget {
               const SizedBox(height: 12),
               _receiptPreview(receipt, isEn),
             ],
+            // ── Dispute resolution actions ────────────────────────────
+            if (status == 'receipt_disputed') ...[
+              const SizedBox(height: 20),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.red.shade50,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: Colors.red.shade200),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.gavel, color: Colors.red.shade600, size: 20),
+                        const SizedBox(width: 8),
+                        Text(
+                          isEn ? 'Dispute Resolution' : 'حل النزاع',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.red.shade700,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      isEn
+                          ? 'The customer has rejected the receipt. Review the details above and choose an action.'
+                          : 'رفض العميل الإيصال. راجع التفاصيل أعلاه واختر إجراءً.',
+                      style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.grey.shade700,
+                          height: 1.4),
+                    ),
+                    const SizedBox(height: 16),
+                    // Reopen for customer approval
+                    SizedBox(
+                      width: double.infinity,
+                      height: 44,
+                      child: ElevatedButton.icon(
+                        onPressed: _resolving ? null : () => _resolveDispute('reopen'),
+                        icon: const Icon(Icons.replay, size: 18),
+                        label: Text(
+                          isEn ? 'Send Back for Approval' : 'إعادة للعميل للموافقة',
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF3C21C8),
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10)),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        // Complete manually
+                        Expanded(
+                          child: SizedBox(
+                            height: 44,
+                            child: OutlinedButton.icon(
+                              onPressed: _resolving
+                                  ? null
+                                  : () => _resolveDispute('complete'),
+                              icon: const Icon(Icons.check_circle_outline, size: 18),
+                              label: Text(
+                                isEn ? 'Close as Done' : 'إغلاق كمكتمل',
+                                style: const TextStyle(fontWeight: FontWeight.w600),
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: const Color(0xFF10B981),
+                                side: const BorderSide(color: Color(0xFF10B981)),
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10)),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        // Cancel
+                        Expanded(
+                          child: SizedBox(
+                            height: 44,
+                            child: OutlinedButton.icon(
+                              onPressed: _resolving
+                                  ? null
+                                  : () => _resolveDispute('cancel'),
+                              icon: const Icon(Icons.cancel_outlined, size: 18),
+                              label: Text(
+                                isEn ? 'Cancel Job' : 'إلغاء الطلب',
+                                style: const TextStyle(fontWeight: FontWeight.w600),
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.red.shade600,
+                                side: BorderSide(color: Colors.red.shade300),
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10)),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ] else
             Container(
               margin: const EdgeInsets.only(top: 24),
               padding: const EdgeInsets.all(14),

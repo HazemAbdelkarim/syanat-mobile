@@ -1,4 +1,6 @@
+import 'dart:io' show Platform;
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import 'admin_dashboard_screen.dart';
@@ -298,20 +300,22 @@ class _LoginScreenState extends State<LoginScreen> {
                                         : SizedBox(width: 28, height: 28, child: FittedBox(child: _googleIcon())),
                                   ),
                                 ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: _socialIconButton(
-                                    enabled: !_socialLoading && !_loading,
-                                    onTap: () => _handleSocialSignIn(FirebaseService.signInWithApple),
-                                    child: _socialLoading
-                                        ? const SizedBox(
-                                            width: 20,
-                                            height: 20,
-                                            child: CircularProgressIndicator(strokeWidth: 2, color: syanatBlue),
-                                          )
-                                        : const Icon(Icons.apple, size: 30, color: Colors.black87),
+                                if (!kIsWeb && Platform.isIOS || kIsWeb) ...[
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: _socialIconButton(
+                                      enabled: !_socialLoading && !_loading,
+                                      onTap: () => _handleSocialSignIn(FirebaseService.signInWithApple),
+                                      child: _socialLoading
+                                          ? const SizedBox(
+                                              width: 20,
+                                              height: 20,
+                                              child: CircularProgressIndicator(strokeWidth: 2, color: syanatBlue),
+                                            )
+                                          : const Icon(Icons.apple, size: 30, color: Colors.black87),
+                                    ),
                                   ),
-                                ),
+                                ],
                               ],
                             ),
                             const SizedBox(height: 10),

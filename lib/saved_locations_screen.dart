@@ -75,9 +75,10 @@ class _SavedLocationsScreenState extends State<SavedLocationsScreen> {
       }
       await _load();
     } catch (e) {
+      debugPrint('Add location error: $e');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(isEn ? 'Error: $e' : 'خطأ: $e')),
+        SnackBar(content: Text(isEn ? 'Could not save location. Please try again.' : 'تعذر حفظ الموقع. يرجى المحاولة مرة أخرى.')),
       );
       setState(() => _loading = false);
     }
@@ -134,9 +135,10 @@ class _SavedLocationsScreenState extends State<SavedLocationsScreen> {
       }
       await _load();
     } catch (e) {
+      debugPrint('Delete location error: $e');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(isEn ? 'Error: $e' : 'خطأ: $e')),
+        SnackBar(content: Text(isEn ? 'Could not delete location. Please try again.' : 'تعذر حذف الموقع. يرجى المحاولة مرة أخرى.')),
       );
       setState(() => _loading = false);
     }
@@ -345,6 +347,7 @@ class _AddLocationSheetState extends State<_AddLocationSheet> {
     required IconData icon,
     required String label,
     required TextEditingController controller,
+    int? maxLength,
   }) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -373,7 +376,9 @@ class _AddLocationSheetState extends State<_AddLocationSheet> {
           Expanded(
             child: TextField(
               controller: controller,
+              maxLength: maxLength,
               decoration: InputDecoration(
+                counterText: '',
                 labelText: label,
                 labelStyle: TextStyle(
                   fontSize: 12,
@@ -435,30 +440,35 @@ class _AddLocationSheetState extends State<_AddLocationSheet> {
                   icon: Icons.place_outlined,
                   label: isEn ? 'Label (e.g. Home, Office)' : 'الاسم (مثال: المنزل، المكتب)',
                   controller: _labelCtrl,
+                  maxLength: 50,
                 ),
                 const SizedBox(height: 12),
                 _fieldCard(
                   icon: Icons.signpost,
                   label: isEn ? 'Street' : 'شارع',
                   controller: _streetCtrl,
+                  maxLength: 100,
                 ),
                 const SizedBox(height: 12),
                 _fieldCard(
                   icon: Icons.location_city,
                   label: isEn ? 'City' : 'مدينة',
                   controller: _cityCtrl,
+                  maxLength: 50,
                 ),
                 const SizedBox(height: 12),
                 _fieldCard(
                   icon: Icons.apartment,
                   label: isEn ? 'Building' : 'مبنى',
                   controller: _buildingCtrl,
+                  maxLength: 100,
                 ),
                 const SizedBox(height: 12),
                 _fieldCard(
                   icon: Icons.notes,
                   label: isEn ? 'Additional notes' : 'ملاحظات إضافية',
                   controller: _notesCtrl,
+                  maxLength: 200,
                 ),
                 const SizedBox(height: 24),
                 Row(

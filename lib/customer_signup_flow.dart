@@ -259,11 +259,12 @@ class _CustomerSignupFlowState extends State<CustomerSignupFlow> {
         }
       }
       if (!mounted) return;
+      debugPrint('Customer signup error: $e');
       setState(() {
         _submissionError = _t(
           isEn,
-          'Could not create your account. $e',
-          'تعذر إنشاء الحساب. $e',
+          'Could not create your account. Please try again.',
+          'تعذر إنشاء الحساب. يرجى المحاولة مرة أخرى.',
         );
       });
     } finally {
