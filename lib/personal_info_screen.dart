@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'firebase_service.dart';
+import 'widgets/egyptian_phone_field.dart';
 
 const Color _syanatBlue = Color(0xFF3C21C8);
 
@@ -22,7 +23,11 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
   }
 
   Future<void> _loadProfile() async {
-    final user = FirebaseService.getCurrentUser();
+    final user = await FirebaseService.auth
+        .authStateChanges()
+        .first
+        .timeout(const Duration(seconds: 5), onTimeout: () => null);
+    if (!mounted) return;
     if (user == null) {
       setState(() {
         _error = 'not_logged_in';
@@ -113,7 +118,9 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
     final user = FirebaseService.getCurrentUser();
     final name = (_profile!['username'] as String?) ?? '';
     final email = (_profile!['email'] as String?) ?? (user?.email ?? '');
-    final phone = (_profile!['phone'] as String?) ?? '';
+    final phoneRaw = (_profile!['phone'] as String?) ?? '';
+    final phoneLocal = normalizeEgyptianLocal(phoneRaw);
+    final phone = phoneLocal.isEmpty ? phoneRaw : '+20 $phoneLocal';
     final gender = (_profile!['gender'] as String?) ?? '';
 
     // Avatar initials

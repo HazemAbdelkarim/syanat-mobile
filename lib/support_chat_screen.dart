@@ -38,9 +38,13 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
   /// Do NOT create one — that would create a phantom admin-side ticket
   /// for users who opened the screen but never wrote anything.
   Future<void> _initChat() async {
-    final user = FirebaseService.getCurrentUser();
+    final user = await FirebaseService.auth
+        .authStateChanges()
+        .first
+        .timeout(const Duration(seconds: 5), onTimeout: () => null);
+    if (!mounted) return;
     if (user == null) {
-      if (mounted) setState(() => _loading = false);
+      setState(() => _loading = false);
       return;
     }
     _currentUser = user;

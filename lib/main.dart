@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'auth_gate.dart';
 import 'firebase_service.dart';
-import 'splash_screen.dart';
 
 // ---------------------------------------------------------------------------
 // AppLocale — InheritedNotifier that provides locale state to the whole tree.
@@ -85,7 +85,7 @@ class _MyAppState extends State<MyApp> {
               : const Locale('en');
         },
 
-        home: const SplashScreen(),
+        home: const AuthGate(),
       ),
     );
   }

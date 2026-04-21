@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'firebase_service.dart';
 import 'main.dart' show AppLocale;
+import 'widgets/egyptian_phone_field.dart';
 
 const Color _blue = Color(0xFF3C21C8);
 
@@ -88,7 +89,7 @@ class _TechnicianProfileScreenState extends State<TechnicianProfileScreen> {
   void _startEditing() {
     final p = _profile!;
     _nameCtrl.text = (p['username'] as String? ?? '').trim();
-    _phoneCtrl.text = (p['phone'] as String? ?? '').trim();
+    _phoneCtrl.text = normalizeEgyptianLocal((p['phone'] as String? ?? '').trim());
     _emailCtrl.text = (p['email'] as String? ?? '').trim();
     _pickedPhoto = null;
     _nameErr = _phoneErr = _emailErr = _saveError = null;
@@ -112,11 +113,7 @@ class _TechnicianProfileScreenState extends State<TechnicianProfileScreen> {
           ? 'Name must be at least 2 characters.'
           : 'الاسم يجب أن يكون حرفين على الأقل.';
     }
-    if (!RegExp(r'^\+201[0125]\d{8}$').hasMatch(phone)) {
-      pe = isEn
-          ? 'Invalid phone. Format: +201XXXXXXXXX'
-          : 'رقم الهاتف غير صحيح. الصيغة: +201XXXXXXXXX';
-    }
+    pe = validateEgyptianLocal(phone, isEn: isEn);
     if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email)) {
       ee = isEn
           ? 'Enter a valid email address.'
@@ -205,7 +202,8 @@ class _TechnicianProfileScreenState extends State<TechnicianProfileScreen> {
     });
     try {
       final name = _nameCtrl.text.trim();
-      final phone = _phoneCtrl.text.trim();
+      final phoneLocal = _phoneCtrl.text.trim();
+      final phone = egyptianToE164(phoneLocal);
       final email = _emailCtrl.text.trim().toLowerCase();
 
       // Upload new photo if chosen; failures are non-blocking.
@@ -323,7 +321,9 @@ class _TechnicianProfileScreenState extends State<TechnicianProfileScreen> {
     final p = _profile!;
     final name = (p['username'] as String? ?? '').trim();
     final email = (p['email'] as String? ?? '').trim();
-    final phone = (p['phone'] as String? ?? '').trim();
+    final phoneRaw = (p['phone'] as String? ?? '').trim();
+    final phoneLocal = normalizeEgyptianLocal(phoneRaw);
+    final phone = phoneLocal.isEmpty ? phoneRaw : '+20 $phoneLocal';
     final city = (p['city'] as String? ?? '').trim();
     final service = (p['service'] as String? ?? '').trim();
     final photoUrl = (p['photoUrl'] as String? ?? '').trim();
@@ -521,15 +521,37 @@ class _TechnicianProfileScreenState extends State<TechnicianProfileScreen> {
             },
           ),
           const SizedBox(height: 14),
-          _field(
-            ctrl: _phoneCtrl,
-            icon: Icons.phone_outlined,
-            label: t('Phone (+201XXXXXXXXX)', 'الهاتف (+201XXXXXXXXX)'),
-            type: TextInputType.phone,
-            err: _phoneErr,
-            onChanged: (_) {
-              if (_phoneErr != null) setState(() => _phoneErr = null);
-            },
+          EgyptianPhoneField(
+            controller: _phoneCtrl,
+            isEn: isEn,
+            labelText: t('Phone', 'الهاتف'),
+            useFormValidator: false,
+            decoration: InputDecoration(
+              labelText: t('Phone', 'الهاتف'),
+              counterText: '',
+              filled: true,
+              fillColor: Colors.white,
+              errorText: _phoneErr,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide(color: Colors.grey.shade300, width: 1.5),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide(
+                  color: _phoneErr != null
+                      ? Colors.red.shade400
+                      : Colors.grey.shade300,
+                  width: 1.5,
+                ),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: _blue, width: 1.5),
+              ),
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 4, vertical: 16),
+            ),
           ),
           const SizedBox(height: 14),
           _field(

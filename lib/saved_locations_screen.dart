@@ -23,7 +23,11 @@ class _SavedLocationsScreenState extends State<SavedLocationsScreen> {
   }
 
   Future<void> _load() async {
-    final user = FirebaseService.getCurrentUser();
+    final user = await FirebaseService.auth
+        .authStateChanges()
+        .first
+        .timeout(const Duration(seconds: 5), onTimeout: () => null);
+    if (!mounted) return;
     if (user == null) {
       setState(() => _loading = false);
       return;
@@ -51,6 +55,9 @@ class _SavedLocationsScreenState extends State<SavedLocationsScreen> {
     final result = await showModalBottomSheet<Map<String, String>>(
       context: context,
       isScrollControlled: true,
+      isDismissible: true,
+      enableDrag: true,
+      useSafeArea: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -405,6 +412,7 @@ class _AddLocationSheetState extends State<_AddLocationSheet> {
         minChildSize: 0.5,
         maxChildSize: 0.95,
         expand: false,
+        shouldCloseOnMinExtent: true,
         builder: (ctx, scrollController) {
           return Container(
             decoration: const BoxDecoration(
@@ -431,9 +439,20 @@ class _AddLocationSheetState extends State<_AddLocationSheet> {
                   ),
                 ),
                 const SizedBox(height: 16),
-                Text(
-                  isEn ? 'Add Location' : 'إضافة موقع',
-                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        isEn ? 'Add Location' : 'إضافة موقع',
+                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: isEn ? 'Close' : 'إغلاق',
+                      icon: const Icon(Icons.close, color: Colors.black54),
+                      onPressed: () => Navigator.of(ctx).maybePop(),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 20),
                 _fieldCard(

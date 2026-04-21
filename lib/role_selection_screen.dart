@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'customer_signup_flow.dart';
+import 'login_screen.dart';
 import 'main.dart' show AppLocale;
 import 'technician_signup_flow.dart';
 
@@ -72,7 +73,17 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         IconButton(
-                          onPressed: () => Navigator.pop(context),
+                          onPressed: () {
+                            if (Navigator.of(context).canPop()) {
+                              Navigator.of(context).pop();
+                            } else {
+                              Navigator.of(context).pushReplacement(
+                                MaterialPageRoute<void>(
+                                  builder: (_) => const LoginScreen(),
+                                ),
+                              );
+                            }
+                          },
                           icon: const Icon(Icons.arrow_back, color: Colors.white),
                         ),
                         IconButton(
@@ -162,6 +173,39 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
                                     style: const TextStyle(
                                       fontSize: 16,
                                       fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              Center(
+                                child: TextButton(
+                                  onPressed: () {
+                                    // Pop back to LoginScreen when we were
+                                    // pushed from it (the normal path). If
+                                    // there's no route below us (deep link /
+                                    // unusual entry), replace with LoginScreen
+                                    // so the user is never dead-ended.
+                                    if (Navigator.of(context).canPop()) {
+                                      Navigator.of(context).pop();
+                                    } else {
+                                      Navigator.of(context).pushReplacement(
+                                        MaterialPageRoute<void>(
+                                          builder: (_) => const LoginScreen(),
+                                        ),
+                                      );
+                                    }
+                                  },
+                                  child: Text(
+                                    _t(
+                                      isEn,
+                                      'Already have an account? Log in',
+                                      'لديك حساب بالفعل؟ سجّل الدخول',
+                                    ),
+                                    style: const TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w600,
+                                      color: syanatBlue,
                                     ),
                                   ),
                                 ),

@@ -37,6 +37,17 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
   @override
   void initState() {
     super.initState();
+    _initAfterAuth();
+  }
+
+  Future<void> _initAfterAuth() async {
+    // Wait for Firebase Auth to confirm the session before subscribing to
+    // any streams — prevents false "not logged in" state on web.
+    await FirebaseService.auth
+        .authStateChanges()
+        .first
+        .timeout(const Duration(seconds: 5), onTimeout: () => null);
+    if (!mounted) return;
     _subscribeProfile();
     _loadJobsRealtime();
     _subscribeNotifCount();
@@ -115,6 +126,9 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
+      isDismissible: true,
+      enableDrag: true,
+      useSafeArea: true,
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (ctx) =>
@@ -152,7 +166,7 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
 
     _jobsSub = FirebaseService.firestore
         .collection('jobs')
-        .where('technicianId', isEqualTo: user.uid)
+        .where('assignedTechnicianId', isEqualTo: user.uid)
         .orderBy('createdAt', descending: true)
         .limit(50)
         .snapshots()
@@ -196,6 +210,9 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
         _earnings = earnings;
         _loading = false;
       });
+    }, onError: (e) {
+      debugPrint('Jobs stream error: $e');
+      if (mounted) setState(() => _loading = false);
     });
   }
 
@@ -767,6 +784,7 @@ class _TechNotificationsSheet extends StatelessWidget {
       minChildSize: 0.4,
       maxChildSize: 0.95,
       expand: false,
+      shouldCloseOnMinExtent: true,
       builder: (ctx, scrollCtrl) => Container(
         decoration: const BoxDecoration(
           color: Colors.white,
@@ -792,6 +810,11 @@ class _TechNotificationsSheet extends StatelessWidget {
                     isEn ? 'Notifications' : 'الإشعارات',
                     style: const TextStyle(
                         fontSize: 20, fontWeight: FontWeight.bold),
+                  ),
+                  IconButton(
+                    tooltip: isEn ? 'Close' : 'إغلاق',
+                    icon: const Icon(Icons.close, color: Colors.black54),
+                    onPressed: () => Navigator.of(ctx).maybePop(),
                   ),
                 ],
               ),

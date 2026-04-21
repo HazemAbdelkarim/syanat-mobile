@@ -1,10 +1,28 @@
 import 'dart:async';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'firebase_service.dart';
 
 const Color _syanatBlue = Color(0xFF3C21C8);
+
+// â”€â”€â”€ Premium Theme Colors â”€â”€â”€
+const Color kPrimary = Color(0xFF6C3CE1);
+const Color kPrimaryDark = Color(0xFF5228B5);
+const Color kSurfaceBg = Color(0xFFF6F7F9);
+const Color kCardBg = Color(0xFFFFFFFF);
+const Color kTextPrimary = Color(0xFF1A1A2E);
+const Color kTextSecondary = Color(0xFF6B7280);
+const Color kTextMuted = Color(0xFF8B8FA3);
+const Color kSuccessBg = Color(0xFFECFDF5);
+const Color kSuccessText = Color(0xFF10B981);
+const Color kDangerBg = Color(0xFFFEF2F2);
+const Color kDangerText = Color(0xFFEF4444);
+const Color kOngoingBg = Color(0xFFF3EEFF);
+const Color kOngoingText = Color(0xFF6C3CE1);
+const Color kDivider = Color(0x0F000000);
+const Color kNavInactive = Color(0xFF9CA3AF);
 
 // ---------------------------------------------------------------------------
 // Status helpers
@@ -50,12 +68,23 @@ class _OrdersScreenState extends State<OrdersScreen>
   late TabController _tabController;
   StreamSubscription<Map<String, dynamic>?>? _pendingReceiptSub;
   Map<String, dynamic>? _pendingReceipt;
+  // Populated once auth state is confirmed, then used in build().
+  User? _user;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
-    final user = FirebaseService.getCurrentUser();
+    _initUser();
+  }
+
+  Future<void> _initUser() async {
+    final user = await FirebaseService.auth
+        .authStateChanges()
+        .first
+        .timeout(const Duration(seconds: 5), onTimeout: () => null);
+    if (!mounted) return;
+    setState(() => _user = user);
     if (user != null) {
       _pendingReceiptSub =
           FirebaseService.streamCustomerPendingReceipt(user.uid).listen((job) {
@@ -80,49 +109,117 @@ class _OrdersScreenState extends State<OrdersScreen>
   @override
   Widget build(BuildContext context) {
     final isEn = Localizations.localeOf(context).languageCode == 'en';
-    final user = FirebaseService.getCurrentUser();
+    final user = _user;
 
     return Directionality(
       textDirection: isEn ? TextDirection.ltr : TextDirection.rtl,
       child: Scaffold(
         backgroundColor: const Color(0xFFF5F5F5),
-        appBar: AppBar(
-          backgroundColor: _syanatBlue,
-          elevation: 0,
-          automaticallyImplyLeading: false,
-          title: Text(
-            isEn ? 'My Orders' : 'طلباتي',
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.bold,
-              fontSize: 20,
+        body: Column(
+          children: [
+            Container(
+              width: double.infinity,
+              height: MediaQuery.of(context).size.height * 0.20,
+              padding: EdgeInsets.fromLTRB(
+                  20, MediaQuery.of(context).padding.top + 8, 20, 0),
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Color(0xFF7C4DFF),
+                    Color(0xFF6C3CE1),
+                    Color(0xFF5228B5)
+                  ],
+                ),
+                borderRadius: BorderRadius.only(
+                  bottomLeft: Radius.circular(28),
+                  bottomRight: Radius.circular(28),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Container(
+                      alignment: AlignmentDirectional.centerStart,
+                      child: Text(
+                        isEn ? 'My Orders' : 'Ø·Ù„Ø¨Ø§ØªÙŠ',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 26,
+                          letterSpacing: -0.3,
+                        ),
+                      ),
+                    ),
+                  ),
+                  TabBar(
+                    controller: _tabController,
+                    isScrollable: true,
+                    tabAlignment: TabAlignment.center,
+                    labelPadding: const EdgeInsets.symmetric(horizontal: 4),
+                    indicatorSize: TabBarIndicatorSize.label,
+                    indicator: BoxDecoration(
+                      color: Colors.white.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    labelColor: Colors.white,
+                    unselectedLabelColor: Colors.white.withOpacity(0.6),
+                    labelStyle: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                      letterSpacing: 0.5,
+                    ),
+                    unselectedLabelStyle: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                      letterSpacing: 0.5,
+                    ),
+                    dividerColor: Colors.transparent,
+                    tabs: [
+                      Tab(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 8),
+                          child: Text(
+                              (isEn ? 'Ongoing' : 'Ø¬Ø§Ø±ÙŠØ©').toUpperCase()),
+                        ),
+                      ),
+                      Tab(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 8),
+                          child: Text(
+                              (isEn ? 'Recent' : 'ØØ¯ÙŠØ«Ø©').toUpperCase()),
+                        ),
+                      ),
+                      Tab(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 8),
+                          child: Text((isEn ? 'Cancelled' : 'Ù…Ù„ØºÙŠØ©')
+                              .toUpperCase()),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
-          ),
-          bottom: TabBar(
-            controller: _tabController,
-            indicatorSize: TabBarIndicatorSize.label,
-            indicatorColor: Colors.white,
-            indicatorWeight: 4,
-            labelColor: Colors.white,
-            unselectedLabelColor: Colors.white.withOpacity(0.6),
-            labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-            unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
-            tabs: [
-              Tab(text: isEn ? 'Ongoing' : 'جارية'),
-              Tab(text: isEn ? 'Recent' : 'حديثة'),
-              Tab(text: isEn ? 'Cancelled' : 'ملغية'),
-            ],
-          ),
+            Expanded(
+              child: user == null
+                  ? _buildNotLoggedIn(isEn)
+                  : _buildTabViews(user.uid, isEn),
+            ),
+          ],
         ),
-        body: user == null
-            ? _buildNotLoggedIn(isEn)
-            : _buildTabViews(user.uid, isEn),
       ),
     );
   }
 
   // -----------------------------------------------------------------------
-  // Tab views — one StreamBuilder per tab filter
+  // Tab views â€” one StreamBuilder per tab filter
   // -----------------------------------------------------------------------
 
   Widget _buildTabViews(String uid, bool isEn) {
@@ -141,16 +238,21 @@ class _OrdersScreenState extends State<OrdersScreen>
           return _buildError(snapshot.error.toString(), isEn);
         }
 
-        final allJobs = snapshot.data ?? [];
+        final allJobs = (snapshot.data ?? [])
+            .where((j) => j['hiddenForCustomer'] != true)
+            .toList();
 
         final ongoing = allJobs
-            .where((j) => _ongoingStatuses.contains(j['status'] as String? ?? ''))
+            .where(
+                (j) => _ongoingStatuses.contains(j['status'] as String? ?? ''))
             .toList();
         final recent = allJobs
-            .where((j) => _recentStatuses.contains(j['status'] as String? ?? ''))
+            .where(
+                (j) => _recentStatuses.contains(j['status'] as String? ?? ''))
             .toList();
         final cancelled = allJobs
-            .where((j) => _cancelledStatuses.contains(j['status'] as String? ?? ''))
+            .where((j) =>
+                _cancelledStatuses.contains(j['status'] as String? ?? ''))
             .toList();
 
         return TabBarView(
@@ -159,20 +261,26 @@ class _OrdersScreenState extends State<OrdersScreen>
             _buildJobList(
               jobs: ongoing,
               emptyIcon: Icons.pending_actions,
-              emptyLabel: isEn ? 'No ongoing orders' : 'لا توجد طلبات جارية',
+              emptyLabel: isEn
+                  ? 'No ongoing orders'
+                  : 'Ù„Ø§ ØªÙˆØ¬Ø¯ Ø·Ù„Ø¨Ø§Øª Ø¬Ø§Ø±ÙŠØ©',
               isEn: isEn,
               topWidget: _buildPendingReceiptBanner(uid, isEn),
             ),
             _buildJobList(
               jobs: recent,
               emptyIcon: Icons.check_circle_outline,
-              emptyLabel: isEn ? 'No recent orders' : 'لا توجد طلبات حديثة',
+              emptyLabel: isEn
+                  ? 'No recent orders'
+                  : 'Ù„Ø§ ØªÙˆØ¬Ø¯ Ø·Ù„Ø¨Ø§Øª Ø­Ø¯ÙŠØ«Ø©',
               isEn: isEn,
             ),
             _buildJobList(
               jobs: cancelled,
               emptyIcon: Icons.cancel_outlined,
-              emptyLabel: isEn ? 'No cancelled orders' : 'لا توجد طلبات ملغية',
+              emptyLabel: isEn
+                  ? 'No cancelled orders'
+                  : 'Ù„Ø§ ØªÙˆØ¬Ø¯ Ø·Ù„Ø¨Ø§Øª Ù…Ù„ØºÙŠØ©',
               isEn: isEn,
             ),
           ],
@@ -193,7 +301,7 @@ class _OrdersScreenState extends State<OrdersScreen>
     Widget? topWidget,
   }) {
     if (jobs.isEmpty && topWidget == null) {
-      return _buildEmptyState(icon: emptyIcon, label: emptyLabel);
+      return _buildEmptyState(icon: emptyIcon, label: emptyLabel, isEn: isEn);
     }
 
     return ListView.separated(
@@ -206,7 +314,8 @@ class _OrdersScreenState extends State<OrdersScreen>
         }
         final jobIndex = topWidget == null ? index : index - 1;
         if (jobIndex >= jobs.length) {
-          return _buildEmptyState(icon: emptyIcon, label: emptyLabel);
+          return _buildEmptyState(
+              icon: emptyIcon, label: emptyLabel, isEn: isEn);
         }
         return _buildJobCard(jobs[jobIndex], isEn);
       },
@@ -221,10 +330,8 @@ class _OrdersScreenState extends State<OrdersScreen>
     if (jobId.isEmpty) return null;
 
     final receiptData = receipt['receipt'] as Map<String, dynamic>?;
-    final grandTotal =
-        (receiptData?['grandTotal'] as num?)?.toDouble() ?? 0.0;
-    final techName =
-        receipt['assignedTechnicianName'] as String? ?? '';
+    final grandTotal = (receiptData?['grandTotal'] as num?)?.toDouble() ?? 0.0;
+    final techName = receipt['assignedTechnicianName'] as String? ?? '';
 
     return GestureDetector(
       onTap: () => _showReceiptApprovalSheet(
@@ -256,7 +363,7 @@ class _OrdersScreenState extends State<OrdersScreen>
                   Text(
                     isEn
                         ? 'Receipt Ready for Review'
-                        : 'الإيصال جاهز للمراجعة',
+                        : 'Ø§Ù„Ø¥ÙŠØµØ§Ù„ Ø¬Ø§Ù‡Ø² Ù„Ù„Ù…Ø±Ø§Ø¬Ø¹Ø©',
                     style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
@@ -266,10 +373,9 @@ class _OrdersScreenState extends State<OrdersScreen>
                   const SizedBox(height: 4),
                   Text(
                     isEn
-                        ? 'Total: ${grandTotal.toStringAsFixed(0)} EGP${techName.isNotEmpty ? ' · $techName' : ''}'
-                        : 'الإجمالي: ${grandTotal.toStringAsFixed(0)} جنيه${techName.isNotEmpty ? ' · $techName' : ''}',
-                    style: TextStyle(
-                        fontSize: 13, color: Colors.grey.shade600),
+                        ? 'Total: ${grandTotal.toStringAsFixed(0)} EGP${techName.isNotEmpty ? ' Â· $techName' : ''}'
+                        : 'Ø§Ù„Ø¥Ø¬Ù…Ø§Ù„ÙŠ: ${grandTotal.toStringAsFixed(0)} Ø¬Ù†ÙŠÙ‡${techName.isNotEmpty ? ' Â· $techName' : ''}',
+                    style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
                   ),
                 ],
               ),
@@ -292,6 +398,9 @@ class _OrdersScreenState extends State<OrdersScreen>
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      isDismissible: true,
+      enableDrag: true,
+      useSafeArea: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => _ReceiptApprovalSheet(
         uid: uid,
@@ -320,218 +429,318 @@ class _OrdersScreenState extends State<OrdersScreen>
     String dateStr = '';
     if (createdAt is Timestamp) {
       final dt = createdAt.toDate();
-      dateStr = '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+      dateStr =
+          '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
     }
 
     final statusInfo = _statusInfo(status, isEn);
     final isOngoing = _ongoingStatuses.contains(status);
 
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20), // Premium softer radius
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x0A000000), // even softer shadow
-            blurRadius: 15,
-            offset: Offset(0, 5),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          // ── Top strip: service key + status badge ─────────────────────
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                // Service icon + key
-                Expanded(
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: _syanatBlue.withOpacity(0.08),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Icon(
-                          Icons.home_repair_service,
-                          color: _syanatBlue,
-                          size: 22,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              _serviceLabel(serviceKey, isEn),
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
-                                color: Colors.black87,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              '#${jobId.length > 6 ? jobId.substring(0, 6).toUpperCase() : jobId.toUpperCase()}',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey.shade500,
-                                letterSpacing: 0.5,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+    final canDelete = status == 'cancelled' || status == 'completed';
 
-                // Status badge
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: (statusInfo['color'] as Color).withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: (statusInfo['color'] as Color).withOpacity(0.3)),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        statusInfo['icon'] as IconData,
-                        color: statusInfo['color'] as Color,
-                        size: 14,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        statusInfo['label'] as String,
-                        style: TextStyle(
-                          color: statusInfo['color'] as Color,
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
+    return Dismissible(
+        key: Key(jobId),
+        direction:
+            canDelete ? DismissDirection.endToStart : DismissDirection.none,
+        confirmDismiss: (direction) async {
+          if (!canDelete) return false;
+          final confirmed = await showDialog<bool>(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: Text(isEn ? 'Delete Order?' : 'Ø­Ø°Ù Ø§Ù„Ø·Ù„Ø¨ØŸ'),
+              content: Text(isEn
+                  ? 'Are you sure you want to delete this order from your history?'
+                  : 'Ù‡Ù„ Ø£Ù†Øª Ù…ØªØ£ÙƒØ¯ Ù…Ù† Ø­Ø°Ù Ù‡Ø°Ø§ Ø§Ù„Ø·Ù„Ø¨ Ù…Ù† Ø§Ù„Ø³Ø¬Ù„ØŸ'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: Text(isEn ? 'Cancel' : 'Ø¥Ù„ØºØ§Ø¡'),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: Text(isEn ? 'Delete' : 'Ø­Ø°Ù',
+                      style: const TextStyle(color: Colors.white)),
                 ),
               ],
             ),
+          );
+          if (confirmed != true) return false;
+          try {
+            await FirebaseService.hideJobForCustomer(jobId);
+            return true;
+          } catch (e) {
+            if (context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(isEn
+                      ? 'Failed to delete order. Please try again.'
+                      : 'ÙØ´Ù„ Ø­Ø°Ù Ø§Ù„Ø·Ù„Ø¨. ÙŠØ±Ø¬Ù‰ Ø§Ù„Ù…Ø­Ø§ÙˆÙ„Ø© Ù…Ø±Ø© Ø£Ø®Ø±Ù‰.'),
+                ),
+              );
+            }
+            return false;
+          }
+        },
+        onDismissed: (direction) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+                content:
+                    Text(isEn ? 'Order deleted' : 'ØªÙ… Ø­Ø°Ù Ø§Ù„Ø·Ù„Ø¨')),
+          );
+        },
+        background: Container(
+          alignment: AlignmentDirectional.centerEnd,
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          decoration: BoxDecoration(
+            color: Colors.red
+                .withOpacity(0.08), // Premium soft red background for the swipe
+            borderRadius: BorderRadius.circular(20),
           ),
-
-          const Divider(height: 1, thickness: 1, color: Color(0xFFF0F0F0)),
-
-          // ── Body ─────────────────────────────────────────────────────
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Description
-                if (description.isNotEmpty) ...[
-                  Text(
-                    description,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey.shade700,
-                      height: 1.4,
-                    ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 12),
-                ],
-
-                // Price + date row
-                Row(
+          child: const Icon(Icons.delete_outline, color: Colors.red, size: 28),
+        ),
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20), // Premium softer radius
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x0A000000), // even softer shadow
+                blurRadius: 15,
+                offset: Offset(0, 5),
+              ),
+            ],
+          ),
+          child: Column(
+            children: [
+              // â”€â”€ Top strip: service key + status badge â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+                child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    // Price
-                    Row(
-                      children: [
-                        Icon(Icons.payments_outlined, size: 18, color: Colors.green.shade600),
-                        const SizedBox(width: 6),
-                        Text(
-                          price > 0 ? '${price.toStringAsFixed(0)} EGP' : (isEn ? 'Price TBD' : 'السعر سيُحدَّد'),
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                            color: price > 0 ? Colors.green.shade700 : Colors.grey.shade600,
-                          ),
-                        ),
-                      ],
-                    ),
-
-                    // Date
-                    if (dateStr.isNotEmpty)
-                      Row(
+                    // Service icon + key
+                    Expanded(
+                      child: Row(
                         children: [
-                          Icon(Icons.calendar_today_outlined, size: 14, color: Colors.grey.shade400),
-                          const SizedBox(width: 6),
-                          Text(
-                            dateStr,
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: Colors.grey.shade500,
-                              fontWeight: FontWeight.w500,
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            child: const Icon(
+                              Icons.home_repair_service,
+                              color: _syanatBlue,
+                              size: 26,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  _serviceLabel(serviceKey, isEn),
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16,
+                                    color: Colors.black87,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  '#${jobId.length > 6 ? jobId.substring(0, 6).toUpperCase() : jobId.toUpperCase()}',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey.shade500,
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ],
                       ),
+                    ),
+
+                    // Status badge & Delete Action
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: status == 'cancelled'
+                                ? Colors.transparent
+                                : (statusInfo['color'] as Color)
+                                    .withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(20),
+                            border: status == 'cancelled'
+                                ? null
+                                : Border.all(
+                                    color: (statusInfo['color'] as Color)
+                                        .withOpacity(0.3)),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                statusInfo['icon'] as IconData,
+                                color: statusInfo['color'] as Color,
+                                size: 14,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                statusInfo['label'] as String,
+                                style: TextStyle(
+                                  color: statusInfo['color'] as Color,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (canDelete) ...[
+                          const SizedBox(width: 6),
+                          InkWell(
+                            onTap: () =>
+                                _confirmAndDeleteJob(context, jobId, isEn),
+                            borderRadius: BorderRadius.circular(16),
+                            child: const Padding(
+                              padding: EdgeInsets.symmetric(
+                                  horizontal: 6, vertical: 6),
+                              child: Icon(Icons.delete_outline,
+                                  color: Colors.red, size: 20),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
                   ],
                 ),
-                
-                // Timeline tracking for Ongoing
-                if (isOngoing) ...[
-                  const SizedBox(height: 16),
-                  _OrderTimeline(status: status, isEn: isEn),
-                ],
-              ],
-            ),
-          ),
-
-          // ── Bottom action buttons ────────────────────────────────────
-          // Customer can only cancel before technician accepts (requested/active).
-          // After acceptance, only admin can cancel.
-          if (isOngoing && (status == 'requested' || status == 'active'))
-            Container(
-              decoration: const BoxDecoration(
-                color: Color(0xFFFAFAFA),
-                borderRadius: BorderRadius.vertical(bottom: Radius.circular(20)),
-                border: Border(top: BorderSide(color: Color(0xFFF0F0F0))),
               ),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              child: Align(
-                alignment: AlignmentDirectional.centerEnd,
-                child: SizedBox(
-                  height: 38,
-                  child: TextButton.icon(
-                    onPressed: () => _showCancelDialog(context, jobId, isEn),
-                    icon: const Icon(Icons.close, size: 18),
-                    label: Text(
-                      isEn ? 'Cancel Order' : 'إلغاء الطلب',
-                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
-                    ),
-                    style: TextButton.styleFrom(
-                      foregroundColor: Colors.red.shade400,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+
+              const Divider(height: 1, thickness: 1, color: Color(0xFFF0F0F0)),
+
+              // â”€â”€ Body â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+              Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Description
+                    if (description.isNotEmpty) ...[
+                      Text(
+                        description,
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.grey.shade700,
+                          height: 1.4,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      const SizedBox(height: 12),
+                    ],
+
+                    // Price + date row
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        // Price
+                        Row(
+                          children: [
+                            Icon(Icons.payments_outlined,
+                                size: 18, color: Colors.green.shade600),
+                            const SizedBox(width: 6),
+                            Text(
+                              price > 0
+                                  ? '${price.toStringAsFixed(0)} EGP'
+                                  : (isEn
+                                      ? 'Price TBD'
+                                      : 'Ø§Ù„Ø³Ø¹Ø± Ø³ÙŠÙØ­Ø¯ÙŽÙ‘Ø¯'),
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                                color: price > 0
+                                    ? Colors.green.shade700
+                                    : Colors.grey.shade600,
+                              ),
+                            ),
+                          ],
+                        ),
+
+                        // Date
+                        if (dateStr.isNotEmpty)
+                          Row(
+                            children: [
+                              Icon(Icons.calendar_today_outlined,
+                                  size: 14, color: Colors.grey.shade400),
+                              const SizedBox(width: 6),
+                              Text(
+                                dateStr,
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.grey.shade500,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                      ],
+                    ),
+
+                    // Timeline tracking for Ongoing
+                    if (isOngoing) ...[
+                      const SizedBox(height: 16),
+                      _OrderTimeline(status: status, isEn: isEn),
+                    ],
+                  ],
+                ),
+              ),
+
+              // â”€â”€ Bottom action buttons â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+              // Customer can only cancel before technician accepts (requested/active).
+              // After acceptance, only admin can cancel.
+              if (isOngoing && (status == 'requested' || status == 'active'))
+                Container(
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFFAFAFA),
+                    borderRadius:
+                        BorderRadius.vertical(bottom: Radius.circular(20)),
+                    border: Border(top: BorderSide(color: Color(0xFFF0F0F0))),
+                  ),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  child: Align(
+                    alignment: AlignmentDirectional.centerEnd,
+                    child: SizedBox(
+                      height: 38,
+                      child: TextButton.icon(
+                        onPressed: () =>
+                            _showCancelDialog(context, jobId, isEn),
+                        icon: const Icon(Icons.close, size: 18),
+                        label: Text(
+                          isEn ? 'Cancel Order' : 'Ø¥Ù„ØºØ§Ø¡ Ø§Ù„Ø·Ù„Ø¨',
+                          style: const TextStyle(
+                              fontWeight: FontWeight.w600, fontSize: 13),
+                        ),
+                        style: TextButton.styleFrom(
+                          foregroundColor: Colors.red.shade400,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                        ),
+                      ),
                     ),
                   ),
                 ),
-              ),
-            ),
-        ],
-      ),
-    );
+            ],
+          ),
+        ));
   }
 
   // -----------------------------------------------------------------------
@@ -542,16 +751,16 @@ class _OrdersScreenState extends State<OrdersScreen>
     showDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: Text(isEn ? 'Cancel Order?' : 'إلغاء الطلب؟'),
+        title: Text(isEn ? 'Cancel Order?' : 'Ø¥Ù„ØºØ§Ø¡ Ø§Ù„Ø·Ù„Ø¨ØŸ'),
         content: Text(
           isEn
               ? 'Are you sure you want to cancel this order? This action cannot be undone.'
-              : 'هل أنت متأكد من إلغاء هذا الطلب؟ لا يمكن التراجع عن هذا الإجراء.',
+              : 'Ù‡Ù„ Ø£Ù†Øª Ù…ØªØ£ÙƒØ¯ Ù…Ù† Ø¥Ù„ØºØ§Ø¡ Ù‡Ø°Ø§ Ø§Ù„Ø·Ù„Ø¨ØŸ Ù„Ø§ ÙŠÙ…ÙƒÙ† Ø§Ù„ØªØ±Ø§Ø¬Ø¹ Ø¹Ù† Ù‡Ø°Ø§ Ø§Ù„Ø¥Ø¬Ø±Ø§Ø¡.',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext),
-            child: Text(isEn ? 'Keep It' : 'الاحتفاظ به'),
+            child: Text(isEn ? 'Keep It' : 'Ø§Ù„Ø§Ø­ØªÙØ§Ø¸ Ø¨Ù‡'),
           ),
           ElevatedButton(
             onPressed: () async {
@@ -562,7 +771,9 @@ class _OrdersScreenState extends State<OrdersScreen>
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text(
-                        isEn ? 'Order cancelled successfully' : 'تم إلغاء الطلب بنجاح',
+                        isEn
+                            ? 'Order cancelled successfully'
+                            : 'ØªÙ… Ø¥Ù„ØºØ§Ø¡ Ø§Ù„Ø·Ù„Ø¨ Ø¨Ù†Ø¬Ø§Ø­',
                       ),
                       backgroundColor: Colors.green,
                     ),
@@ -574,7 +785,9 @@ class _OrdersScreenState extends State<OrdersScreen>
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text(
-                        isEn ? 'Failed to cancel order. Please try again.' : 'فشل إلغاء الطلب. يرجى المحاولة مرة أخرى.',
+                        isEn
+                            ? 'Failed to cancel order. Please try again.'
+                            : 'ÙØ´Ù„ Ø¥Ù„ØºØ§Ø¡ Ø§Ù„Ø·Ù„Ø¨. ÙŠØ±Ø¬Ù‰ Ø§Ù„Ù…Ø­Ø§ÙˆÙ„Ø© Ù…Ø±Ø© Ø£Ø®Ø±Ù‰.',
                       ),
                       backgroundColor: Colors.red,
                     ),
@@ -586,11 +799,56 @@ class _OrdersScreenState extends State<OrdersScreen>
               backgroundColor: Colors.red.shade600,
               foregroundColor: Colors.white,
             ),
-            child: Text(isEn ? 'Cancel Order' : 'إلغاء الطلب'),
+            child: Text(isEn ? 'Cancel Order' : 'Ø¥Ù„ØºØ§Ø¡ Ø§Ù„Ø·Ù„Ø¨'),
           ),
         ],
       ),
     );
+  }
+
+  // Dialog for deleting a terminal (cancelled/completed) order from history.
+  Future<void> _confirmAndDeleteJob(
+      BuildContext context, String jobId, bool isEn) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(isEn ? 'Delete Order?' : 'Ø­Ø°Ù Ø§Ù„Ø·Ù„Ø¨ØŸ'),
+        content: Text(isEn
+            ? 'Are you sure you want to delete this order from your history?'
+            : 'Ù‡Ù„ Ø£Ù†Øª Ù…ØªØ£ÙƒØ¯ Ù…Ù† Ø­Ø°Ù Ù‡Ø°Ø§ Ø§Ù„Ø·Ù„Ø¨ Ù…Ù† Ø§Ù„Ø³Ø¬Ù„ØŸ'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(isEn ? 'Cancel' : 'Ø¥Ù„ØºØ§Ø¡'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(isEn ? 'Delete' : 'Ø­Ø°Ù',
+                style: const TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await FirebaseService.hideJobForCustomer(jobId);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content: Text(isEn ? 'Order deleted' : 'ØªÙ… Ø­Ø°Ù Ø§Ù„Ø·Ù„Ø¨')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(isEn
+              ? 'Failed to delete order. Please try again.'
+              : 'ÙØ´Ù„ Ø­Ø°Ù Ø§Ù„Ø·Ù„Ø¨. ÙŠØ±Ø¬Ù‰ Ø§Ù„Ù…Ø­Ø§ÙˆÙ„Ø© Ù…Ø±Ø© Ø£Ø®Ø±Ù‰.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   // -----------------------------------------------------------------------
@@ -601,81 +859,83 @@ class _OrdersScreenState extends State<OrdersScreen>
     switch (status) {
       case 'requested':
         return {
-          'label': isEn ? 'Requested' : 'مطلوب',
+          'label': isEn ? 'Requested' : 'Ù…Ø·Ù„ÙˆØ¨',
           'color': const Color(0xFFF59E0B),
           'icon': Icons.hourglass_top,
         };
       // New flow statuses
       case 'active':
         return {
-          'label': isEn ? 'Pending Acceptance' : 'بانتظار قبول الفني',
+          'label': isEn
+              ? 'Pending Acceptance'
+              : 'Ø¨Ø§Ù†ØªØ¸Ø§Ø± Ù‚Ø¨ÙˆÙ„ Ø§Ù„ÙÙ†ÙŠ',
           'color': const Color(0xFFF59E0B),
           'icon': Icons.hourglass_bottom,
         };
       case 'technician_accepted':
         return {
-          'label': isEn ? 'Assigned' : 'تم التعيين',
+          'label': isEn ? 'Assigned' : 'ØªÙ… Ø§Ù„ØªØ¹ÙŠÙŠÙ†',
           'color': const Color(0xFF3B82F6),
           'icon': Icons.person_pin_outlined,
         };
       case 'technician_arrived':
         return {
-          'label': isEn ? 'Tech Arrived' : 'الفني وصل',
+          'label': isEn ? 'Tech Arrived' : 'Ø§Ù„ÙÙ†ÙŠ ÙˆØµÙ„',
           'color': const Color(0xFF2563EB),
           'icon': Icons.directions_walk,
         };
       case 'work_finished':
         return {
-          'label': isEn ? 'Work Done' : 'اكتمل العمل',
+          'label': isEn ? 'Work Done' : 'Ø§ÙƒØªÙ…Ù„ Ø§Ù„Ø¹Ù…Ù„',
           'color': const Color(0xFF8B5CF6),
           'icon': Icons.construction,
         };
       case 'awaiting_customer_approval':
         return {
-          'label': isEn ? 'Awaiting Approval' : 'بانتظار موافقتك',
+          'label': isEn ? 'Awaiting Approval' : 'Ø¨Ø§Ù†ØªØ¸Ø§Ø± Ù…ÙˆØ§ÙÙ‚ØªÙƒ',
           'color': const Color(0xFFF59E0B),
           'icon': Icons.receipt_long_outlined,
         };
       case 'receipt_disputed':
         return {
-          'label': isEn ? 'Disputed' : 'متنازع عليه',
+          'label': isEn ? 'Disputed' : 'Ù…ØªÙ†Ø§Ø²Ø¹ Ø¹Ù„ÙŠÙ‡',
           'color': const Color(0xFFEF4444),
           'icon': Icons.gavel,
         };
       // Legacy statuses
       case 'accepted':
         return {
-          'label': isEn ? 'Accepted' : 'مقبول',
+          'label': isEn ? 'Accepted' : 'Ù…Ù‚Ø¨ÙˆÙ„',
           'color': const Color(0xFF3B82F6),
           'icon': Icons.thumb_up_alt_outlined,
         };
       case 'en_route':
         return {
-          'label': isEn ? 'En Route' : 'في الطريق',
+          'label': isEn ? 'En Route' : 'ÙÙŠ Ø§Ù„Ø·Ø±ÙŠÙ‚',
           'color': const Color(0xFF2563EB),
           'icon': Icons.directions_car,
         };
       case 'payment_pending':
         return {
-          'label': isEn ? 'Payment Pending' : 'بانتظار الدفع',
+          'label': isEn ? 'Payment Pending' : 'Ø¨Ø§Ù†ØªØ¸Ø§Ø± Ø§Ù„Ø¯ÙØ¹',
           'color': const Color(0xFFF59E0B),
           'icon': Icons.payments_outlined,
         };
       case 'in_progress':
         return {
-          'label': isEn ? 'In Progress' : 'قيد التنفيذ',
+          'label': isEn ? 'In Progress' : 'Ù‚ÙŠØ¯ Ø§Ù„ØªÙ†ÙÙŠØ°',
           'color': const Color(0xFF8B5CF6),
           'icon': Icons.construction,
         };
       case 'completed':
         return {
-          'label': isEn ? 'Completed' : 'مكتمل',
+          'label': isEn ? 'Completed' : 'Ù…ÙƒØªÙ…Ù„',
           'color': const Color(0xFF10B981),
           'icon': Icons.check_circle,
         };
       case 'cancelled':
         return {
-          'label': isEn ? 'Cancelled' : 'ملغي',
+          'label': isEn ? 'Cancelled' : 'Ù…Ù„ØºÙŠ',
           'color': const Color(0xFFEF4444),
           'icon': Icons.cancel,
         };
@@ -702,16 +962,16 @@ class _OrdersScreenState extends State<OrdersScreen>
   };
 
   static const _serviceLabelsAr = {
-    'ac': 'تكييف',
-    'plumbing': 'سباكة',
-    'electricity': 'كهرباء',
-    'security_intercom': 'أنظمة أمن وإنتركم',
-    'large_appliances': 'أجهزة منزلية كبيرة',
-    'small_appliances': 'أجهزة منزلية صغيرة',
-    'carpentry': 'نجارة',
-    'pest_control': 'مكافحة حشرات',
-    'aluminum': 'ألوميتال',
-    'finishing': 'تشطيبات',
+    'ac': 'ØªÙƒÙŠÙŠÙ',
+    'plumbing': 'Ø³Ø¨Ø§ÙƒØ©',
+    'electricity': 'ÙƒÙ‡Ø±Ø¨Ø§Ø¡',
+    'security_intercom': 'Ø£Ù†Ø¸Ù…Ø© Ø£Ù…Ù† ÙˆØ¥Ù†ØªØ±ÙƒÙ…',
+    'large_appliances': 'Ø£Ø¬Ù‡Ø²Ø© Ù…Ù†Ø²Ù„ÙŠØ© ÙƒØ¨ÙŠØ±Ø©',
+    'small_appliances': 'Ø£Ø¬Ù‡Ø²Ø© Ù…Ù†Ø²Ù„ÙŠØ© ØµØºÙŠØ±Ø©',
+    'carpentry': 'Ù†Ø¬Ø§Ø±Ø©',
+    'pest_control': 'Ù…ÙƒØ§ÙØ­Ø© Ø­Ø´Ø±Ø§Øª',
+    'aluminum': 'Ø£Ù„ÙˆÙ…ÙŠØªØ§Ù„',
+    'finishing': 'ØªØ´Ø·ÙŠØ¨Ø§Øª',
   };
 
   /// Returns the localized service label for a given key.
@@ -727,29 +987,64 @@ class _OrdersScreenState extends State<OrdersScreen>
             .join(' ');
   }
 
-  Widget _buildEmptyState({required IconData icon, required String label}) {
+  Widget _buildEmptyState(
+      {required IconData icon, required String label, required bool isEn}) {
     return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: _syanatBlue.withOpacity(0.05),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(icon, size: 64, color: _syanatBlue.withOpacity(0.5)),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 40),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(vertical: 60, horizontal: 20),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x0A000000),
+                blurRadius: 20,
+                offset: Offset(0, 8),
+              ),
+            ],
           ),
-          const SizedBox(height: 24),
-          Text(
-            label,
-            style: const TextStyle(
-              color: Colors.black54,
-              fontSize: 18,
-              fontWeight: FontWeight.w600,
-            ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(28),
+                decoration: BoxDecoration(
+                  color: _syanatBlue.withOpacity(0.06),
+                  shape: BoxShape.circle,
+                ),
+                child:
+                    Icon(icon, size: 72, color: _syanatBlue.withOpacity(0.7)),
+              ),
+              const SizedBox(height: 32),
+              Text(
+                label,
+                style: const TextStyle(
+                  color: Colors.black87,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.5,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                isEn
+                    ? "When you place an order, it will appear here."
+                    : "Ø¹Ù†Ø¯Ù…Ø§ ØªÙ‚ÙˆÙ… Ø¨ØªÙ‚Ø¯ÙŠÙ… Ø·Ù„Ø¨ØŒ Ø³ÙŠØ¸Ù‡Ø± Ù‡Ù†Ø§.",
+                style: TextStyle(
+                  color: Colors.grey.shade600,
+                  fontSize: 15,
+                  height: 1.4,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -762,7 +1057,9 @@ class _OrdersScreenState extends State<OrdersScreen>
           Icon(Icons.lock_outline, size: 64, color: Colors.grey.shade300),
           const SizedBox(height: 16),
           Text(
-            isEn ? 'Please log in to view your orders' : 'يرجى تسجيل الدخول لمشاهدة طلباتك',
+            isEn
+                ? 'Please log in to view your orders'
+                : 'ÙŠØ±Ø¬Ù‰ ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø¯Ø®ÙˆÙ„ Ù„Ù…Ø´Ø§Ù‡Ø¯Ø© Ø·Ù„Ø¨Ø§ØªÙƒ',
             textAlign: TextAlign.center,
             style: TextStyle(color: Colors.grey.shade500, fontSize: 16),
           ),
@@ -781,7 +1078,9 @@ class _OrdersScreenState extends State<OrdersScreen>
             Icon(Icons.error_outline, size: 64, color: Colors.red.shade300),
             const SizedBox(height: 12),
             Text(
-              isEn ? 'Failed to load orders' : 'فشل تحميل الطلبات',
+              isEn
+                  ? 'Failed to load orders'
+                  : 'ÙØ´Ù„ ØªØ­Ù…ÙŠÙ„ Ø§Ù„Ø·Ù„Ø¨Ø§Øª',
               style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
@@ -814,11 +1113,11 @@ class _OrderTimeline extends StatelessWidget {
       'awaiting_customer_approval': 'Approval',
     };
     final Map<String, String> stepsLabelAr = {
-      'requested': 'مطلوب',
-      'technician_accepted': 'تم التعيين',
-      'technician_arrived': 'وصل',
-      'work_finished': 'اكتمل',
-      'awaiting_customer_approval': 'موافقة',
+      'requested': 'Ù…Ø·Ù„ÙˆØ¨',
+      'technician_accepted': 'ØªÙ… Ø§Ù„ØªØ¹ÙŠÙŠÙ†',
+      'technician_arrived': 'ÙˆØµÙ„',
+      'work_finished': 'Ø§ÙƒØªÙ…Ù„',
+      'awaiting_customer_approval': 'Ù…ÙˆØ§ÙÙ‚Ø©',
     };
 
     final List<String> stepKeys = [
@@ -870,9 +1169,13 @@ class _OrderTimeline extends StatelessWidget {
                   height: 24,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: isCompleted ? const Color(0xFF3C21C8) : Colors.grey.shade200,
+                    color: isCompleted
+                        ? const Color(0xFF3C21C8)
+                        : Colors.grey.shade200,
                     border: isActive
-                        ? Border.all(color: const Color(0xFF3C21C8).withOpacity(0.3), width: 4)
+                        ? Border.all(
+                            color: const Color(0xFF3C21C8).withOpacity(0.3),
+                            width: 4)
                         : null,
                   ),
                   child: Center(
@@ -888,7 +1191,9 @@ class _OrderTimeline extends StatelessWidget {
                 return Expanded(
                   child: Container(
                     height: 2,
-                    color: isCompleted ? const Color(0xFF3C21C8) : Colors.grey.shade200,
+                    color: isCompleted
+                        ? const Color(0xFF3C21C8)
+                        : Colors.grey.shade200,
                   ),
                 );
               }
@@ -907,7 +1212,9 @@ class _OrderTimeline extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 10,
                       fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
-                      color: isCompleted ? const Color(0xFF3C21C8) : Colors.grey.shade400,
+                      color: isCompleted
+                          ? const Color(0xFF3C21C8)
+                          : Colors.grey.shade400,
                     ),
                     textAlign: TextAlign.center,
                   ),
@@ -921,9 +1228,9 @@ class _OrderTimeline extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Receipt approval bottom sheet (customer-side)
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class _ReceiptApprovalSheet extends StatefulWidget {
   final String uid;
@@ -962,8 +1269,7 @@ class _ReceiptApprovalSheetState extends State<_ReceiptApprovalSheet> {
         (receiptData?['servicesSubtotal'] as num?)?.toDouble() ?? 0.0;
     final partsSubtotal =
         (receiptData?['partsSubtotal'] as num?)?.toDouble() ?? 0.0;
-    final grandTotal =
-        (receiptData?['grandTotal'] as num?)?.toDouble() ?? 0.0;
+    final grandTotal = (receiptData?['grandTotal'] as num?)?.toDouble() ?? 0.0;
     final notes = receiptData?['notes'] as String? ?? '';
 
     return Directionality(
@@ -978,9 +1284,15 @@ class _ReceiptApprovalSheetState extends State<_ReceiptApprovalSheet> {
           minChildSize: 0.5,
           maxChildSize: 0.95,
           expand: false,
+          shouldCloseOnMinExtent: true,
           builder: (ctx, scrollCtrl) => ListView(
             controller: scrollCtrl,
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+            padding: EdgeInsets.fromLTRB(
+              20,
+              12,
+              20,
+              MediaQuery.of(ctx).viewInsets.bottom + 32,
+            ),
             children: [
               // Handle
               Center(
@@ -997,19 +1309,25 @@ class _ReceiptApprovalSheetState extends State<_ReceiptApprovalSheet> {
               // Title
               Row(
                 children: [
-                  const Icon(Icons.receipt_long,
-                      color: _syanatBlue, size: 24),
+                  const Icon(Icons.receipt_long, color: _syanatBlue, size: 24),
                   const SizedBox(width: 10),
-                  Text(
-                    isEn ? 'Service Receipt' : 'إيصال الخدمة',
-                    style: const TextStyle(
-                        fontSize: 20, fontWeight: FontWeight.bold),
+                  Expanded(
+                    child: Text(
+                      isEn ? 'Service Receipt' : 'Ø¥ÙŠØµØ§Ù„ Ø§Ù„Ø®Ø¯Ù…Ø©',
+                      style: const TextStyle(
+                          fontSize: 20, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: isEn ? 'Close' : 'إغلاق',
+                    icon: const Icon(Icons.close, color: Colors.black54),
+                    onPressed: () => Navigator.of(ctx).maybePop(),
                   ),
                 ],
               ),
               const SizedBox(height: 20),
 
-              // ── Disclaimer (customer-only) ─────────────────────────
+              // â”€â”€ Disclaimer (customer-only) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
               Container(
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
@@ -1026,7 +1344,7 @@ class _ReceiptApprovalSheetState extends State<_ReceiptApprovalSheet> {
                             color: Color(0xFFCC8400), size: 18),
                         const SizedBox(width: 8),
                         Text(
-                          isEn ? 'Important Notice' : 'تنبيه مهم',
+                          isEn ? 'Important Notice' : 'ØªÙ†Ø¨ÙŠÙ‡ Ù…Ù‡Ù…',
                           style: const TextStyle(
                             fontWeight: FontWeight.bold,
                             fontSize: 14,
@@ -1038,8 +1356,8 @@ class _ReceiptApprovalSheetState extends State<_ReceiptApprovalSheet> {
                     const SizedBox(height: 8),
                     Text(
                       isEn
-                          ? 'Please make sure the prices listed here match exactly what you paid. Any manipulation in prices must not be tolerated. The technician must enter the exact prices paid by you — these are our official reference for any complaint, dispute, or use of the 14-day free checkup guarantee.'
-                          : 'تأكد من أن الأسعار المدرجة هنا تطابق تمامًا ما دفعته. أي تلاعب في الأسعار يجب عدم التسامح معه. يجب على الفني إدخال الأسعار الفعلية التي دفعتها — هذه هي مرجعنا الرسمي في حالة أي شكوى أو خلاف أو استخدام ضمان الفحص المجاني لمدة 14 يومًا.',
+                          ? 'Please make sure the prices listed here match exactly what you paid. Any manipulation in prices must not be tolerated. The technician must enter the exact prices paid by you â€” these are our official reference for any complaint, dispute, or use of the 14-day free checkup guarantee.'
+                          : 'ØªØ£ÙƒØ¯ Ù…Ù† Ø£Ù† Ø§Ù„Ø£Ø³Ø¹Ø§Ø± Ø§Ù„Ù…Ø¯Ø±Ø¬Ø© Ù‡Ù†Ø§ ØªØ·Ø§Ø¨Ù‚ ØªÙ…Ø§Ù…Ù‹Ø§ Ù…Ø§ Ø¯ÙØ¹ØªÙ‡. Ø£ÙŠ ØªÙ„Ø§Ø¹Ø¨ ÙÙŠ Ø§Ù„Ø£Ø³Ø¹Ø§Ø± ÙŠØ¬Ø¨ Ø¹Ø¯Ù… Ø§Ù„ØªØ³Ø§Ù…Ø­ Ù…Ø¹Ù‡. ÙŠØ¬Ø¨ Ø¹Ù„Ù‰ Ø§Ù„ÙÙ†ÙŠ Ø¥Ø¯Ø®Ø§Ù„ Ø§Ù„Ø£Ø³Ø¹Ø§Ø± Ø§Ù„ÙØ¹Ù„ÙŠØ© Ø§Ù„ØªÙŠ Ø¯ÙØ¹ØªÙ‡Ø§ â€” Ù‡Ø°Ù‡ Ù‡ÙŠ Ù…Ø±Ø¬Ø¹Ù†Ø§ Ø§Ù„Ø±Ø³Ù…ÙŠ ÙÙŠ Ø­Ø§Ù„Ø© Ø£ÙŠ Ø´ÙƒÙˆÙ‰ Ø£Ùˆ Ø®Ù„Ø§Ù Ø£Ùˆ Ø§Ø³ØªØ®Ø¯Ø§Ù… Ø¶Ù…Ø§Ù† Ø§Ù„ÙØ­Øµ Ø§Ù„Ù…Ø¬Ø§Ù†ÙŠ Ù„Ù…Ø¯Ø© 14 ÙŠÙˆÙ…Ù‹Ø§.',
                       style: const TextStyle(
                         fontSize: 13,
                         color: Color(0xFF7A4F00),
@@ -1051,10 +1369,13 @@ class _ReceiptApprovalSheetState extends State<_ReceiptApprovalSheet> {
               ),
               const SizedBox(height: 20),
 
-              // ── Services ──────────────────────────────────────────
+              // â”€â”€ Services â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
               if (services.isNotEmpty) ...[
                 _sectionTitle(
-                    isEn ? 'Services Performed' : 'الخدمات المنجزة', isEn),
+                    isEn
+                        ? 'Services Performed'
+                        : 'Ø§Ù„Ø®Ø¯Ù…Ø§Øª Ø§Ù„Ù…Ù†Ø¬Ø²Ø©',
+                    isEn),
                 const SizedBox(height: 10),
                 ...services.map((s) => _receiptRow(
                       s['title'] as String? ?? '',
@@ -1062,15 +1383,16 @@ class _ReceiptApprovalSheetState extends State<_ReceiptApprovalSheet> {
                     )),
                 const SizedBox(height: 6),
                 _subtotalRow(
-                    isEn ? 'Services Subtotal' : 'إجمالي الخدمات',
+                    isEn ? 'Services Subtotal' : 'Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ø®Ø¯Ù…Ø§Øª',
                     servicesSubtotal),
               ],
 
-              // ── Parts ─────────────────────────────────────────────
+              // â”€â”€ Parts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
               if (parts.isNotEmpty) ...[
                 const SizedBox(height: 20),
                 _sectionTitle(
-                    isEn ? 'Parts Used' : 'القطع المستخدمة', isEn),
+                    isEn ? 'Parts Used' : 'Ø§Ù„Ù‚Ø·Ø¹ Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù…Ø©',
+                    isEn),
                 const SizedBox(height: 10),
                 ...parts.map((p) => _receiptRow(
                       p['name'] as String? ?? '',
@@ -1078,7 +1400,7 @@ class _ReceiptApprovalSheetState extends State<_ReceiptApprovalSheet> {
                     )),
                 const SizedBox(height: 6),
                 _subtotalRow(
-                    isEn ? 'Parts Subtotal' : 'إجمالي القطع',
+                    isEn ? 'Parts Subtotal' : 'Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ù‚Ø·Ø¹',
                     partsSubtotal),
               ],
 
@@ -1087,12 +1409,12 @@ class _ReceiptApprovalSheetState extends State<_ReceiptApprovalSheet> {
                 child: Divider(thickness: 1.5),
               ),
 
-              // ── Grand Total ───────────────────────────────────────
+              // â”€â”€ Grand Total â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    isEn ? 'Grand Total' : 'الإجمالي الكلي',
+                    isEn ? 'Grand Total' : 'Ø§Ù„Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„ÙƒÙ„ÙŠ',
                     style: const TextStyle(
                         fontSize: 18, fontWeight: FontWeight.bold),
                   ),
@@ -1107,7 +1429,7 @@ class _ReceiptApprovalSheetState extends State<_ReceiptApprovalSheet> {
                 ],
               ),
 
-              // ── Notes ─────────────────────────────────────────────
+              // â”€â”€ Notes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
               if (notes.isNotEmpty) ...[
                 const SizedBox(height: 16),
                 Container(
@@ -1121,7 +1443,7 @@ class _ReceiptApprovalSheetState extends State<_ReceiptApprovalSheet> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        isEn ? 'Technician Note' : 'ملاحظة الفني',
+                        isEn ? 'Technician Note' : 'Ù…Ù„Ø§Ø­Ø¸Ø© Ø§Ù„ÙÙ†ÙŠ',
                         style: TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.w600,
@@ -1129,8 +1451,7 @@ class _ReceiptApprovalSheetState extends State<_ReceiptApprovalSheet> {
                       ),
                       const SizedBox(height: 4),
                       Text(notes,
-                          style: const TextStyle(
-                              fontSize: 14, height: 1.4)),
+                          style: const TextStyle(fontSize: 14, height: 1.4)),
                     ],
                   ),
                 ),
@@ -1138,7 +1459,7 @@ class _ReceiptApprovalSheetState extends State<_ReceiptApprovalSheet> {
 
               const SizedBox(height: 28),
 
-              // ── Action buttons ────────────────────────────────────
+              // â”€â”€ Action buttons â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
               SizedBox(
                 width: double.infinity,
                 height: 52,
@@ -1154,7 +1475,7 @@ class _ReceiptApprovalSheetState extends State<_ReceiptApprovalSheet> {
                             ScaffoldMessenger.of(context).showSnackBar(SnackBar(
                               content: Text(widget.isEn
                                   ? 'Order completed successfully.'
-                                  : 'تم إتمام الطلب بنجاح.'),
+                                  : 'ØªÙ… Ø¥ØªÙ…Ø§Ù… Ø§Ù„Ø·Ù„Ø¨ Ø¨Ù†Ø¬Ø§Ø­.'),
                               backgroundColor: Colors.green,
                             ));
                           } catch (e) {
@@ -1163,7 +1484,7 @@ class _ReceiptApprovalSheetState extends State<_ReceiptApprovalSheet> {
                             ScaffoldMessenger.of(context).showSnackBar(SnackBar(
                               content: Text(widget.isEn
                                   ? 'Something went wrong. Please try again.'
-                                  : 'حدث خطأ. يرجى المحاولة مرة أخرى.'),
+                                  : 'Ø­Ø¯Ø« Ø®Ø·Ø£. ÙŠØ±Ø¬Ù‰ Ø§Ù„Ù…Ø­Ø§ÙˆÙ„Ø© Ù…Ø±Ø© Ø£Ø®Ø±Ù‰.'),
                               backgroundColor: Colors.red,
                             ));
                           } finally {
@@ -1178,7 +1499,9 @@ class _ReceiptApprovalSheetState extends State<_ReceiptApprovalSheet> {
                               strokeWidth: 2, color: Colors.white))
                       : const Icon(Icons.check_circle_outline),
                   label: Text(
-                    isEn ? 'Approve Receipt' : 'الموافقة على الإيصال',
+                    isEn
+                        ? 'Approve Receipt'
+                        : 'Ø§Ù„Ù…ÙˆØ§ÙÙ‚Ø© Ø¹Ù„Ù‰ Ø§Ù„Ø¥ÙŠØµØ§Ù„',
                     style: const TextStyle(
                         fontSize: 16, fontWeight: FontWeight.bold),
                   ),
@@ -1203,25 +1526,22 @@ class _ReceiptApprovalSheetState extends State<_ReceiptApprovalSheet> {
                             builder: (ctx) => AlertDialog(
                               title: Text(isEn
                                   ? 'Reject Receipt?'
-                                  : 'رفض الإيصال؟'),
+                                  : 'Ø±ÙØ¶ Ø§Ù„Ø¥ÙŠØµØ§Ù„ØŸ'),
                               content: Text(isEn
                                   ? 'This will flag the order for admin review. The admin will mediate between you and the technician.'
-                                  : 'سيتم تحويل الطلب للإدارة للمراجعة. ستتوسط الإدارة بينك وبين الفني.'),
+                                  : 'Ø³ÙŠØªÙ… ØªØ­ÙˆÙŠÙ„ Ø§Ù„Ø·Ù„Ø¨ Ù„Ù„Ø¥Ø¯Ø§Ø±Ø© Ù„Ù„Ù…Ø±Ø§Ø¬Ø¹Ø©. Ø³ØªØªÙˆØ³Ø· Ø§Ù„Ø¥Ø¯Ø§Ø±Ø© Ø¨ÙŠÙ†Ùƒ ÙˆØ¨ÙŠÙ† Ø§Ù„ÙÙ†ÙŠ.'),
                               actions: [
                                 TextButton(
-                                  onPressed: () =>
-                                      Navigator.pop(ctx, false),
-                                  child: Text(isEn ? 'Cancel' : 'إلغاء'),
+                                  onPressed: () => Navigator.pop(ctx, false),
+                                  child: Text(isEn ? 'Cancel' : 'Ø¥Ù„ØºØ§Ø¡'),
                                 ),
                                 ElevatedButton(
-                                  onPressed: () =>
-                                      Navigator.pop(ctx, true),
+                                  onPressed: () => Navigator.pop(ctx, true),
                                   style: ElevatedButton.styleFrom(
                                     backgroundColor: Colors.red.shade600,
                                     foregroundColor: Colors.white,
                                   ),
-                                  child: Text(
-                                      isEn ? 'Reject' : 'رفض'),
+                                  child: Text(isEn ? 'Reject' : 'Ø±ÙØ¶'),
                                 ),
                               ],
                             ),
@@ -1233,20 +1553,19 @@ class _ReceiptApprovalSheetState extends State<_ReceiptApprovalSheet> {
                                 widget.jobId, widget.uid);
                             if (!mounted) return;
                             Navigator.pop(context);
-                            ScaffoldMessenger.of(context)
-                                .showSnackBar(SnackBar(
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
                               content: Text(isEn
                                   ? 'Receipt rejected. Admin will review.'
-                                  : 'تم رفض الإيصال. ستقوم الإدارة بالمراجعة.'),
+                                  : 'ØªÙ… Ø±ÙØ¶ Ø§Ù„Ø¥ÙŠØµØ§Ù„. Ø³ØªÙ‚ÙˆÙ… Ø§Ù„Ø¥Ø¯Ø§Ø±Ø© Ø¨Ø§Ù„Ù…Ø±Ø§Ø¬Ø¹Ø©.'),
                               backgroundColor: Colors.orange,
                             ));
                           } catch (e) {
                             debugPrint('Reject receipt error: $e');
                             if (!mounted) return;
-                            ScaffoldMessenger.of(context)
-                                .showSnackBar(SnackBar(
-                              content: Text(
-                                  isEn ? 'Something went wrong. Please try again.' : 'حدث خطأ. يرجى المحاولة مرة أخرى.'),
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                              content: Text(isEn
+                                  ? 'Something went wrong. Please try again.'
+                                  : 'Ø­Ø¯Ø« Ø®Ø·Ø£. ÙŠØ±Ø¬Ù‰ Ø§Ù„Ù…Ø­Ø§ÙˆÙ„Ø© Ù…Ø±Ø© Ø£Ø®Ø±Ù‰.'),
                               backgroundColor: Colors.red,
                             ));
                           } finally {
@@ -1257,7 +1576,7 @@ class _ReceiptApprovalSheetState extends State<_ReceiptApprovalSheet> {
                         },
                   icon: const Icon(Icons.cancel_outlined),
                   label: Text(
-                    isEn ? 'Reject Receipt' : 'رفض الإيصال',
+                    isEn ? 'Reject Receipt' : 'Ø±ÙØ¶ Ø§Ù„Ø¥ÙŠØµØ§Ù„',
                     style: const TextStyle(
                         fontSize: 15, fontWeight: FontWeight.w600),
                   ),
@@ -1294,14 +1613,13 @@ class _ReceiptApprovalSheetState extends State<_ReceiptApprovalSheet> {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Expanded(
-            child: Text(label,
-                style: const TextStyle(fontSize: 14, height: 1.3)),
+            child:
+                Text(label, style: const TextStyle(fontSize: 14, height: 1.3)),
           ),
           const SizedBox(width: 16),
           Text(
             '${price.toStringAsFixed(0)} EGP',
-            style: const TextStyle(
-                fontSize: 14, fontWeight: FontWeight.w600),
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
           ),
         ],
       ),

@@ -1,5 +1,6 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'firebase_service.dart';
+import 'widgets/egyptian_phone_field.dart';
 
 const Color _syanatBlue = Color(0xFF3C21C8);
 
@@ -37,7 +38,11 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
   }
 
   Future<void> _loadProfile() async {
-    final user = FirebaseService.getCurrentUser();
+    final user = await FirebaseService.auth
+        .authStateChanges()
+        .first
+        .timeout(const Duration(seconds: 5), onTimeout: () => null);
+    if (!mounted) return;
     if (user == null) {
       setState(() {
         _error = 'not_logged_in';
@@ -54,7 +59,8 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
         _firstNameCtrl.text = parts.isNotEmpty ? parts.first : '';
         _lastNameCtrl.text = parts.length > 1 ? parts.sublist(1).join(' ') : '';
         _emailCtrl.text = (data['email'] as String?) ?? (user.email ?? '');
-        _phoneCtrl.text = (data['phone'] as String?) ?? '';
+        _phoneCtrl.text =
+            normalizeEgyptianLocal((data['phone'] as String?) ?? '');
         _sex = (data['gender'] as String?) ?? '';
       }
       setState(() {
@@ -72,38 +78,35 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
     final user = FirebaseService.getCurrentUser();
     if (user == null) return;
 
-    final phone = _phoneCtrl.text.trim();
+    final phoneLocal = _phoneCtrl.text.trim();
     final firstName = _firstNameCtrl.text.trim();
     final lastName = _lastNameCtrl.text.trim();
     final fullName = '$firstName $lastName'.trim();
+    final isEn = Localizations.localeOf(context).languageCode == 'en';
 
-    if (phone.isNotEmpty) {
-      final regex = RegExp(r'^\+201[0125]\d{8}$');
-      if (!regex.hasMatch(phone)) {
-        final isEn = Localizations.localeOf(context).languageCode == 'en';
+    String phoneE164 = '';
+    if (phoneLocal.isNotEmpty) {
+      final String? phoneErr = validateEgyptianLocal(phoneLocal, isEn: isEn);
+      if (phoneErr != null) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(isEn
-                ? 'Invalid phone number. Use format: +201XXXXXXXXX'
-                : 'رقم الهاتف غير صحيح. استخدم الصيغة: +201XXXXXXXXX'),
-          ),
+          SnackBar(content: Text(phoneErr)),
         );
         return;
       }
+      phoneE164 = egyptianToE164(phoneLocal);
     }
 
     setState(() => _saving = true);
     try {
       await FirebaseService.updateProfile(user.uid, {
         'username': fullName,
-        'phone': phone,
+        'phone': phoneE164,
         'gender': _sex,
       });
       if (!mounted) return;
-      final isEn = Localizations.localeOf(context).languageCode == 'en';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(isEn ? 'Saved successfully' : 'تم الحفظ بنجاح'),
+          content: Text(isEn ? 'Saved successfully' : 'ØªÙ… Ø§Ù„Ø­ÙØ¸ Ø¨Ù†Ø¬Ø§Ø­'),
           backgroundColor: Colors.green,
         ),
       );
@@ -111,7 +114,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
       debugPrint('Settings save error: $e');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(isEn ? 'Something went wrong. Please try again.' : 'حدث خطأ. يرجى المحاولة مرة أخرى.')),
+        SnackBar(content: Text(isEn ? 'Something went wrong. Please try again.' : 'Ø­Ø¯Ø« Ø®Ø·Ø£. ÙŠØ±Ø¬Ù‰ Ø§Ù„Ù…Ø­Ø§ÙˆÙ„Ø© Ù…Ø±Ø© Ø£Ø®Ø±Ù‰.')),
       );
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -128,10 +131,19 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
       child: Scaffold(
         backgroundColor: const Color(0xFFF5F5F5),
         appBar: AppBar(
-          backgroundColor: _syanatBlue,
-          elevation: 0,
+          backgroundColor: Colors.transparent,
+            elevation: 0,
+            flexibleSpace: Container(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [Color(0xFF7C4DFF), Color(0xFF6C3CE1), Color(0xFF5228B5)],
+                ),
+              ),
+            ),
           title: Text(
-            t('Account Settings', 'إعدادات الحساب'),
+            t('Account Settings', 'Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª Ø§Ù„Ø­Ø³Ø§Ø¨'),
             style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
           ),
           iconTheme: const IconThemeData(color: Colors.white),
@@ -148,7 +160,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
     if (_error == 'not_logged_in') {
       return Center(
         child: Text(
-          t('Please log in first', 'يرجى تسجيل الدخول أولاً'),
+          t('Please log in first', 'ÙŠØ±Ø¬Ù‰ ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø¯Ø®ÙˆÙ„ Ø£ÙˆÙ„Ø§Ù‹'),
           style: TextStyle(color: Colors.grey.shade500, fontSize: 16),
         ),
       );
@@ -161,7 +173,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
             Icon(Icons.error_outline, size: 56, color: Colors.red.shade300),
             const SizedBox(height: 12),
             Text(
-              t('Failed to load profile', 'فشل في تحميل البيانات'),
+              t('Failed to load profile', 'ÙØ´Ù„ ÙÙŠ ØªØ­Ù…ÙŠÙ„ Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª'),
               style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
           ],
@@ -176,28 +188,28 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
         children: [
           _fieldCard(
             icon: Icons.person_outline,
-            label: t('First Name', 'الاسم الأول'),
+            label: t('First Name', 'Ø§Ù„Ø§Ø³Ù… Ø§Ù„Ø£ÙˆÙ„'),
             controller: _firstNameCtrl,
             readOnly: true,
           ),
           const SizedBox(height: 12),
           _fieldCard(
             icon: Icons.person_outline,
-            label: t('Last Name', 'اسم العائلة'),
+            label: t('Last Name', 'Ø§Ø³Ù… Ø§Ù„Ø¹Ø§Ø¦Ù„Ø©'),
             controller: _lastNameCtrl,
             readOnly: true,
           ),
           const SizedBox(height: 12),
           _fieldCard(
             icon: Icons.email_outlined,
-            label: t('Email', 'البريد الإلكتروني'),
+            label: t('Email', 'Ø§Ù„Ø¨Ø±ÙŠØ¯ Ø§Ù„Ø¥Ù„ÙƒØªØ±ÙˆÙ†ÙŠ'),
             controller: _emailCtrl,
             readOnly: true,
           ),
           const SizedBox(height: 12),
           _fieldCard(
             icon: Icons.phone_outlined,
-            label: t('Phone Number', 'رقم الهاتف'),
+            label: t('Phone Number', 'Ø±Ù‚Ù… Ø§Ù„Ù‡Ø§ØªÙ'),
             controller: _phoneCtrl,
             readOnly: false,
             keyboardType: TextInputType.phone,
@@ -225,7 +237,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
                     ),
                   )
                 : Text(
-                    isEn ? 'Save Changes' : 'حفظ التغييرات',
+                    isEn ? 'Save Changes' : 'Ø­ÙØ¸ Ø§Ù„ØªØºÙŠÙŠØ±Ø§Øª',
                     style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                   ),
           ),
@@ -326,7 +338,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  t('Sex', 'الجنس'),
+                  t('Sex', 'Ø§Ù„Ø¬Ù†Ø³'),
                   style: TextStyle(
                     fontSize: 12,
                     color: Colors.grey.shade500,
@@ -337,13 +349,13 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
                 Row(
                   children: [
                     _sexChip(
-                      label: t('Male', 'ذكر'),
+                      label: t('Male', 'Ø°ÙƒØ±'),
                       value: 'male',
                       selected: _sex.toLowerCase() == 'male',
                     ),
                     const SizedBox(width: 10),
                     _sexChip(
-                      label: t('Female', 'أنثى'),
+                      label: t('Female', 'Ø£Ù†Ø«Ù‰'),
                       value: 'female',
                       selected: _sex.toLowerCase() == 'female',
                     ),
@@ -386,3 +398,6 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
     );
   }
 }
+
+
+

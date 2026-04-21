@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:firebase_core/firebase_core.dart' show FirebaseException;
 import 'package:flutter/material.dart';
 
 import 'firebase_service.dart';
@@ -24,75 +25,193 @@ class TechnicianActiveJobScreen extends StatefulWidget {
 
 class _TechnicianActiveJobScreenState
     extends State<TechnicianActiveJobScreen> {
-  bool _loading = false;
+  bool _actionInProgress = false;
+
+  String get _status => widget.job['status'] as String? ?? '';
+  String get _jobId => widget.job['id'] as String? ?? '';
 
   String _t(bool isEn, String en, String ar) => isEn ? en : ar;
 
+  /// Returns a user-facing message for a FirebaseException.  If the error is
+  /// permission-denied it nudges the user to deploy Firestore rules; otherwise
+  /// it falls back to the provided generic message.
+  String _permissionMsg(bool isEn, FirebaseException e,
+      {required String en, required String ar}) {
+    if (e.code == 'permission-denied') {
+      return _t(isEn,
+          'Permission denied — run: firebase deploy --only firestore:rules',
+          'تم رفض الإذن — نفّذ: firebase deploy --only firestore:rules');
+    }
+    return _t(isEn, en, ar);
+  }
+
+  // ── Action handlers ──────────────────────────────────────────────────────
+  // All handlers rethrow after showing feedback so the slider can reset its
+  // internal _confirmed state via its catchError callback.
+
   Future<void> _acceptAssignment() async {
+    if (_actionInProgress) return;
     final isEn = Localizations.localeOf(context).languageCode == 'en';
-    setState(() => _loading = true);
+    setState(() => _actionInProgress = true);
     try {
-      await FirebaseService.acceptAssignment(
-        widget.job['id'] as String? ?? '',
-        widget.technicianId,
-      );
+      if (_jobId.isEmpty) throw Exception('Missing job ID');
+      await FirebaseService.acceptAssignment(_jobId, widget.technicianId);
+    } on FirebaseException catch (e) {
+      debugPrint('Accept assignment Firebase error: ${e.code} – ${e.message}');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(_permissionMsg(isEn, e,
+            en: 'Could not accept job. Please try again.',
+            ar: 'تعذر قبول الطلب. يرجى المحاولة مرة أخرى.')),
+      ));
+      rethrow;
     } catch (e) {
       debugPrint('Accept assignment error: $e');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(isEn ? 'Could not accept job. Please try again.' : 'تعذر قبول الطلب. يرجى المحاولة مرة أخرى.')),
+        SnackBar(
+          content: Text(_t(isEn, 'Could not accept job. Please try again.',
+              'تعذر قبول الطلب. يرجى المحاولة مرة أخرى.')),
+        ),
       );
+      rethrow;
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) setState(() => _actionInProgress = false);
     }
   }
 
   Future<void> _markArrived() async {
+    if (_actionInProgress) return;
     final isEn = Localizations.localeOf(context).languageCode == 'en';
-    setState(() => _loading = true);
+    setState(() => _actionInProgress = true);
     try {
+      if (_jobId.isEmpty) throw Exception('Missing job ID');
       await FirebaseService.markTechnicianArrived(
-        widget.job['id'] as String? ?? '',
-        widget.technicianId,
-      );
+          _jobId, widget.technicianId);
+    } on FirebaseException catch (e) {
+      debugPrint('Mark arrived Firebase error: ${e.code} – ${e.message}');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(_permissionMsg(isEn, e,
+            en: 'Could not confirm arrival. Please try again.',
+            ar: 'تعذر تأكيد الوصول. يرجى المحاولة مرة أخرى.')),
+      ));
+      rethrow;
     } catch (e) {
       debugPrint('Mark arrived error: $e');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(isEn ? 'Could not confirm arrival. Please try again.' : 'تعذر تأكيد الوصول. يرجى المحاولة مرة أخرى.')),
+        SnackBar(
+          content: Text(_t(isEn,
+              'Could not confirm arrival. Please try again.',
+              'تعذر تأكيد الوصول. يرجى المحاولة مرة أخرى.')),
+        ),
       );
+      rethrow;
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) setState(() => _actionInProgress = false);
     }
   }
 
   Future<void> _markWorkFinished() async {
+    if (_actionInProgress) return;
     final isEn = Localizations.localeOf(context).languageCode == 'en';
-    setState(() => _loading = true);
+    setState(() => _actionInProgress = true);
     try {
-      await FirebaseService.markWorkFinished(
-        widget.job['id'] as String? ?? '',
-        widget.technicianId,
-      );
+      if (_jobId.isEmpty) throw Exception('Missing job ID');
+      await FirebaseService.markWorkFinished(_jobId, widget.technicianId);
       if (!mounted) return;
-      // Navigate immediately to receipt screen after work is confirmed finished
       Navigator.push(
         context,
         MaterialPageRoute(
           builder: (_) => TechnicianReceiptScreen(
-            jobId: widget.job['id'] as String? ?? '',
+            jobId: _jobId,
             technicianId: widget.technicianId,
           ),
         ),
       );
+    } on FirebaseException catch (e) {
+      debugPrint('Mark finished Firebase error: ${e.code} – ${e.message}');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(_permissionMsg(isEn, e,
+            en: 'Could not complete work. Please try again.',
+            ar: 'تعذر إتمام العمل. يرجى المحاولة مرة أخرى.')),
+      ));
+      rethrow;
     } catch (e) {
       debugPrint('Mark work finished error: $e');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(isEn ? 'Could not complete work. Please try again.' : 'تعذر إتمام العمل. يرجى المحاولة مرة أخرى.')),
+        SnackBar(
+          content: Text(_t(isEn,
+              'Could not complete work. Please try again.',
+              'تعذر إتمام العمل. يرجى المحاولة مرة أخرى.')),
+        ),
+      );
+      rethrow;
+    } finally {
+      if (mounted) setState(() => _actionInProgress = false);
+    }
+  }
+
+  Future<void> _cancelJob() async {
+    final isEn = Localizations.localeOf(context).languageCode == 'en';
+
+    // Confirmation dialog
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(_t(isEn, 'Cancel Order?', 'إلغاء الطلب؟')),
+        content: Text(_t(
+          isEn,
+          'Are you sure you want to cancel this assignment? This cannot be undone.',
+          'هل أنت متأكد من إلغاء هذه المهمة؟ لا يمكن التراجع عن هذا.',
+        )),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(_t(isEn, 'No', 'لا')),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: Text(_t(isEn, 'Yes, Cancel', 'نعم، إلغاء')),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _actionInProgress = true);
+    try {
+      if (_jobId.isEmpty) throw Exception('Missing job ID');
+      if (_status != 'active') {
+        throw Exception('Cannot cancel after acceptance');
+      }
+      await FirebaseService.technicianCancelJob(_jobId, widget.technicianId);
+      // After cancel, the stream will clear the active job and return to home.
+    } on FirebaseException catch (e) {
+      debugPrint('Technician cancel Firebase error: ${e.code} – ${e.message}');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(_permissionMsg(isEn, e,
+            en: 'Could not cancel order. Please try again.',
+            ar: 'تعذر إلغاء الطلب. يرجى المحاولة مرة أخرى.')),
+      ));
+    } catch (e) {
+      debugPrint('Technician cancel error: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_t(isEn,
+              'Could not cancel order. Please try again.',
+              'تعذر إلغاء الطلب. يرجى المحاولة مرة أخرى.')),
+        ),
       );
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) setState(() => _actionInProgress = false);
     }
   }
 
@@ -101,17 +220,19 @@ class _TechnicianActiveJobScreenState
       context,
       MaterialPageRoute(
         builder: (_) => TechnicianReceiptScreen(
-          jobId: widget.job['id'] as String? ?? '',
+          jobId: _jobId,
           technicianId: widget.technicianId,
         ),
       ),
     );
   }
 
+  // ── Build ────────────────────────────────────────────────────────────────
+
   @override
   Widget build(BuildContext context) {
     final isEn = Localizations.localeOf(context).languageCode == 'en';
-    final status = widget.job['status'] as String? ?? '';
+    final status = _status;
     final serviceCategory =
         (widget.job['serviceCategory'] as String?)?.trim();
     final serviceKey =
@@ -119,16 +240,13 @@ class _TechnicianActiveJobScreenState
     final address =
         (widget.job['locationAddress'] as String?)?.trim() ?? '';
 
-    // Lock navigation only during known active work steps.
-    // Passive waiting, disputed, and unknown/legacy statuses allow back nav
-    // so the technician is never trapped in a dead-end screen.
-    const _lockedStatuses = {
+    const lockedStatuses = {
       'active',
       'technician_accepted',
       'technician_arrived',
       'work_finished',
     };
-    final isLocked = _lockedStatuses.contains(status);
+    final isLocked = lockedStatuses.contains(status);
 
     return PopScope(
       canPop: !isLocked,
@@ -147,127 +265,166 @@ class _TechnicianActiveJobScreenState
             ),
           ),
           body: ListView(
-          padding: const EdgeInsets.all(20),
-          children: [
-            _addressCard(address, isEn),
-            const SizedBox(height: 24),
+            padding: const EdgeInsets.all(20),
+            children: [
+              _addressCard(address, isEn),
+              const SizedBox(height: 20),
 
-            // ── Step 1: Accept Assignment ────────────────────────────
-            _StepCard(
-              stepNumber: 1,
-              title: _t(isEn, 'Accept Assignment', 'قبول المهمة'),
-              subtitle: _t(isEn,
-                  'Confirm you have received and accepted this assignment.',
-                  'أكّد استلامك وقبولك لهذه المهمة.'),
-              status: _stepStatus(status, 'active', [
-                'technician_accepted',
-                'technician_arrived',
-                'work_finished',
-                'awaiting_customer_approval',
-                'receipt_disputed',
-                'completed',
-              ]),
-              child: _stepStatus(status, 'active', []) == _StepStatus.active
-                  ? _SlideToConfirmBar(
-                      label: _t(isEn, 'Slide to accept', 'اسحب للقبول'),
-                      onConfirmed:
-                          _loading ? () async {} : _acceptAssignment,
-                      enabled: !_loading,
-                    )
-                  : null,
-            ),
+              // ── Cancel button (before acceptance only) ──────────────
+              if (status == 'active') ...[
+                _cancelButton(isEn),
+                const SizedBox(height: 20),
+              ],
 
-            const SizedBox(height: 16),
+              // ── Progress steps ──────────────────────────────────────
+              _buildProgressSteps(status, isEn),
 
-            // ── Step 2: Arrived ─────────────────────────────────────
-            _StepCard(
-              stepNumber: 2,
-              title: _t(isEn, 'Arrived at Location', 'الوصول للموقع'),
-              subtitle: _t(isEn,
-                  'Confirm you have arrived at the customer\'s location.',
-                  'أكّد وصولك إلى موقع العميل.'),
-              status: _stepStatus(status, 'technician_accepted', [
-                'technician_arrived',
-                'work_finished',
-                'awaiting_customer_approval',
-                'receipt_disputed',
-                'completed',
-              ]),
-              child:
-                  _stepStatus(status, 'technician_accepted', []) ==
-                          _StepStatus.active
-                      ? _SlideToConfirmBar(
-                          label:
-                              _t(isEn, 'Slide to confirm arrival',
-                                  'اسحب لتأكيد الوصول'),
-                          onConfirmed:
-                              _loading ? () async {} : _markArrived,
-                          enabled: !_loading,
-                        )
-                      : null,
-            ),
+              // ── Post-step states ────────────────────────────────────
+              if (status == 'work_finished') ...[
+                const SizedBox(height: 24),
+                _fillReceiptCard(isEn),
+              ],
 
-            const SizedBox(height: 16),
+              if (status == 'awaiting_customer_approval') ...[
+                const SizedBox(height: 24),
+                _waitingForApprovalCard(isEn),
+              ],
 
-            // ── Step 3: Finished Work ────────────────────────────────
-            _StepCard(
-              stepNumber: 3,
-              title: _t(isEn, 'Work Finished', 'اكتمال العمل'),
-              subtitle: _t(isEn,
-                  'Confirm the physical work on site is done. You will then fill the receipt.',
-                  'أكّد انتهاء العمل الفعلي. ستقوم بعدها بملء الإيصال.'),
-              status: _stepStatus(status, 'technician_arrived', [
-                'work_finished',
-                'awaiting_customer_approval',
-                'receipt_disputed',
-                'completed',
-              ]),
-              child:
-                  _stepStatus(status, 'technician_arrived', []) ==
-                          _StepStatus.active
-                      ? _SlideToConfirmBar(
-                          label: _t(isEn, 'Slide to confirm work done',
-                              'اسحب لتأكيد انتهاء العمل'),
-                          onConfirmed:
-                              _loading ? () async {} : _markWorkFinished,
-                          enabled: !_loading,
-                        )
-                      : null,
-            ),
+              if (status == 'receipt_disputed') ...[
+                const SizedBox(height: 24),
+                _receiptDisputedCard(isEn),
+              ],
 
-            // ── Post-step states ─────────────────────────────────────
-            if (status == 'work_finished') ...[
-              const SizedBox(height: 24),
-              _fillReceiptCard(isEn),
+              const SizedBox(height: 32),
             ],
-
-            if (status == 'awaiting_customer_approval') ...[
-              const SizedBox(height: 24),
-              _waitingForApprovalCard(isEn),
-            ],
-
-            if (status == 'receipt_disputed') ...[
-              const SizedBox(height: 24),
-              _receiptDisputedCard(isEn),
-            ],
-
-            const SizedBox(height: 32),
-          ],
+          ),
         ),
-      ),
       ),
     );
   }
 
-  /// Determines the visual state of a step given the current job status.
-  _StepStatus _stepStatus(
-    String currentStatus,
-    String activeStatus,
-    List<String> doneStatuses,
-  ) {
-    if (currentStatus == activeStatus) return _StepStatus.active;
-    if (doneStatuses.contains(currentStatus)) return _StepStatus.done;
-    return _StepStatus.pending;
+  // ── Sequential progress steps ────────────────────────────────────────────
+
+  Widget _buildProgressSteps(String status, bool isEn) {
+    // Define the step order and their trigger statuses.
+    final steps = [
+      _StepDef(
+        activeStatus: 'active',
+        doneStatuses: const [
+          'technician_accepted',
+          'technician_arrived',
+          'work_finished',
+          'awaiting_customer_approval',
+          'receipt_disputed',
+          'completed',
+        ],
+        title: _t(isEn, 'Accept Assignment', 'قبول المهمة'),
+        subtitle: _t(isEn,
+            'Confirm you have received and accepted this assignment.',
+            'أكّد استلامك وقبولك لهذه المهمة.'),
+        sliderLabel: _t(isEn, 'Slide to accept', 'اسحب للقبول'),
+        onConfirmed: _acceptAssignment,
+      ),
+      _StepDef(
+        activeStatus: 'technician_accepted',
+        doneStatuses: const [
+          'technician_arrived',
+          'work_finished',
+          'awaiting_customer_approval',
+          'receipt_disputed',
+          'completed',
+        ],
+        title: _t(isEn, 'Arrived at Location', 'الوصول للموقع'),
+        subtitle: _t(isEn,
+            'Confirm you have arrived at the customer\'s location.',
+            'أكّد وصولك إلى موقع العميل.'),
+        sliderLabel:
+            _t(isEn, 'Slide to confirm arrival', 'اسحب لتأكيد الوصول'),
+        onConfirmed: _markArrived,
+      ),
+      _StepDef(
+        activeStatus: 'technician_arrived',
+        doneStatuses: const [
+          'work_finished',
+          'awaiting_customer_approval',
+          'receipt_disputed',
+          'completed',
+        ],
+        title: _t(isEn, 'Work Finished', 'اكتمال العمل'),
+        subtitle: _t(isEn,
+            'Confirm the physical work on site is done. You will then fill the receipt.',
+            'أكّد انتهاء العمل الفعلي. ستقوم بعدها بملء الإيصال.'),
+        sliderLabel: _t(
+            isEn, 'Slide to confirm work done', 'اسحب لتأكيد انتهاء العمل'),
+        onConfirmed: _markWorkFinished,
+      ),
+    ];
+
+    final children = <Widget>[];
+    for (var i = 0; i < steps.length; i++) {
+      final step = steps[i];
+      final stepState = _resolveState(status, step);
+
+      if (stepState == _StepState.pending) {
+        // Future steps are hidden entirely.
+        break;
+      }
+
+      if (i > 0) children.add(const SizedBox(height: 12));
+
+      if (stepState == _StepState.done) {
+        children.add(_CompletedStepRow(
+          stepNumber: i + 1,
+          title: step.title,
+          isEn: Localizations.localeOf(context).languageCode == 'en',
+        ));
+      } else {
+        // Active step — full card with slider.
+        children.add(_ActiveStepCard(
+          stepNumber: i + 1,
+          title: step.title,
+          subtitle: step.subtitle,
+          sliderLabel: step.sliderLabel,
+          onConfirmed: _actionInProgress ? null : step.onConfirmed,
+          enabled: !_actionInProgress,
+          loading: _actionInProgress,
+        ));
+      }
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: children,
+    );
+  }
+
+  _StepState _resolveState(String status, _StepDef step) {
+    if (status == step.activeStatus) return _StepState.active;
+    if (step.doneStatuses.contains(status)) return _StepState.done;
+    return _StepState.pending;
+  }
+
+  // ── Widget builders ──────────────────────────────────────────────────────
+
+  Widget _cancelButton(bool isEn) {
+    return SizedBox(
+      width: double.infinity,
+      height: 48,
+      child: OutlinedButton.icon(
+        onPressed: _actionInProgress ? null : _cancelJob,
+        icon: const Icon(Icons.close, size: 18),
+        label: Text(
+          _t(isEn, 'Cancel Order', 'إلغاء الطلب'),
+          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+        ),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: Colors.red.shade600,
+          side: BorderSide(color: Colors.red.shade300),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      ),
+    );
   }
 
   Widget _addressCard(String address, bool isEn) {
@@ -300,7 +457,7 @@ class _TechnicianActiveJobScreenState
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  _t(true, 'Service Address', 'عنوان الخدمة'),
+                  _t(isEn, 'Service Address', 'عنوان الخدمة'),
                   style: const TextStyle(
                     fontSize: 13,
                     color: Colors.black54,
@@ -310,8 +467,7 @@ class _TechnicianActiveJobScreenState
                 const SizedBox(height: 6),
                 Text(
                   address.isEmpty
-                      ? _t(true, 'Address unavailable',
-                          'العنوان غير متاح')
+                      ? _t(isEn, 'Address unavailable', 'العنوان غير متاح')
                       : address,
                   style: const TextStyle(
                     fontSize: 16,
@@ -411,9 +567,7 @@ class _TechnicianActiveJobScreenState
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  isEn
-                      ? 'Receipt Disputed'
-                      : 'تم الاعتراض على الإيصال',
+                  isEn ? 'Receipt Disputed' : 'تم الاعتراض على الإيصال',
                   style: TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.bold,
@@ -475,154 +629,92 @@ class _TechnicianActiveJobScreenState
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Step status enum
+// Internal models
 // ─────────────────────────────────────────────────────────────────────────────
 
-enum _StepStatus { pending, active, done }
+enum _StepState { pending, active, done }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Step card widget
-// ─────────────────────────────────────────────────────────────────────────────
-
-class _StepCard extends StatelessWidget {
-  final int stepNumber;
+class _StepDef {
+  final String activeStatus;
+  final List<String> doneStatuses;
   final String title;
   final String subtitle;
-  final _StepStatus status;
-  final Widget? child;
+  final String sliderLabel;
+  final Future<void> Function() onConfirmed;
 
-  const _StepCard({
-    required this.stepNumber,
+  const _StepDef({
+    required this.activeStatus,
+    required this.doneStatuses,
     required this.title,
     required this.subtitle,
-    required this.status,
-    this.child,
+    required this.sliderLabel,
+    required this.onConfirmed,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Completed step — compact row
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _CompletedStepRow extends StatelessWidget {
+  final int stepNumber;
+  final String title;
+  final bool isEn;
+
+  const _CompletedStepRow({
+    required this.stepNumber,
+    required this.title,
+    required this.isEn,
   });
 
   @override
   Widget build(BuildContext context) {
-    final isDone = status == _StepStatus.done;
-    final isActive = status == _StepStatus.active;
-    final isPending = status == _StepStatus.pending;
-
-    final Color borderColor = isDone
-        ? const Color(0xFF10B981)
-        : isActive
-            ? _syanatBlue
-            : Colors.grey.shade200;
-
-    final Color bgColor = isDone
-        ? const Color(0xFFF0FDF4)
-        : isActive
-            ? const Color(0xFFF3F0FF)
-            : Colors.white;
-
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 300),
-      padding: const EdgeInsets.all(18),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
-        color: bgColor,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: borderColor, width: isDone || isActive ? 1.5 : 1),
-        boxShadow: isActive
-            ? [
-                BoxShadow(
-                    color: _syanatBlue.withOpacity(0.12),
-                    blurRadius: 12,
-                    offset: const Offset(0, 4))
-              ]
-            : [
-                const BoxShadow(
-                    color: Color(0x06000000),
-                    blurRadius: 6,
-                    offset: Offset(0, 2))
-              ],
+        color: const Color(0xFFF0FDF4),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFF10B981).withOpacity(0.3)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          Row(
-            children: [
-              // Step number circle
-              Container(
-                width: 32,
-                height: 32,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: isDone
-                      ? const Color(0xFF10B981)
-                      : isActive
-                          ? _syanatBlue
-                          : Colors.grey.shade200,
-                ),
-                child: Center(
-                  child: isDone
-                      ? const Icon(Icons.check,
-                          size: 18, color: Colors.white)
-                      : Text(
-                          '$stepNumber',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                            color: isActive
-                                ? Colors.white
-                                : Colors.grey.shade500,
-                          ),
-                        ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.bold,
-                        color: isPending
-                            ? Colors.grey.shade400
-                            : Colors.black87,
-                      ),
-                    ),
-                    if (!isPending) ...[
-                      const SizedBox(height: 3),
-                      Text(
-                        subtitle,
-                        style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey.shade500,
-                            height: 1.4),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              if (isDone)
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF10B981).withOpacity(0.12),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    Localizations.localeOf(context).languageCode == 'en'
-                        ? 'Done'
-                        : 'تم',
-                    style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF10B981)),
-                  ),
-                ),
-            ],
+          Container(
+            width: 28,
+            height: 28,
+            decoration: const BoxDecoration(
+              shape: BoxShape.circle,
+              color: Color(0xFF10B981),
+            ),
+            child: const Center(
+              child: Icon(Icons.check, size: 16, color: Colors.white),
+            ),
           ),
-          if (isActive && child != null) ...[
-            const SizedBox(height: 16),
-            child!,
-          ],
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              title,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF065F46),
+              ),
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              color: const Color(0xFF10B981).withOpacity(0.12),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              isEn ? 'Done' : 'تم',
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF10B981),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -630,7 +722,111 @@ class _StepCard extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Slide-to-confirm bar (reused from original screen)
+// Active step card — full card with slider
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _ActiveStepCard extends StatelessWidget {
+  final int stepNumber;
+  final String title;
+  final String subtitle;
+  final String sliderLabel;
+  final Future<void> Function()? onConfirmed;
+  final bool enabled;
+  final bool loading;
+
+  const _ActiveStepCard({
+    required this.stepNumber,
+    required this.title,
+    required this.subtitle,
+    required this.sliderLabel,
+    required this.onConfirmed,
+    required this.enabled,
+    required this.loading,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF3F0FF),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: _syanatBlue.withOpacity(0.4), width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: _syanatBlue.withOpacity(0.10),
+            blurRadius: 14,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: const BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: _syanatBlue,
+                ),
+                child: Center(
+                  child: Text(
+                    '$stepNumber',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
+              ),
+              if (loading)
+                const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2.0, color: _syanatBlue),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.only(left: 48),
+            child: Text(
+              subtitle,
+              style: TextStyle(
+                  fontSize: 13, color: Colors.grey.shade600, height: 1.5),
+            ),
+          ),
+          const SizedBox(height: 18),
+          _SlideToConfirmBar(
+            label: sliderLabel,
+            onConfirmed: onConfirmed ?? () async {},
+            enabled: enabled && onConfirmed != null,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Slide-to-confirm bar
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _SlideToConfirmBar extends StatefulWidget {
@@ -692,7 +888,11 @@ class _SlideToConfirmBarState extends State<_SlideToConfirmBar>
         _progress = 1.0;
         _confirmed = true;
       });
-      unawaited(widget.onConfirmed().catchError((_) {
+      unawaited(widget.onConfirmed().then((_) {
+        // Success — parent rebuilds with a new status so this slider
+        // is replaced by a CompletedStepRow. No reset needed.
+      }).catchError((_) {
+        // Failure — reset the slider so the user can try again.
         if (mounted) {
           setState(() {
             _confirmed = false;
@@ -707,9 +907,8 @@ class _SlideToConfirmBarState extends State<_SlideToConfirmBar>
 
   void _handleDragEnd() {
     if (!widget.enabled || _confirmed || _progress >= 1.0) return;
-    _resetAnimation = Tween<double>(begin: _progress, end: 0)
-        .animate(
-            CurvedAnimation(parent: _controller, curve: Curves.easeOut));
+    _resetAnimation = Tween<double>(begin: _progress, end: 0).animate(
+        CurvedAnimation(parent: _controller, curve: Curves.easeOut));
     _controller
       ..reset()
       ..forward();
@@ -721,9 +920,10 @@ class _SlideToConfirmBarState extends State<_SlideToConfirmBar>
     return LayoutBuilder(
       builder: (context, constraints) {
         const thumbSize = 56.0;
-        final maxTravel =
-            (constraints.maxWidth - thumbSize - 8).clamp(0.0, double.infinity).toDouble();
-        final thumbLeft = 4 + (maxTravel * _progress);
+        final maxTravel = (constraints.maxWidth - thumbSize - 8)
+            .clamp(0.0, double.infinity)
+            .toDouble();
+        final thumbOffset = 4 + (maxTravel * _progress);
 
         return GestureDetector(
           onHorizontalDragUpdate: (details) {
@@ -735,7 +935,7 @@ class _SlideToConfirmBarState extends State<_SlideToConfirmBar>
           child: Container(
             height: 64,
             decoration: BoxDecoration(
-              color: _syanatBlue.withOpacity(0.15),
+              color: _syanatBlue.withOpacity(widget.enabled ? 0.15 : 0.08),
               borderRadius: BorderRadius.circular(32),
             ),
             child: Stack(
@@ -743,22 +943,26 @@ class _SlideToConfirmBarState extends State<_SlideToConfirmBar>
               children: [
                 Center(
                   child: Padding(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 72),
-                    child: Text(
-                      widget.label,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                        color: _syanatBlue,
+                    padding: const EdgeInsets.symmetric(horizontal: 72),
+                    child: AnimatedOpacity(
+                      opacity: _confirmed ? 0.0 : 1.0,
+                      duration: const Duration(milliseconds: 200),
+                      child: Text(
+                        widget.label,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          color: _syanatBlue
+                              .withOpacity(widget.enabled ? 1.0 : 0.4),
+                        ),
                       ),
                     ),
                   ),
                 ),
                 Positioned(
-                  left: isRtl ? null : thumbLeft,
-                  right: isRtl ? thumbLeft : null,
+                  left: isRtl ? null : thumbOffset,
+                  right: isRtl ? thumbOffset : null,
                   child: Container(
                     width: thumbSize,
                     height: thumbSize,
@@ -772,10 +976,20 @@ class _SlideToConfirmBarState extends State<_SlideToConfirmBar>
                             offset: Offset(0, 3)),
                       ],
                     ),
-                    child: Icon(
-                      _confirmed ? Icons.check : Icons.arrow_forward,
-                      color: _syanatBlue,
-                    ),
+                    child: _confirmed
+                        ? const SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: Center(
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2.5, color: _syanatBlue),
+                            ),
+                          )
+                        : Icon(
+                            Icons.arrow_forward,
+                            color: _syanatBlue
+                                .withOpacity(widget.enabled ? 1.0 : 0.4),
+                          ),
                   ),
                 ),
               ],

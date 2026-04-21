@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'firebase_service.dart';
 import 'main.dart' show AppLocale;
 import 'user_home_screen.dart';
+import 'widgets/egyptian_phone_field.dart';
 
 const Color syanatBlue = Color(0xFF3C21C8);
 
@@ -120,12 +121,11 @@ class _CustomerSignupFlowState extends State<CustomerSignupFlow> {
 
   bool _validateCurrentStep(bool isEn) {
     final name = _nameController.text.trim();
-    final phone = _phoneController.text.trim();
+    final phoneLocal = _phoneController.text.trim();
     final city = _cityController.text.trim();
     final email = _emailController.text.trim().toLowerCase();
     final password = _passwordController.text;
     final confirmPassword = _confirmPasswordController.text;
-    final phoneRegex = RegExp(r'^\+201[0125]\d{8}$');
     final emailRegex = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
     bool valid = true;
 
@@ -143,12 +143,10 @@ class _CustomerSignupFlowState extends State<CustomerSignupFlow> {
           );
           valid = false;
         }
-        if (!phoneRegex.hasMatch(phone)) {
-          _phoneError = _t(
-            isEn,
-            'Use Egyptian format: +201XXXXXXXXX',
-            'استخدم الصيغة المصرية: +201XXXXXXXXX',
-          );
+        final String? phoneErr =
+            validateEgyptianLocal(phoneLocal, isEn: isEn);
+        if (phoneErr != null) {
+          _phoneError = phoneErr;
           valid = false;
         }
       } else if (_currentStep == 1) {
@@ -214,7 +212,7 @@ class _CustomerSignupFlowState extends State<CustomerSignupFlow> {
 
     try {
       final username = _nameController.text.trim();
-      final phone = _phoneController.text.trim();
+      final phone = egyptianToE164(_phoneController.text.trim());
       final city = _cityController.text.trim();
       final lang = isEn ? 'en' : 'ar';
       final String uid;
@@ -445,11 +443,8 @@ class _CustomerSignupFlowState extends State<CustomerSignupFlow> {
             errorText: _nameError,
           ),
           const SizedBox(height: 16),
-          _buildModernTextField(
-            controller: _phoneController,
-            label: _t(isEn, 'Phone Number', 'رقم الهاتف'),
-            icon: Icons.phone,
-            keyboardType: TextInputType.phone,
+          _buildEgyptianPhoneField(
+            isEn: isEn,
             errorText: _phoneError,
           ),
         ],
@@ -496,6 +491,43 @@ class _CustomerSignupFlowState extends State<CustomerSignupFlow> {
           obscure: true,
           errorText: _confirmPasswordError,
         ),
+      ],
+    );
+  }
+
+  Widget _buildEgyptianPhoneField({
+    required bool isEn,
+    String? errorText,
+  }) {
+    final bool hasError = errorText != null;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.grey.shade100,
+            borderRadius: BorderRadius.circular(15),
+            border: Border.all(
+              color: hasError ? Colors.red.shade400 : Colors.grey.shade300,
+            ),
+          ),
+          child: EgyptianPhoneField(
+            controller: _phoneController,
+            isEn: isEn,
+            useFormValidator: false,
+            labelText: _t(isEn, 'Phone Number', 'رقم الهاتف'),
+            decoration: InputDecoration(
+              labelText: _t(isEn, 'Phone Number', 'رقم الهاتف'),
+              labelStyle:
+                  const TextStyle(fontSize: 13, color: Colors.black54),
+              border: InputBorder.none,
+              counterText: '',
+              contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 12, vertical: 16),
+            ),
+          ),
+        ),
+        if (errorText != null) _messageBox(errorText, topMargin: 6),
       ],
     );
   }

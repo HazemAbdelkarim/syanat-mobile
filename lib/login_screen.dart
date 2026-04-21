@@ -3,7 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
-import 'admin_dashboard_screen.dart';
+import 'admin_redirect_screen.dart';
 import 'firebase_service.dart';
 import 'main.dart' show AppLocale;
 import 'role_selection_screen.dart';
@@ -47,7 +47,7 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!mounted) return;
     Widget dest;
     if (role == 'admin') {
-      dest = const AdminDashboardScreen();
+      dest = const AdminRedirectScreen();
     } else if (role == 'technician') {
       dest = const TechHomeScreen();
     } else {

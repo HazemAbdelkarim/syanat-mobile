@@ -1,0 +1,13 @@
+# F-008: Dependabot keeps the SHA-pinned third-party actions current. The
+# Admin Web workflow uses tag-comment SHAs (e.g. actions/checkout@<sha> # v4.2.2)
+# and Dependabot updates both the SHA and the trailing tag comment.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
+      include: "scope"

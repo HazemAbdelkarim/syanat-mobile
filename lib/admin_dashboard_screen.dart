@@ -2,8 +2,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../auth_gate.dart';
 import '../firebase_service.dart';
-import '../splash_screen.dart';
 import '../admin_support_chat_screen.dart';
 
 const Color syanatBlue = Color(0xFF3C21C8);
@@ -181,10 +181,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     await FirebaseService.auth.signOut();
     if (!mounted) return;
 
-    // Navigate all the way back to root so MyApp rebuilds SplashScreen
+    // Reset the navigator to the root AuthGate so it observes the signed-out
+    // state (authStateChanges emits null) and rebuilds to LoginScreen. Never
+    // push SplashScreen here — the splash is purely visual and has no routing.
     Navigator.pushAndRemoveUntil(
       context,
-      MaterialPageRoute(builder: (_) => const SplashScreen()),
+      MaterialPageRoute(builder: (_) => const AuthGate()),
       (route) => false,
     );
   }

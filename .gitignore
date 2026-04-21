@@ -2,6 +2,9 @@
 *.class
 *.log
 *.lock
+# F-003: admin web is a deployed application — its lockfile must be committed
+# so CI and local builds resolve identical dependency graphs.
+!.claude/AdminWebApp/pubspec.lock
 *.pyc
 *.swp
 .DS_Store
@@ -33,6 +36,8 @@ migrate_working_dir/
 .pub-cache/
 .pub/
 pubspec.lock
+# F-003: admin web deployed app must commit its lockfile.
+!.claude/AdminWebApp/pubspec.lock
 
 # Build outputs
 /build/
@@ -55,6 +60,31 @@ macos/Flutter/ephemeral/
 
 # Firebase service account keys
 syana-ea75a-firebase-adminsdk-fbsvc-711e39baf6.json
+serviceAccountKey.json
+**/serviceAccountKey*.json
+
+# Cloud Functions (spec 002)
+functions/node_modules/
+functions/lib/
+functions/.env
+functions/.runtimeconfig.json
+
+# Secrets / env (Principle VIII)
+.env
+.env.*
+!.env.example
+*.jks
+*.key
+*.pem
+*.p8
+*.p12
+google-services.json.local
+GoogleService-Info.plist.local
+.flaskenv
+.npmrc
 
 # Backup git data
 .git_backup/
+
+# F-014: Firebase CLI hosting cache (per-machine, never commit).
+.firebase/

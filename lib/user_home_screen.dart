@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'package:flutter/material.dart';
 import 'service_details_screen.dart';
 import 'orders_screen.dart';
@@ -8,10 +8,10 @@ const Color syanatBlue = Color(0xFF3C21C8);
 const Color bgGrey = Color(0xFFF4F5F7); // Sahl-like light grey background
 
 const String homeMoreLabelEn = 'More';
-const String homeMoreLabelAr = 'المزيد';
+const String homeMoreLabelAr = 'Ø§Ù„Ù…Ø²ÙŠØ¯';
 const String homeMoreDescriptionEn =
     'Choose from the rest of our available services.';
-const String homeMoreDescriptionAr = 'اختر من باقي الخدمات المتاحة.';
+const String homeMoreDescriptionAr = 'Ø§Ø®ØªØ± Ù…Ù† Ø¨Ø§Ù‚ÙŠ Ø§Ù„Ø®Ø¯Ù…Ø§Øª Ø§Ù„Ù…ØªØ§Ø­Ø©.';
 const List<String> prioritizedHomeServiceKeys = [
   'electricity',
   'ac',
@@ -52,7 +52,7 @@ const List<HomeServiceCatalogEntry> homeServiceCatalog = [
   HomeServiceCatalogEntry(
     key: 'electricity',
     routeLabelEn: 'Electrical',
-    routeLabelAr: 'كهرباء',
+    routeLabelAr: 'ÙƒÙ‡Ø±Ø¨Ø§Ø¡',
     tileLabelEn: 'Electricity',
     icon: Icons.electric_bolt_outlined,
     assetName: 'Electricity.png',
@@ -60,63 +60,63 @@ const List<HomeServiceCatalogEntry> homeServiceCatalog = [
   HomeServiceCatalogEntry(
     key: 'ac',
     routeLabelEn: 'Air Conditioning',
-    routeLabelAr: 'تكييف',
+    routeLabelAr: 'ØªÙƒÙŠÙŠÙ',
     icon: Icons.ac_unit,
     assetName: 'air conditioning.png',
   ),
   HomeServiceCatalogEntry(
     key: 'plumbing',
     routeLabelEn: 'Plumbing',
-    routeLabelAr: 'سباكة',
+    routeLabelAr: 'Ø³Ø¨Ø§ÙƒØ©',
     icon: Icons.water_drop_outlined,
     assetName: 'Plumbing.png',
   ),
   HomeServiceCatalogEntry(
     key: 'security_intercom',
     routeLabelEn: 'Security & Intercom',
-    routeLabelAr: 'أنظمة أمن وإنتركم',
+    routeLabelAr: 'Ø£Ù†Ø¸Ù…Ø© Ø£Ù…Ù† ÙˆØ¥Ù†ØªØ±ÙƒÙ…',
     icon: Icons.videocam_outlined,
     assetName: 'Security and intercom.png',
   ),
   HomeServiceCatalogEntry(
     key: 'large_appliances',
     routeLabelEn: 'Large Appliances',
-    routeLabelAr: 'أجهزة منزلية كبيرة',
+    routeLabelAr: 'Ø£Ø¬Ù‡Ø²Ø© Ù…Ù†Ø²Ù„ÙŠØ© ÙƒØ¨ÙŠØ±Ø©',
     icon: Icons.kitchen_outlined,
     assetName: 'Large appliances.png',
   ),
   HomeServiceCatalogEntry(
     key: 'small_appliances',
     routeLabelEn: 'Small Appliances',
-    routeLabelAr: 'أجهزة صغيرة',
+    routeLabelAr: 'Ø£Ø¬Ù‡Ø²Ø© ØµØºÙŠØ±Ø©',
     icon: Icons.coffee_maker_outlined,
     assetName: 'Small appliances.png',
   ),
   HomeServiceCatalogEntry(
     key: 'carpentry',
     routeLabelEn: 'Carpentry',
-    routeLabelAr: 'نجارة',
+    routeLabelAr: 'Ù†Ø¬Ø§Ø±Ø©',
     icon: Icons.handyman_outlined,
     assetName: 'carpentry.png',
   ),
   HomeServiceCatalogEntry(
     key: 'pest_control',
     routeLabelEn: 'Pest Control',
-    routeLabelAr: 'مكافحة حشرات',
+    routeLabelAr: 'Ù…ÙƒØ§ÙØ­Ø© Ø­Ø´Ø±Ø§Øª',
     icon: Icons.bug_report_outlined,
     assetName: 'Pest Control.png',
   ),
   HomeServiceCatalogEntry(
     key: 'aluminum',
     routeLabelEn: 'Aluminum',
-    routeLabelAr: 'ألوميتال',
+    routeLabelAr: 'Ø£Ù„ÙˆÙ…ÙŠØªØ§Ù„',
     icon: Icons.window_outlined,
     assetName: 'Aluminum.png',
   ),
   HomeServiceCatalogEntry(
     key: 'finishing',
     routeLabelEn: 'Finishing',
-    routeLabelAr: 'تشطيبات',
+    routeLabelAr: 'ØªØ´Ø·ÙŠØ¨Ø§Øª',
     icon: Icons.format_paint_outlined,
     assetName: 'Finishing.png',
   ),
@@ -186,16 +186,16 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
       child: Container(
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(16), // Match Sahl app radius
+          borderRadius: BorderRadius.circular(18), // Increased slightly for premium feel
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.02), // Extremely subtle shadow
-              blurRadius: 4,
-              offset: const Offset(0, 2),
+              color: Colors.black.withOpacity(0.04), // Slightly more pronounced soft shadow
+              blurRadius: 10,
+              offset: const Offset(0, 4),
             ),
           ],
         ),
-        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -237,9 +237,9 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
         decoration: BoxDecoration(
            // Sahl uses a distinct light colored bg for the 'more' tile
           color: syanatBlue.withOpacity(0.08), 
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(18),
         ),
-        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -272,6 +272,9 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
+      isDismissible: true,
+      enableDrag: true,
+      useSafeArea: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) {
         final isEn = Localizations.localeOf(ctx).languageCode == 'en';
@@ -282,6 +285,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
             minChildSize: 0.45,
             maxChildSize: 0.9,
             expand: false,
+            shouldCloseOnMinExtent: true,
             builder: (_, scrollController) {
               return Container(
                 decoration: const BoxDecoration(
@@ -303,12 +307,23 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                       ),
                     ),
                     const SizedBox(height: 16),
-                    Text(
-                      isEn ? homeMoreLabelEn : homeMoreLabelAr,
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            isEn ? homeMoreLabelEn : homeMoreLabelAr,
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: isEn ? 'Close' : 'إغلاق',
+                          icon: const Icon(Icons.close, color: Colors.black54),
+                          onPressed: () => Navigator.of(ctx).maybePop(),
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 24),
                     GridView.builder(
@@ -370,19 +385,19 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
             unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.normal, fontSize: 14),
             items: [
               BottomNavigationBarItem(
-                icon: const Icon(Icons.flash_on_outlined),
-                activeIcon: const Icon(Icons.flash_on_rounded),
-                label: isEn ? 'Home' : 'الرئيسية',
+                icon: const Icon(Icons.home_outlined),
+                activeIcon: const Icon(Icons.home_rounded),
+                label: isEn ? 'Home' : 'Ø§Ù„Ø±Ø¦ÙŠØ³ÙŠØ©',
               ),
               BottomNavigationBarItem(
                 icon: const Icon(Icons.receipt_long_outlined),
                 activeIcon: const Icon(Icons.receipt_long),
-                label: isEn ? 'My Orders' : 'طلباتي',
+                label: isEn ? 'My Orders' : 'Ø·Ù„Ø¨Ø§ØªÙŠ',
               ),
               BottomNavigationBarItem(
                 icon: const Icon(Icons.person_outline),
                 activeIcon: const Icon(Icons.person),
-                label: isEn ? 'Account' : 'حسابي',
+                label: isEn ? 'Account' : 'Ø­Ø³Ø§Ø¨ÙŠ',
               ),
             ],
           ),
@@ -403,18 +418,15 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // 18% height Clean Blue Header
+        // 20% height Clean Blue Header (increased for premium feel)
         Container(
           width: double.infinity,
-          height: MediaQuery.of(context).size.height * 0.15,
+          height: MediaQuery.of(context).size.height * 0.20,
           padding: EdgeInsets.fromLTRB(
               20, MediaQuery.of(context).padding.top + 16, 20, 16),
           decoration: const BoxDecoration(
-            color: syanatBlue,
-            borderRadius: BorderRadius.only(
-              bottomLeft: Radius.circular(24),
-              bottomRight: Radius.circular(24),
-            ),
+            gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0xFF7C4DFF), Color(0xFF6C3CE1), Color(0xFF5228B5)]),
+              borderRadius: BorderRadius.only(bottomLeft: Radius.circular(28), bottomRight: Radius.circular(28)),
           ),
           child: Align(
             alignment: Alignment.center,
@@ -459,7 +471,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
                   child: Text(
-                    isEn ? 'Services' : 'الخدمات',
+                    isEn ? 'Services' : 'Ø§Ù„Ø®Ø¯Ù…Ø§Øª',
                     style: const TextStyle(
                       color: Colors.black87,
                       fontSize: 18, // Slightly smaller, cleaner like Sahl
@@ -478,7 +490,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                       if (services.isEmpty) {
                         return Center(
                           child: Text(
-                            isEn ? 'No services found' : 'لا توجد خدمات متاحة',
+                            isEn ? 'No services found' : 'Ù„Ø§ ØªÙˆØ¬Ø¯ Ø®Ø¯Ù…Ø§Øª Ù…ØªØ§Ø­Ø©',
                             style: const TextStyle(color: Colors.black54),
                           ),
                         );
@@ -570,7 +582,7 @@ class _CulturalSliderState extends State<_CulturalSlider> {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 140,
+      height: 170, // Increased by ~20% from 140 for premium look
       child: Stack(
         children: [
           PageView.builder(
@@ -585,10 +597,17 @@ class _CulturalSliderState extends State<_CulturalSlider> {
               return Container(
                 margin: const EdgeInsets.symmetric(horizontal: 20),
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(18),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.06),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
                 ),
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(18),
                   child: Image.asset(
                     _sliderImages[index],
                     fit: BoxFit.cover,
@@ -652,3 +671,6 @@ class _CulturalSliderState extends State<_CulturalSlider> {
     );
   }
 }
+
+
+

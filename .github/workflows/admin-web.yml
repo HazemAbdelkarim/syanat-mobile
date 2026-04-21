@@ -1,0 +1,45 @@
+name: Admin Web
+
+on:
+  pull_request:
+    paths:
+      - '.claude/AdminWebApp/**'
+      - '.github/workflows/admin-web.yml'
+
+jobs:
+  analyze-and-build:
+    name: Analyze and build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .claude/AdminWebApp
+    steps:
+      # F-008: third-party actions are SHA-pinned. The comments record the
+      # tag the SHA resolves to so dependabot can suggest upgrades.
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@44ac965b96f18d999802d4b807e3256d5a3f9fa1 # v2.19.0
+        with:
+          channel: stable
+
+      - name: Flutter version
+        run: flutter --version
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Build web (html renderer)
+        # Principle VIII: both secrets are injected at build time via
+        # --dart-define so the placeholder strings never appear in source.
+        # Site keys and OAuth web client IDs are public, domain-bound values,
+        # but are kept out of git to keep the convention clean.
+        # CI validates analyze + build only; it does NOT deploy the artifact.
+        run: >-
+          flutter build web --web-renderer html --release
+          --dart-define=ADMIN_WEB_RECAPTCHA_V3_SITE_KEY=${{ secrets.ADMIN_WEB_RECAPTCHA_V3_SITE_KEY }}
+          --dart-define=ADMIN_WEB_GOOGLE_CLIENT_ID=${{ secrets.ADMIN_WEB_GOOGLE_CLIENT_ID }}

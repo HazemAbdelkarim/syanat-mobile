@@ -13,17 +13,71 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 
+/// Thrown when the caller needs to wait before retrying an order.
+/// [remainingSeconds] is the rounded-up number of seconds left on the
+/// server-side 60-second cooldown window.
+class OrderCooldownException implements Exception {
+  final int remainingSeconds;
+  OrderCooldownException(this.remainingSeconds);
+  @override
+  String toString() =>
+      'OrderCooldownException(remaining=${remainingSeconds}s)';
+}
+
+/// Thrown when the phone on the caller's stored user profile fails the
+/// server-side phoneValid() rule. The UX should prompt the user to update
+/// their profile phone before re-submitting.
+class StoredPhoneInvalidException implements Exception {
+  final String storedPhone;
+  StoredPhoneInvalidException(this.storedPhone);
+  @override
+  String toString() =>
+      'StoredPhoneInvalidException(phone=$storedPhone)';
+}
+
+/// Thrown when the caller has no users/{uid} profile document. The UX should
+/// redirect to profile creation / login.
+class MissingUserProfileException implements Exception {
+  @override
+  String toString() => 'MissingUserProfileException';
+}
+
 class FirebaseService {
   static FirebaseAuth auth = FirebaseAuth.instance;
   static FirebaseFirestore firestore = FirebaseFirestore.instance;
   static FirebaseStorage storage = FirebaseStorage.instance;
 
-  /// Egyptian mobile: 01 + (0|1|2|5) + 8 digits = 11 digits.
-  static final _egyptianMobileRegex = RegExp(r'^01[0125]\d{8}$');
+  /// Egyptian mobile accepted formats:
+  ///   * E.164:              `+201XXXXXXXXX`  (13 chars)
+  ///   * Legacy local-only:  `01XXXXXXXXX`    (11 chars) — kept for data
+  ///                         written before E.164 canonicalization.
+  /// Valid carrier prefixes after `+20`/`0` are 10, 11, 12, 15.
+  static final _egyptianMobileRegex =
+      RegExp(r'^(\+201|01)[0125]\d{8}$');
 
-  /// Returns true when [phone] is a valid Egyptian mobile number.
+  /// Returns true when [phone] is a valid Egyptian mobile number in either
+  /// the canonical E.164 form (`+201XXXXXXXXX`) or the legacy local form
+  /// (`01XXXXXXXXX`).
   static bool isValidEgyptianMobile(String phone) =>
       _egyptianMobileRegex.hasMatch(phone.trim());
+
+  /// Accepts any Egyptian-mobile shape (`1XXXXXXXXX`, `01XXXXXXXXX`,
+  /// `+201XXXXXXXXX`, with incidental whitespace/dashes) and returns the
+  /// canonical E.164 form. Returns an empty string when the input cannot be
+  /// normalized to a valid 10-digit local carrier prefix.
+  static String _canonicalizeEgyptianPhone(String raw) {
+    final String digits = raw.replaceAll(RegExp(r'\D'), '');
+    String local = digits;
+    if (local.startsWith('20') && local.length > 10) {
+      local = local.substring(2);
+    }
+    if (local.length == 11 && local.startsWith('0')) {
+      local = local.substring(1);
+    }
+    if (local.length != 10) return '';
+    if (!RegExp(r'^1[0125]\d{8}$').hasMatch(local)) return '';
+    return '+20$local';
+  }
 
   // ----------------------
   // INITIALIZE FIREBASE
@@ -324,6 +378,21 @@ class FirebaseService {
     if (location != null) baseData['location'] = location;
     if (photoUrl.isNotEmpty) baseData['photoUrl'] = photoUrl;
 
+    // Admin-web contract (Spec 005): the picker queries
+    // `users.where('availableForServices', arrayContains: serviceKey)
+    //       .where('isAvailable', isEqualTo: true)`. The legacy `service` and
+    // `available` scalars are kept above for backwards-compatibility with
+    // existing rules, queries, and dashboards, but we also write the array
+    // form here so a newly onboarded technician appears in the admin picker
+    // immediately. New technicians currently only have one skill; the field
+    // is an array so multi-skill techs can be supported without a migration.
+    if (role == 'technician' && service.isNotEmpty) {
+      baseData['availableForServices'] = <String>[service];
+    }
+    if (role == 'technician') {
+      baseData['isAvailable'] = available;
+    }
+
     // Transaction: check existence first so counters are only incremented once,
     // even if the user retries after a mid-submission crash.
     bool isNew = false;
@@ -339,24 +408,10 @@ class FirebaseService {
 
     if (!isNew) return false;
 
-    // Post-signup side effects — only for genuinely new accounts.
-    // Wrapped in a single try/catch so a failure in stats/log never blocks
-    // account creation.  The isNew guard above prevents duplicate increments.
-    // TODO: migrate these to a Cloud Function triggered on Auth user creation
-    // to eliminate client-side amplification risk entirely.
+    // Post-signup side effects — activity_log only. Stats counters now bump
+    // via the `onUserCreated` Cloud Function trigger (Spec 003). The isNew
+    // guard above prevents duplicate activity entries.
     try {
-      final Map<String, dynamic> statsInc = {
-        'totalUsers': FieldValue.increment(1),
-      };
-      if (role == 'customer') {
-        statsInc['customers'] = FieldValue.increment(1);
-      } else if (role == 'technician') {
-        statsInc['technicians'] = FieldValue.increment(1);
-      }
-      await firestore
-          .doc('stats/global')
-          .set(statsInc, SetOptions(merge: true));
-
       await firestore.collection('activity_log').add({
         'type': 'account_created',
         'description': username.isNotEmpty ? username : email,
@@ -483,7 +538,7 @@ class FirebaseService {
   static Stream<List<Map<String, dynamic>>> streamJobs({required String uid, required String role}) {
     Query query = firestore.collection('jobs');
     if (role == 'customer') query = query.where('customerId', isEqualTo: uid);
-    if (role == 'technician') query = query.where('technicianId', isEqualTo: uid);
+    if (role == 'technician') query = query.where('assignedTechnicianId', isEqualTo: uid);
     return query
         .orderBy('createdAt', descending: true)
         .limit(50)
@@ -515,21 +570,9 @@ class FirebaseService {
       });
     });
     if (prevStatus.isEmpty) return;
+    // Stats counters now move via the `onJobStatusChanged` Cloud Function
+    // trigger (Spec 003). Only the audit entry is written client-side.
     try {
-      final Map<String, dynamic> statsUpdate = {
-        'jobsCancelled': FieldValue.increment(1),
-      };
-      if (prevStatus == 'requested') {
-        statsUpdate['jobsRequested'] = FieldValue.increment(-1);
-      } else if (const {
-        'active', 'technician_accepted', 'technician_arrived',
-        'work_finished', 'awaiting_customer_approval', 'receipt_disputed',
-      }.contains(prevStatus)) {
-        statsUpdate['jobsOngoing'] = FieldValue.increment(-1);
-      }
-      await firestore
-          .doc('stats/global')
-          .set(statsUpdate, SetOptions(merge: true));
       await firestore.collection('activity_log').add({
         'type': 'job_cancelled',
         'description': 'Job cancelled',
@@ -537,6 +580,16 @@ class FirebaseService {
         'createdAt': FieldValue.serverTimestamp(),
       });
     } catch (_) {}
+  }
+
+  /// Soft-delete a cancelled/completed job from the customer's view.
+  /// The document is preserved for audit; only [hiddenForCustomer] is set.
+  /// Only allowed for terminal statuses (cancelled, completed) by Firestore rules.
+  static Future<void> hideJobForCustomer(String jobId) async {
+    await firestore.collection('jobs').doc(jobId).update({
+      'hiddenForCustomer': true,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
   }
 
   // ----------------------
@@ -737,9 +790,12 @@ class FirebaseService {
   /// Compresses [file] before uploading to Firebase Storage.
   /// Max dimension: 480 px · JPEG quality: 60 → typical reduction ~92 %.
   static Future<String> uploadPhoto(XFile file, {String? folder}) async {
-    final ref = storage.ref().child(
-      '${folder ?? 'uploads'}/${DateTime.now().millisecondsSinceEpoch}.jpg',
-    );
+    final uid = getCurrentUser()?.uid ?? 'anon';
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final fileName = folder == 'techProfiles'
+        ? '${uid}_$timestamp.jpg'
+        : '$timestamp.jpg';
+    final ref = storage.ref().child('${folder ?? 'uploads'}/$fileName');
     final compressed = await compressImage(file);
     await ref
         .putData(
@@ -754,7 +810,13 @@ class FirebaseService {
   // TECHNICIAN STATUS / RATINGS / EARNINGS
   // ----------------------
   static Future<void> updateAvailability(String uid, bool available) async {
-    await firestore.collection('users').doc(uid).update({'available': available});
+    // Write both keys so the admin-web picker (`isAvailable`) and the legacy
+    // mobile consumers (`available`) stay in sync. Dropping either side
+    // regresses the other.
+    await firestore.collection('users').doc(uid).update({
+      'available': available,
+      'isAvailable': available,
+    });
     // Keep the PII-free notification-routing index in sync.
     await firestore.collection('tech_availability').doc(uid).update({
       'available': available,
@@ -767,15 +829,11 @@ class FirebaseService {
 
   static Future<void> addEarnings(String uid, double amount) async {
     // FieldValue.increment is atomic and requires no prior read.
+    // `stats/global.totalEarnings` is now bumped by the `onJobStatusChanged`
+    // Cloud Function trigger on job completion (Spec 003).
     await firestore.collection('users').doc(uid).update({
       'earnings': FieldValue.increment(amount),
     });
-    // Keep a global running total so the admin dashboard can read one doc
-    // instead of scanning all technician docs.
-    await firestore.doc('stats/global').set(
-      {'totalEarnings': FieldValue.increment(amount)},
-      SetOptions(merge: true),
-    );
   }
 
   static Future<void> updateRating(String uid, double rating) async {
@@ -984,6 +1042,65 @@ class FirebaseService {
     if (description.trim().isEmpty || description.trim().length > 500) {
       throw ArgumentError('Description must be 1–500 characters');
     }
+    // Defensive normalization: accept whatever the caller passed and canonicalize
+    // to E.164 so the wire payload is always +201XXXXXXXXX.
+    final String phoneTrimmed = phoneNumber.trim();
+    final String phoneE164 = _canonicalizeEgyptianPhone(phoneTrimmed);
+    if (phoneE164.isEmpty) {
+      throw ArgumentError(
+          'Invalid Egyptian mobile number: "$phoneTrimmed"');
+    }
+    if (locationLabel.length > 50) {
+      throw ArgumentError(
+          'Location label must be 50 characters or less (got ${locationLabel.length}).');
+    }
+    if (locationAddress.length > 500) {
+      throw ArgumentError(
+          'Location address must be 500 characters or less (got ${locationAddress.length}).');
+    }
+
+    // ── Pre-flight: read the user doc so we can distinguish failure modes
+    // from the single Firestore "permission-denied" code. Without this,
+    // ANY rule failure (cooldown, stored-phone-invalid, missing doc) collapses
+    // into the same opaque error.
+    final userRef = firestore.collection('users').doc(customerId);
+    final userSnap = await userRef.get();
+    if (!userSnap.exists) {
+      if (kDebugMode) {
+        debugPrint(
+            '[createOrderRequest] user doc missing for uid=$customerId');
+      }
+      throw MissingUserProfileException();
+    }
+    final userData = userSnap.data() ?? <String, dynamic>{};
+    final String? storedPhone = userData['phone'] as String?;
+    if (storedPhone != null &&
+        storedPhone.isNotEmpty &&
+        !_egyptianMobileRegex.hasMatch(storedPhone)) {
+      if (kDebugMode) {
+        debugPrint(
+            '[createOrderRequest] stored phone fails phoneValid: "$storedPhone"');
+      }
+      throw StoredPhoneInvalidException(storedPhone);
+    }
+    final Timestamp? lastOrderAt = userData['lastOrderAt'] as Timestamp?;
+    if (lastOrderAt != null) {
+      final int elapsedMs =
+          DateTime.now().millisecondsSinceEpoch - lastOrderAt.millisecondsSinceEpoch;
+      if (elapsedMs < 60 * 1000) {
+        final int remaining = ((60 * 1000 - elapsedMs) / 1000).ceil();
+        if (kDebugMode) {
+          debugPrint(
+              '[createOrderRequest] cooldown active: remaining=${remaining}s');
+        }
+        throw OrderCooldownException(remaining);
+      }
+    }
+
+    // IMPORTANT: firestore.rules enforces `!('amountPaid' in
+    // request.resource.data)` on job create. Setting the key to `null` still
+    // counts as "in" the map in Firestore CEL, so we must NOT include it here.
+    // The same goes for `adminClosedAt` (keys absent → rules happy).
     final data = <String, dynamic>{
       'customerId': customerId,
       'customerName': customerName,
@@ -994,34 +1111,60 @@ class FirebaseService {
       'serviceCategory': serviceCategory,
       'subservice': subservice,
       'description': description,
+      'phoneNumber': phoneE164,
       'locationLabel': locationLabel,
       'locationAddress': locationAddress,
       'urgencyType': urgencyType,
-      'scheduledTime':
-          scheduledTime != null ? Timestamp.fromDate(scheduledTime) : null,
+      if (scheduledTime != null)
+        'scheduledTime': Timestamp.fromDate(scheduledTime),
       'status': 'requested',
       'price': price,
-      'amountPaid': null,
-      'adminClosedAt': null,
-      'photos': [],
+      'photos': <String>[],
       'createdAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
     };
-    // Batched write: create the job AND bump the user's lastOrderAt in one
-    // atomic operation.  Firestore rules use getAfter() to verify the batch
-    // includes the cooldown update, and enforce a 60-second gap on the user doc.
+    // Batched write: create the job AND bump the user's lastOrderAt so the
+    // 60-second cooldown (enforced server-side on jobs/create by reading the
+    // caller's prior users/{uid}.lastOrderAt) is immediately visible on the
+    // next attempt. The Cloud Function onJobCreated also bumps lastOrderAt as
+    // a safety net — whichever write lands later wins (both are idempotent).
     final batch = firestore.batch();
-    final userRef = firestore.collection('users').doc(customerId);
-    batch.update(userRef, {'lastOrderAt': FieldValue.serverTimestamp()});
+    batch.set(
+      userRef,
+      {'lastOrderAt': FieldValue.serverTimestamp()},
+      SetOptions(merge: true),
+    );
     final jobRef = firestore.collection('jobs').doc();
     batch.set(jobRef, data);
-    await batch.commit();
-
-    // Increment jobsRequested counter and append activity event.
+    if (kDebugMode) {
+      final Map<String, Object?> loggable = <String, Object?>{};
+      data.forEach((k, v) {
+        if (v is FieldValue) {
+          loggable[k] = '<FieldValue>';
+        } else if (v is Timestamp) {
+          loggable[k] = v.toDate().toIso8601String();
+        } else {
+          loggable[k] = v;
+        }
+      });
+      debugPrint(
+          '[createOrderRequest] committing jobId=${jobRef.id} uid=$customerId '
+          'payload=${jsonEncode(loggable)}');
+    }
     try {
-      await firestore
-          .doc('stats/global')
-          .set({'jobsRequested': FieldValue.increment(1)}, SetOptions(merge: true));
+      await batch.commit();
+    } on FirebaseException catch (e) {
+      if (kDebugMode) {
+        debugPrint(
+            '[createOrderRequest] batch.commit FAILED code=${e.code} '
+            'message=${e.message} plugin=${e.plugin}');
+      }
+      rethrow;
+    }
+
+    // `jobsRequested` now increments via the `onJobCreated` Cloud Function
+    // trigger (Spec 003). Only the audit entry is written client-side.
+    try {
       await firestore.collection('activity_log').add({
         'type': 'job_requested',
         'description':
@@ -1060,13 +1203,8 @@ class FirebaseService {
         'updatedAt': FieldValue.serverTimestamp(),
       });
     });
-    // Move counter: one fewer requested, one more ongoing.
-    try {
-      await firestore.doc('stats/global').set({
-        'jobsRequested': FieldValue.increment(-1),
-        'jobsOngoing': FieldValue.increment(1),
-      }, SetOptions(merge: true));
-    } catch (_) {}
+    // Counter movement is now handled by the `onJobStatusChanged` Cloud
+    // Function trigger (Spec 003).
   }
 
   static Stream<Map<String, dynamic>?> streamTechnicianActiveJob(String technicianId) {
@@ -1118,12 +1256,8 @@ class FirebaseService {
       closed = true;
     });
     if (closed) {
-      // Batch all stats changes in one write: revenue + job counters.
-      await firestore.doc('stats/global').set({
-        'totalEarnings': FieldValue.increment(amountPaid),
-        'jobsCompleted': FieldValue.increment(1),
-        'jobsOngoing': FieldValue.increment(-1),
-      }, SetOptions(merge: true));
+      // Stats (revenue + counter movement) now flow through the
+      // `onJobStatusChanged` Cloud Function trigger (Spec 003).
       try {
         await firestore.collection('activity_log').add({
           'type': 'job_completed',
@@ -1393,6 +1527,35 @@ class FirebaseService {
     });
   }
 
+  /// Technician cancels an assigned job BEFORE accepting it.
+  /// Transitions: active → cancelled.
+  /// Only the assigned technician may cancel, and only from 'active' status.
+  static Future<void> technicianCancelJob(
+      String jobId, String technicianId) async {
+    String prevStatus = '';
+    await firestore.runTransaction((tx) async {
+      final ref = firestore.collection('jobs').doc(jobId);
+      final snap = await tx.get(ref);
+      if (!snap.exists) throw Exception('Job not found');
+      final data = snap.data()!;
+      prevStatus = (data['status'] as String?) ?? '';
+      if (prevStatus != 'active') {
+        throw Exception('Job can only be cancelled before acceptance');
+      }
+      if (data['assignedTechnicianId'] != technicianId) {
+        throw Exception('You are not assigned to this job');
+      }
+      tx.update(ref, {
+        'status': 'cancelled',
+        'cancelledBy': 'technician',
+        'cancelledAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    });
+    // Counters move via the `onJobStatusChanged` Cloud Function trigger
+    // (Spec 003).
+  }
+
   /// Technician submits a structured receipt after finishing work.
   /// Transitions: work_finished → awaiting_customer_approval.
   ///
@@ -1461,15 +1624,14 @@ class FirebaseService {
   /// Transitions: awaiting_customer_approval → completed.
   ///
   /// The grand total used as amountPaid is the server-stored computed value
-  /// from submitReceipt — not a re-read from the client.
-  /// Stats/global is updated inside the same transaction so completion and
-  /// accounting are atomic and cannot silently diverge on a partial failure.
+  /// from submitReceipt — not a re-read from the client. Stats counters and
+  /// revenue are bumped by the `onJobStatusChanged` Cloud Function trigger
+  /// (Spec 003) when the status transitions to `completed`.
   static Future<void> approveReceipt(
       String jobId, String customerId) async {
     double amountPaid = 0.0;
     await firestore.runTransaction((tx) async {
       final jobRef = firestore.collection('jobs').doc(jobId);
-      final statsRef = firestore.doc('stats/global');
 
       final snap = await tx.get(jobRef);
       if (!snap.exists) throw Exception('Job not found');
@@ -1491,12 +1653,6 @@ class FirebaseService {
         'customerApprovedAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
-      // Stats increment is inside the same transaction — atomic with completion.
-      tx.set(statsRef, {
-        'totalEarnings': FieldValue.increment(amountPaid),
-        'jobsCompleted': FieldValue.increment(1),
-        'jobsOngoing': FieldValue.increment(-1),
-      }, SetOptions(merge: true));
     });
     // Activity log is fire-and-forget (non-critical audit trail only).
     try {
@@ -1589,12 +1745,7 @@ class FirebaseService {
             'adminClosedAt': FieldValue.serverTimestamp(),
             'updatedAt': FieldValue.serverTimestamp(),
           });
-          final statsRef = firestore.doc('stats/global');
-          tx.set(statsRef, {
-            'totalEarnings': FieldValue.increment(amount),
-            'jobsCompleted': FieldValue.increment(1),
-            'jobsOngoing': FieldValue.increment(-1),
-          }, SetOptions(merge: true));
+          // Stats counters + revenue: `onJobStatusChanged` trigger (Spec 003).
           break;
         case 'cancel':
           tx.update(ref, {
@@ -1602,11 +1753,7 @@ class FirebaseService {
             'disputeResolvedAt': FieldValue.serverTimestamp(),
             'updatedAt': FieldValue.serverTimestamp(),
           });
-          final statsRef = firestore.doc('stats/global');
-          tx.set(statsRef, {
-            'jobsCancelled': FieldValue.increment(1),
-            'jobsOngoing': FieldValue.increment(-1),
-          }, SetOptions(merge: true));
+          // Stats counters: `onJobStatusChanged` trigger (Spec 003).
           break;
       }
     });
@@ -1664,6 +1811,11 @@ class FirebaseService {
   /// Seeds `stats/global` from live aggregation queries.
   /// Call once during project setup or whenever the document is missing/incomplete.
   /// Requires admin permissions.
+  ///
+  /// NOTE (Spec 003): this bootstrap is preserved intentionally. Incremental
+  /// counter writes now flow through the server-side Cloud Functions in
+  /// `functions/src/stats/`. This method's eventual home is the admin web app
+  /// under `.claude/AdminWebApp/`; that migration is out of scope for Spec 003.
   static Future<void> initializeStatsGlobal() async {
     final results = await Future.wait([
       firestore.collection('users').count().get(),
