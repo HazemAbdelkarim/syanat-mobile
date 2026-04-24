@@ -1,12 +1,16 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../firebase_service.dart';
 import 'main.dart' show AppLocale;
 import 'chat_screen.dart';
 import 'glass_card.dart';
+import 'job_status.dart' show jobStatusTechLabel;
 import 'technician_active_job_screen.dart';
+import 'technician_approve_payment_screen.dart';
 import 'technician_profile_screen.dart';
+import 'technician_receipt_screen.dart';
 import 'settings_screen.dart';
 
 const Color syanatBlue = Color(0xFF3C21C8);
@@ -20,6 +24,7 @@ class TechHomeScreen extends StatefulWidget {
 
 class _TechHomeScreenState extends State<TechHomeScreen> {
   bool _loading = true;
+  Object? _jobsError;
   List<Map<String, dynamic>> _jobs = [];
   int _activeCount = 0;
   double _earnings = 0.0;
@@ -41,13 +46,29 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
   }
 
   Future<void> _initAfterAuth() async {
-    // Wait for Firebase Auth to confirm the session before subscribing to
-    // any streams — prevents false "not logged in" state on web.
-    await FirebaseService.auth
-        .authStateChanges()
-        .first
-        .timeout(const Duration(seconds: 5), onTimeout: () => null);
+    // Wait for a non-null signed-in user. authStateChanges().first returns
+    // the FIRST event which on cold web load can be null even if the user
+    // is about to be hydrated — bailing on that null leaves the spinner
+    // stuck. firstWhere with a timeout fixes the race without hanging.
+    var user = FirebaseService.getCurrentUser();
+    if (user == null) {
+      try {
+        user = await FirebaseService.auth
+            .authStateChanges()
+            .firstWhere((u) => u != null)
+            .timeout(const Duration(seconds: 8));
+      } catch (_) {
+        user = null;
+      }
+    }
     if (!mounted) return;
+    if (user == null) {
+      setState(() {
+        _loading = false;
+        _jobsError = 'auth_not_ready';
+      });
+      return;
+    }
     _subscribeProfile();
     _loadJobsRealtime();
     _subscribeNotifCount();
@@ -136,41 +157,71 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
     );
   }
 
-  Future<void> _primeCustomerCache(List<Map<String, dynamic>> jobs) async {
+  /// Best-effort: fetches customer display names for the cache.
+  ///
+  /// Failure here is intentionally non-fatal — `firestore.rules` does not let
+  /// a technician list other users' documents (rule on `users/{uid}` is owner-
+  /// or-admin only). When the read is denied the list still renders with the
+  /// "Customer" fallback label. Errors must never escape this method, or they
+  /// would crash the jobs stream listener and freeze the home screen on a
+  /// spinner.
+  Future<bool> _primeCustomerCache(List<Map<String, dynamic>> jobs) async {
     final missingIds = jobs
         .map((j) => (j['customerId'] as String?) ?? '')
         .where((id) => id.isNotEmpty && !_customerCache.containsKey(id))
         .toSet()
         .toList();
 
-    if (missingIds.isEmpty) return;
+    if (missingIds.isEmpty) return false;
 
+    var added = false;
     for (var i = 0; i < missingIds.length; i += 10) {
       final chunk = missingIds.skip(i).take(10).toList();
-      final snap = await FirebaseService.firestore
-          .collection('users')
-          .where(FieldPath.documentId, whereIn: chunk)
-          .get();
-
-      for (final doc in snap.docs) {
-        _customerCache[doc.id] = doc.data();
+      try {
+        final snap = await FirebaseService.firestore
+            .collection('users')
+            .where(FieldPath.documentId, whereIn: chunk)
+            .get();
+        for (final doc in snap.docs) {
+          _customerCache[doc.id] = doc.data();
+          added = true;
+        }
+      } catch (e) {
+        if (kDebugMode) {
+          debugPrint('[TechHome] customer cache chunk denied/failed: $e');
+        }
       }
     }
+    return added;
   }
 
   void _loadJobsRealtime() {
     final user = FirebaseService.getCurrentUser();
-    if (user == null) return;
+    if (user == null) {
+      // _initAfterAuth already guards on this, but keep a defensive branch:
+      // surface the state instead of leaving the spinner spinning.
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _jobsError = 'auth_not_ready';
+        });
+      }
+      return;
+    }
 
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _jobsError = null;
+    });
 
+    _jobsSub?.cancel();
     _jobsSub = FirebaseService.firestore
         .collection('jobs')
         .where('assignedTechnicianId', isEqualTo: user.uid)
         .orderBy('createdAt', descending: true)
         .limit(50)
         .snapshots()
-        .listen((snapshot) async {
+        .listen((snapshot) {
       final jobs = snapshot.docs.map((d) {
         final data = Map<String, dynamic>.from(d.data());
         data['id'] = d.id;
@@ -183,10 +234,15 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
               final s = j['status'] as String? ?? '';
               return s == 'active' ||
                   s == 'technician_accepted' ||
+                  s == 'on_the_way' ||
                   s == 'technician_arrived' ||
                   s == 'work_finished' ||
                   s == 'awaiting_customer_approval' ||
+                  s == 'awaiting_payment' ||
+                  s == 'awaiting_payment_verification' ||
                   s == 'receipt_disputed' ||
+                  // Legacy statuses still counted until any stragglers are
+                  // migrated via the "Open" button in _buildJobTrailing.
                   s == 'accepted' ||
                   s == 'in_progress' ||
                   s == 'inprogress';
@@ -201,19 +257,86 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
             (sum, j) => sum + (j['price'] as num? ?? 0).toDouble(),
           );
 
-      await _primeCustomerCache(jobs);
       if (!mounted) return;
-
+      // Paint the list immediately from the snapshot. The card and the list
+      // both read these fields, so they cannot disagree once this runs.
       setState(() {
         _jobs = jobs;
         _activeCount = active;
         _earnings = earnings;
         _loading = false;
+        _jobsError = null;
       });
-    }, onError: (e) {
-      debugPrint('Jobs stream error: $e');
-      if (mounted) setState(() => _loading = false);
+
+      // Best-effort customer-name prime runs AFTER the UI is rendered. Its
+      // failure (typical: rules deny tech reading customer users/*) cannot
+      // freeze the spinner because we already cleared _loading above.
+      _primeCustomerCache(jobs).then((added) {
+        if (added && mounted) setState(() {});
+      });
+    }, onError: (e, st) {
+      if (kDebugMode) {
+        debugPrint('[TechHome] jobs stream error: $e\n$st');
+      }
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _jobsError = e;
+        });
+      }
     });
+  }
+
+  void _retryJobs() {
+    setState(() {
+      _loading = true;
+      _jobsError = null;
+    });
+    _jobsSub?.cancel();
+    _initAfterAuth();
+  }
+
+  /// Returns the full-page widget to replace the home screen with for the
+  /// given [status], or null if the home screen should stay visible (with
+  /// a passive-wait banner). This is the single routing decision for the
+  /// active-job stream — keep it here, don't scatter if/else chains through
+  /// the build tree.
+  ///
+  /// Mapping (release 006):
+  ///   active, technician_accepted, on_the_way, technician_arrived
+  ///     → TechnicianActiveJobScreen (slider flow)
+  ///   work_finished                → TechnicianReceiptScreen (fill receipt)
+  ///   awaiting_customer_approval   → null (passive: customer is reviewing)
+  ///   awaiting_payment             → null (passive: customer is paying)
+  ///   awaiting_payment_verification → TechnicianApprovePaymentScreen
+  ///   receipt_disputed             → null (passive: admin is mediating)
+  ///   any other                    → null (completed/cancelled/unknown)
+  Widget? _activeJobRouteFor(
+      String status, Map<String, dynamic> job, String techId) {
+    switch (status) {
+      case 'active':
+      case 'technician_accepted':
+      case 'on_the_way':
+      case 'technician_arrived':
+        return TechnicianActiveJobScreen(
+          job: job,
+          technicianId: techId,
+        );
+      case 'work_finished':
+        return TechnicianReceiptScreen(
+          jobId: (job['id'] as String?) ?? '',
+          technicianId: techId,
+          job: Map<String, dynamic>.from(job),
+        );
+      case 'awaiting_payment_verification':
+        return TechnicianApprovePaymentScreen(
+          jobId: (job['id'] as String?) ?? '',
+          technicianId: techId,
+          job: Map<String, dynamic>.from(job),
+        );
+      default:
+        return null;
+    }
   }
 
   void _switchLanguage() {
@@ -228,23 +351,18 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
     final isEn = Localizations.localeOf(context).languageCode == 'en';
     final user = FirebaseService.getCurrentUser();
 
-    // Lock into active-job screen only during known active work steps.
-    // Passive waiting, disputed, and unknown statuses show home screen
-    // so the tech can access notifications, settings, etc.
-    const _lockedStatuses = {
-      'active',
-      'technician_accepted',
-      'technician_arrived',
-      'work_finished',
-    };
+    // Route to the right full-page screen based on active-job status.
+    // Passive-wait statuses (awaiting_customer_approval, awaiting_payment,
+    // receipt_disputed) return null and fall through to the home screen,
+    // which renders a banner via _buildPassiveWaitBanner. This keeps the
+    // status → screen decision in one testable place.
     if (_activeJob != null && user != null) {
-      final activeStatus = _activeJob!['status'] as String? ?? '';
-      if (_lockedStatuses.contains(activeStatus)) {
-        return TechnicianActiveJobScreen(
-          job: _activeJob!,
-          technicianId: user.uid,
-        );
-      }
+      final route = _activeJobRouteFor(
+        _activeJob!['status'] as String? ?? '',
+        _activeJob!,
+        user.uid,
+      );
+      if (route != null) return route;
     }
 
     return Directionality(
@@ -391,14 +509,16 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
                             Expanded(
                               child: _buildStatCard(
                                 isEn ? 'Active Jobs' : 'Active Jobs',
-                                '$_activeCount',
+                                _loading ? '…' : '$_activeCount',
                               ),
                             ),
                             const SizedBox(width: 10),
                             Expanded(
                               child: _buildStatCard(
                                 isEn ? 'Earnings Today' : 'Earnings Today',
-                                '${_earnings.toStringAsFixed(2)} EGP',
+                                _loading
+                                    ? '—'
+                                    : '${_earnings.toStringAsFixed(2)} EGP',
                               ),
                             ),
                             const SizedBox(width: 10),
@@ -428,114 +548,7 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
                         ),
                         const SizedBox(height: 12),
                         Expanded(
-                          child: _loading
-                              ? const Center(
-                                  child: CircularProgressIndicator(
-                                    color: syanatBlue,
-                                  ),
-                                )
-                              : _jobs.isEmpty
-                                  ? Center(
-                                      child: Text(
-                                        isEn ? 'No jobs yet' : 'No jobs yet',
-                                        style: const TextStyle(
-                                          color: Colors.black54,
-                                        ),
-                                      ),
-                                    )
-                                  : ListView.builder(
-                                      itemCount: _jobs.length,
-                                      itemBuilder: (context, index) {
-                                        final j = _jobs[index];
-                                        final status =
-                                            j['status'] as String? ?? 'requested';
-                                        final customerId =
-                                            j['customerId'] as String? ?? '';
-                                        final customer =
-                                            _customerCache[customerId] ?? const {};
-                                        final username = customer['username'] ??
-                                            customer['email'] ??
-                                            'Customer';
-                                        final description = j['description'] ?? '';
-                                        final price = j['price'] ?? 0;
-
-                                        return Padding(
-                                          padding:
-                                              const EdgeInsets.only(bottom: 10),
-                                          child: GlassCard(
-                                            padding: const EdgeInsets.fromLTRB(
-                                              12,
-                                              8,
-                                              4,
-                                              8,
-                                            ),
-                                            child: ListTile(
-                                              dense: true,
-                                              visualDensity:
-                                                  VisualDensity.compact,
-                                              contentPadding:
-                                                  const EdgeInsets.symmetric(
-                                                horizontal: 12,
-                                                vertical: 0,
-                                              ),
-                                              minVerticalPadding: 0,
-                                              leading: CircleAvatar(
-                                                backgroundColor:
-                                                    Colors.grey.shade300,
-                                                child: const Icon(
-                                                  Icons.person,
-                                                  color: Colors.black54,
-                                                ),
-                                              ),
-                                              title: Text(
-                                                username.toString(),
-                                                style: const TextStyle(
-                                                  color: Colors.black,
-                                                ),
-                                              ),
-                                              subtitle: Column(
-                                                crossAxisAlignment:
-                                                    CrossAxisAlignment.start,
-                                                children: [
-                                                  if (description
-                                                      .toString()
-                                                      .isNotEmpty)
-                                                    Text(
-                                                      description.toString(),
-                                                      style: const TextStyle(
-                                                        color: Colors.black54,
-                                                      ),
-                                                    ),
-                                                  const SizedBox(height: 6),
-                                                  Text(
-                                                    isEn
-                                                        ? 'Status: $status'
-                                                        : 'Status: $status',
-                                                    style: const TextStyle(
-                                                      color: Colors.black54,
-                                                      fontSize: 12,
-                                                    ),
-                                                  ),
-                                                  const SizedBox(height: 4),
-                                                  Text(
-                                                    isEn
-                                                        ? 'Price: $price EGP'
-                                                        : 'Price: $price EGP',
-                                                    style: const TextStyle(
-                                                      color: Colors.black54,
-                                                      fontSize: 12,
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                              trailing: _buildJobTrailing(
-                                                status, customerId,
-                                                j['id'] as String, isEn),
-                                            ),
-                                          ),
-                                        );
-                                      },
-                                    ),
+                          child: _buildJobsBody(isEn),
                         ),
                       ],
                     ),
@@ -549,14 +562,199 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
     );
   }
 
+  Widget _buildJobsBody(bool isEn) {
+    if (_loading) {
+      return const Center(
+        child: CircularProgressIndicator(color: syanatBlue),
+      );
+    }
+    if (_jobsError != null) {
+      final isAuth = _jobsError == 'auth_not_ready';
+      final title = isAuth
+          ? (isEn ? 'Signing in…' : 'جاري تسجيل الدخول...')
+          : (isEn ? 'Could not load jobs.' : 'تعذر تحميل الوظائف.');
+      final subtitle = isAuth
+          ? (isEn
+              ? 'Please wait or tap retry.'
+              : 'يرجى الانتظار أو الضغط على إعادة المحاولة.')
+          : (isEn
+              ? 'Check your connection and try again.'
+              : 'تحقق من الاتصال ثم أعد المحاولة.');
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                isAuth ? Icons.lock_clock : Icons.error_outline,
+                color: isAuth ? syanatBlue : Colors.red,
+                size: 40,
+              ),
+              const SizedBox(height: 10),
+              Text(
+                title,
+                style: const TextStyle(
+                  color: Colors.black87,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 15,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                subtitle,
+                style: const TextStyle(color: Colors.black54, fontSize: 13),
+                textAlign: TextAlign.center,
+              ),
+              if (kDebugMode) ...[
+                const SizedBox(height: 8),
+                Text(
+                  _jobsError.toString(),
+                  style: const TextStyle(
+                    color: Colors.black38,
+                    fontSize: 11,
+                    fontFamily: 'monospace',
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+              const SizedBox(height: 14),
+              ElevatedButton.icon(
+                onPressed: _retryJobs,
+                icon: const Icon(Icons.refresh),
+                label: Text(isEn ? 'Retry' : 'إعادة المحاولة'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: syanatBlue,
+                  foregroundColor: Colors.white,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    if (_jobs.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.inbox_outlined,
+                  color: Colors.black26, size: 48),
+              const SizedBox(height: 10),
+              Text(
+                isEn ? 'No active jobs yet.' : 'لا توجد وظائف نشطة بعد.',
+                style: const TextStyle(
+                  color: Colors.black87,
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                isEn
+                    ? 'New jobs assigned by admin will appear here.'
+                    : 'ستظهر الوظائف التي يعينها المسؤول هنا.',
+                style: const TextStyle(color: Colors.black54, fontSize: 13),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    return ListView.builder(
+      itemCount: _jobs.length,
+      itemBuilder: (context, index) => _buildJobTile(_jobs[index], isEn),
+    );
+  }
+
+  Widget _buildJobTile(Map<String, dynamic> j, bool isEn) {
+    final status = j['status'] as String? ?? 'requested';
+    final customerId = j['customerId'] as String? ?? '';
+    final customer = _customerCache[customerId] ?? const {};
+    final username =
+        customer['username'] ?? customer['email'] ?? 'Customer';
+    final description = j['description'] ?? '';
+    final price = j['price'] ?? 0;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: GlassCard(
+        padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
+        child: ListTile(
+          dense: true,
+          visualDensity: VisualDensity.compact,
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 12,
+            vertical: 0,
+          ),
+          minVerticalPadding: 0,
+          leading: CircleAvatar(
+            backgroundColor: Colors.grey.shade300,
+            child: const Icon(Icons.person, color: Colors.black54),
+          ),
+          title: Text(
+            username.toString(),
+            style: const TextStyle(color: Colors.black),
+          ),
+          subtitle: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (description.toString().isNotEmpty)
+                Text(
+                  description.toString(),
+                  style: const TextStyle(color: Colors.black54),
+                ),
+              const SizedBox(height: 6),
+              Text(
+                '${isEn ? 'Status' : 'الحالة'}: '
+                '${jobStatusTechLabel(status, isEn: isEn)}',
+                style: const TextStyle(color: Colors.black54, fontSize: 12),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                isEn ? 'Price: $price EGP' : 'Price: $price EGP',
+                style: const TextStyle(color: Colors.black54, fontSize: 12),
+              ),
+            ],
+          ),
+          trailing: _buildJobTrailing(
+              status, customerId, j['id'] as String, isEn),
+        ),
+      ),
+    );
+  }
+
   Widget _buildPassiveWaitBanner(bool isEn, String techId) {
     final status = _activeJob!['status'] as String? ?? '';
     final isDisputed = status == 'receipt_disputed';
     final color = isDisputed ? Colors.red.shade400 : syanatBlue;
-    final icon = isDisputed ? Icons.gavel : Icons.hourglass_top;
-    final title = isDisputed
-        ? (isEn ? 'Receipt Disputed — Admin Reviewing' : 'إيصال متنازع عليه — الإدارة تراجع')
-        : (isEn ? 'Awaiting Customer Approval' : 'بانتظار موافقة العميل');
+    final icon = isDisputed
+        ? Icons.gavel
+        : (status == 'awaiting_payment'
+            ? Icons.payments_outlined
+            : Icons.hourglass_top);
+    final String title;
+    if (isDisputed) {
+      title = isEn
+          ? 'Receipt Disputed — Admin Reviewing'
+          : 'إيصال متنازع عليه — الإدارة تراجع';
+    } else if (status == 'awaiting_payment') {
+      title =
+          isEn ? 'Awaiting Customer Payment' : 'بانتظار دفع العميل';
+    } else if (status == 'awaiting_customer_approval') {
+      title = isEn
+          ? 'Awaiting Customer Approval'
+          : 'بانتظار موافقة العميل';
+    } else {
+      // Fallback — covers any future passive-wait status we haven't
+      // specifically labelled yet. Status text is still accurate via the
+      // bilingual label helper.
+      title = jobStatusTechLabel(status, isEn: isEn);
+    }
 
     return GestureDetector(
       onTap: () {

@@ -45,8 +45,47 @@ class JobStatus {
 /// Who is attempting the transition. Rules enforce per-actor gates — the
 /// same (from, to) may be allowed for one actor and denied for another
 /// (e.g. only the customer can transition `awaiting_customer_approval →
-/// completed`; only an admin can do it from `receipt_disputed`).
+/// awaiting_payment`; only an admin can do it from `receipt_disputed`).
 enum JobActor { admin, technician, customer, system }
+
+/// Returns a bilingual status label from the *technician's* perspective.
+/// Used by `tech_home_screen.dart` tiles and the active-job screen banners.
+/// A separate customer-perspective label helper (`jobStatusCustomerLabel`)
+/// lands with Phase 6; the two share the same status enum so adding it
+/// later is purely additive.
+///
+/// Unknown statuses fall back to the raw string so a forgotten mapping is
+/// visible in-app rather than silently empty.
+String jobStatusTechLabel(String status, {required bool isEn}) {
+  switch (status) {
+    case JobStatus.requested:
+      return isEn ? 'Pending assignment' : 'بانتظار التعيين';
+    case JobStatus.active:
+      return isEn ? 'New assignment' : 'مهمة جديدة';
+    case JobStatus.technicianAccepted:
+      return isEn ? 'Ready to start' : 'جاهز للبدء';
+    case JobStatus.onTheWay:
+      return isEn ? 'On the way' : 'في الطريق';
+    case JobStatus.technicianArrived:
+      return isEn ? 'Arrived on site' : 'وصلت إلى الموقع';
+    case JobStatus.workFinished:
+      return isEn ? 'Fill receipt' : 'إعداد الفاتورة';
+    case JobStatus.awaitingCustomerApproval:
+      return isEn ? 'Awaiting customer approval' : 'بانتظار موافقة العميل';
+    case JobStatus.awaitingPayment:
+      return isEn ? 'Awaiting customer payment' : 'بانتظار الدفع';
+    case JobStatus.awaitingPaymentVerification:
+      return isEn ? 'Approve payment' : 'تأكيد الدفع';
+    case JobStatus.receiptDisputed:
+      return isEn ? 'Receipt disputed' : 'الفاتورة محل نزاع';
+    case JobStatus.completed:
+      return isEn ? 'Completed' : 'مكتملة';
+    case JobStatus.cancelled:
+      return isEn ? 'Cancelled' : 'ملغاة';
+    default:
+      return status;
+  }
+}
 
 /// Returns `true` when [actor] may transition a job from [from] to [to].
 /// Mirrors `firestore.rules:177-321` (jobs update branches).
