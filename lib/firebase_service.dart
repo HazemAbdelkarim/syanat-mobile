@@ -855,60 +855,22 @@ class FirebaseService {
   }
 
   // ----------------------
-  // INVENTORY MANAGEMENT
+  // INVENTORY (deprecated)
+  //
+  // The per-technician inventory feature was retired in release 006
+  // (April 2026). Write methods (`addInventoryItem`, `updateInventoryItem`,
+  // `deleteInventoryItem`, `streamInventory`) have been removed along with
+  // the /inventory Firestore rules.
+  //
+  // `getInventory` is retained on a short leash because
+  // `lib/user_item_prices_screen.dart` (a customer-facing price viewer) still
+  // references it. Under the new model the `inventory` collection is frozen
+  // and no new documents will ever be created, so this method will always
+  // return an empty list. It is scheduled for removal together with
+  // `user_item_prices_screen.dart` in a follow-up cleanup.
   // ----------------------
-  static Future<void> addInventoryItem({
-    required String technicianId,
-    required String itemName,
-    required int quantity,
-    required double costPerItem,
-    String description = '',
-  }) async {
-    await firestore.collection('inventory').add({
-      'technicianId': technicianId,
-      'itemName': itemName,
-      'quantity': quantity,
-      'costPerItem': costPerItem,
-      'description': description,
-      'createdAt': FieldValue.serverTimestamp(),
-    });
-  }
-
-  static Future<void> updateInventoryItem({
-    required String itemId,
-    required String itemName,
-    required int quantity,
-    required double costPerItem,
-    String description = '',
-  }) async {
-    await firestore.collection('inventory').doc(itemId).update({
-      'itemName': itemName,
-      'quantity': quantity,
-      'costPerItem': costPerItem,
-      'description': description,
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
-  }
-
-  static Future<void> deleteInventoryItem(String itemId) async {
-    await firestore.collection('inventory').doc(itemId).delete();
-  }
-
-  static Stream<List<Map<String, dynamic>>> streamInventory(String technicianId) {
-    return firestore
-        .collection('inventory')
-        .where('technicianId', isEqualTo: technicianId)
-        .orderBy('createdAt', descending: true)
-        .limit(100)
-        .snapshots()
-        .map((snap) => snap.docs.map((d) {
-              final data = Map<String, dynamic>.from(d.data());
-              data['id'] = d.id;
-              return data;
-            }).toList());
-  }
-
-  static Future<List<Map<String, dynamic>>> getInventory(String technicianId) async {
+  static Future<List<Map<String, dynamic>>> getInventory(
+      String technicianId) async {
     final snap = await firestore
         .collection('inventory')
         .where('technicianId', isEqualTo: technicianId)
@@ -1010,6 +972,30 @@ class FirebaseService {
   static Future<String> uploadPaymentProof(XFile file, String paymentId) async {
     final ref = storage.ref().child('payment_proofs/$paymentId.jpg');
     final compressed = await compressImage(file);
+    await ref
+        .putData(
+          Uint8List.fromList(compressed),
+          SettableMetadata(contentType: 'image/jpeg'),
+        )
+        .timeout(const Duration(seconds: 30));
+    return await ref.getDownloadURL().timeout(const Duration(seconds: 10));
+  }
+
+  /// Uploads a technician's payment-proof photo keyed by job and returns
+  /// the download URL (release 006). Used by the tech's verify-payment flow
+  /// via `verifyPaymentWithProof`.
+  ///
+  /// Compresses at 1600 px / JPEG q70 — higher quality than the default
+  /// `uploadPaymentProof` because admins review cash/bill detail. Writes to
+  /// `payment_proofs/{jobId}_{timestamp}.jpg` (flat path, matches the
+  /// existing `storage.rules` match block).
+  static Future<String> uploadJobPaymentProof(
+      XFile file, String jobId) async {
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final ref =
+        storage.ref().child('payment_proofs/${jobId}_$timestamp.jpg');
+    final compressed =
+        await compressImage(file, maxDimension: 1600, quality: 70);
     await ref
         .putData(
           Uint8List.fromList(compressed),
@@ -1211,12 +1197,19 @@ class FirebaseService {
     return firestore
         .collection('jobs')
         .where('assignedTechnicianId', isEqualTo: technicianId)
+        // Release-006 whereIn list covers every non-terminal status the tech
+        // might be sitting on. 9 values — safely under Firestore's 10-value
+        // whereIn cap. Keep this list in lockstep with the tech-side active-
+        // job slider (`technician_active_job_screen.dart`).
         .where('status', whereIn: [
           'active',
           'technician_accepted',
+          'on_the_way',
           'technician_arrived',
           'work_finished',
           'awaiting_customer_approval',
+          'awaiting_payment',
+          'awaiting_payment_verification',
           'receipt_disputed',
         ])
         .limit(1)
@@ -1231,44 +1224,15 @@ class FirebaseService {
     });
   }
 
-  /// Admin closes an active job with the exact amount paid.
-  /// Uses a transaction to ensure revenue is incremented only once.
-  /// Returns true if the job was newly closed; false if already closed.
-  static Future<bool> adminCloseJob({
-    required String jobId,
-    required double amountPaid,
-  }) async {
-    bool closed = false;
-    await firestore.runTransaction((tx) async {
-      final ref = firestore.collection('jobs').doc(jobId);
-      final snap = await tx.get(ref);
-      if (!snap.exists) return;
-      final data = snap.data()!;
-      // Idempotency guard: if adminClosedAt is already set, skip.
-      if (data['adminClosedAt'] != null) return;
-      tx.update(ref, {
-        'status': 'completed',
-        'amountPaid': amountPaid,
-        'price': amountPaid,
-        'adminClosedAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-      closed = true;
-    });
-    if (closed) {
-      // Stats (revenue + counter movement) now flow through the
-      // `onJobStatusChanged` Cloud Function trigger (Spec 003).
-      try {
-        await firestore.collection('activity_log').add({
-          'type': 'job_completed',
-          'description': 'Job closed — ${amountPaid.toStringAsFixed(0)} EGP',
-          'jobId': jobId,
-          'createdAt': FieldValue.serverTimestamp(),
-        });
-      } catch (_) {}
-    }
-    return closed;
-  }
+  // adminCloseJob was removed in release 006.
+  //
+  // The method was dead: zero callers in the mobile app, and the deployed
+  // firestore.rules only allow admin → `completed` from `receipt_disputed`
+  // (via `adminResolveDispute`). Any other from-state hit permission-denied.
+  // The authoritative admin close-job path is the Cloud Function
+  // `adminCloseJob` (see `functions/src/admin/close-job.ts`, exported from
+  // `functions/src/index.ts`). Admin-dashboard code should call it via the
+  // `cloud_functions` SDK rather than writing the status field directly.
 
   // ─────────────────────────────────────────────────────────────────────────
   // ADMIN JOB STREAMS (by status)
@@ -1480,8 +1444,38 @@ class FirebaseService {
     });
   }
 
-  /// Step 2: Technician confirms arrival at the customer location.
-  /// Transitions: technician_accepted → technician_arrived.
+  /// Step 2a (release 006): Technician starts the trip to the customer.
+  /// Transitions: technician_accepted → on_the_way.
+  /// Idempotent: re-calling while already `on_the_way` is a no-op.
+  static Future<void> markOnTheWay(
+      String jobId, String technicianId) async {
+    await firestore.runTransaction((tx) async {
+      final ref = firestore.collection('jobs').doc(jobId);
+      final snap = await tx.get(ref);
+      if (!snap.exists) throw Exception('Job not found');
+      final data = snap.data()!;
+      final currentStatus = (data['status'] as String?) ?? '';
+      if (currentStatus == 'on_the_way') return;
+      if (currentStatus != 'technician_accepted') {
+        throw StateError(
+            'Unexpected job status: got $currentStatus, expected technician_accepted');
+      }
+      if (data['assignedTechnicianId'] != technicianId) {
+        throw Exception('You are not assigned to this job');
+      }
+      tx.update(ref, {
+        'status': 'on_the_way',
+        'onTheWayAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    });
+  }
+
+  /// Step 2b: Technician confirms arrival at the customer location.
+  /// Transitions: on_the_way → technician_arrived. (Release-006 moved the
+  /// source state from `technician_accepted` to `on_the_way`; the tech
+  /// must now swipe "on the way" first.)
+  /// Idempotent: re-calling while already `technician_arrived` is a no-op.
   static Future<void> markTechnicianArrived(
       String jobId, String technicianId) async {
     await firestore.runTransaction((tx) async {
@@ -1489,8 +1483,11 @@ class FirebaseService {
       final snap = await tx.get(ref);
       if (!snap.exists) throw Exception('Job not found');
       final data = snap.data()!;
-      if (data['status'] != 'technician_accepted') {
-        throw Exception('Job is not ready for arrival confirmation');
+      final currentStatus = (data['status'] as String?) ?? '';
+      if (currentStatus == 'technician_arrived') return;
+      if (currentStatus != 'on_the_way') {
+        throw StateError(
+            'Unexpected job status: got $currentStatus, expected on_the_way');
       }
       if (data['assignedTechnicianId'] != technicianId) {
         throw Exception('You are not assigned to this job');
@@ -1559,9 +1556,17 @@ class FirebaseService {
   /// Technician submits a structured receipt after finishing work.
   /// Transitions: work_finished → awaiting_customer_approval.
   ///
+  /// Release-006 downstream flow: the customer reviews the receipt, calls
+  /// `approveReceipt` (→ awaiting_payment), pays the technician in person,
+  /// calls `initiatePayment` (→ awaiting_payment_verification), and the
+  /// technician closes the job with `verifyPaymentWithProof`. `completedAt`
+  /// is set only on that final tech-verify step.
+  ///
   /// Totals are RECOMPUTED from the line items here and override any values
   /// passed in from the client, so a buggy or modified client cannot persist
-  /// inconsistent billing numbers.
+  /// inconsistent billing numbers. A top-level `receiptTotal` numeric field
+  /// is also written so the completion rule can gate on
+  /// `amountPaid >= receiptTotal` without traversing into the `receipt` map.
   static Future<void> submitReceipt({
     required String jobId,
     required String technicianId,
@@ -1614,52 +1619,167 @@ class FirebaseService {
           'grandTotal': computedGrand,
           'notes': notes,
         },
+        'receiptTotal': computedGrand,
         'receiptSubmittedAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
     });
   }
 
-  /// Customer approves the submitted receipt.
-  /// Transitions: awaiting_customer_approval → completed.
+  /// Customer approves the receipt line items (release 006 step 1 of 3).
+  /// Transitions: awaiting_customer_approval → awaiting_payment.
   ///
-  /// The grand total used as amountPaid is the server-stored computed value
-  /// from submitReceipt — not a re-read from the client. Stats counters and
-  /// revenue are bumped by the `onJobStatusChanged` Cloud Function trigger
-  /// (Spec 003) when the status transitions to `completed`.
+  /// No money moves here — `amountPaid`, `paidAt`, `completedAt` are NOT
+  /// written. The customer then pays the technician in person and signals it
+  /// by calling `initiatePayment`; the technician uploads proof and calls
+  /// `verifyPaymentWithProof` to close the order.
+  ///
+  /// Idempotent: re-calling while already `awaiting_payment` is a no-op.
   static Future<void> approveReceipt(
       String jobId, String customerId) async {
-    double amountPaid = 0.0;
     await firestore.runTransaction((tx) async {
-      final jobRef = firestore.collection('jobs').doc(jobId);
-
-      final snap = await tx.get(jobRef);
+      final ref = firestore.collection('jobs').doc(jobId);
+      final snap = await tx.get(ref);
       if (!snap.exists) throw Exception('Job not found');
       final data = snap.data()!;
-      if (data['status'] != 'awaiting_customer_approval') {
-        throw Exception('Order is not awaiting approval');
+      final currentStatus = (data['status'] as String?) ?? '';
+      if (currentStatus == 'awaiting_payment') return;
+      if (currentStatus != 'awaiting_customer_approval') {
+        throw StateError(
+            'Unexpected job status: got $currentStatus, expected awaiting_customer_approval');
       }
       if (data['customerId'] != customerId) {
         throw Exception('You are not authorized to approve this order');
       }
-      final receipt = data['receipt'] as Map<String, dynamic>?;
-      if (receipt == null) throw Exception('No receipt found on this order');
-      amountPaid = (receipt['grandTotal'] as num?)?.toDouble() ?? 0.0;
-
-      tx.update(jobRef, {
-        'status': 'completed',
-        'amountPaid': amountPaid,
-        'price': amountPaid,
-        'customerApprovedAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
+      final now = FieldValue.serverTimestamp();
+      tx.update(ref, {
+        'status': 'awaiting_payment',
+        'customerApprovedAt': now,
+        'approvedAt': now,
+        'updatedAt': now,
       });
     });
     // Activity log is fire-and-forget (non-critical audit trail only).
+    // Release-006 note: `customer_approved` now logs line-item approval only
+    // (see SECURITY/SEMANTIC NOTE in firestore.rules).
     try {
       await firestore.collection('activity_log').add({
-        'type': 'job_completed',
+        'type': 'customer_approved',
+        'description': 'Customer approved receipt — awaiting payment',
+        'jobId': jobId,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+    } catch (_) {}
+  }
+
+  /// Customer marks that they paid the technician in person (release 006
+  /// step 2 of 3). Transitions: awaiting_payment → awaiting_payment_verification.
+  ///
+  /// No money data is written here — the technician then uploads a photo
+  /// proof and writes `amountPaid` + `paymentProofUrl` via
+  /// `verifyPaymentWithProof`. The customer cannot reach `completed` directly;
+  /// only the tech (with proof) or an admin (via dispute resolution) can.
+  ///
+  /// Idempotent: re-calling while already `awaiting_payment_verification` is
+  /// a no-op.
+  static Future<void> initiatePayment(
+      String jobId, String customerId) async {
+    await firestore.runTransaction((tx) async {
+      final ref = firestore.collection('jobs').doc(jobId);
+      final snap = await tx.get(ref);
+      if (!snap.exists) throw Exception('Job not found');
+      final data = snap.data()!;
+      final currentStatus = (data['status'] as String?) ?? '';
+      if (currentStatus == 'awaiting_payment_verification') return;
+      if (currentStatus != 'awaiting_payment') {
+        throw StateError(
+            'Unexpected job status: got $currentStatus, expected awaiting_payment');
+      }
+      if (data['customerId'] != customerId) {
+        throw Exception('You are not authorized to mark this order paid');
+      }
+      tx.update(ref, {
+        'status': 'awaiting_payment_verification',
+        'paymentInitiatedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    });
+    try {
+      await firestore.collection('activity_log').add({
+        'type': 'payment_initiated',
+        'description': 'Customer marked payment sent — awaiting verification',
+        'jobId': jobId,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+    } catch (_) {}
+  }
+
+  /// Technician verifies payment received with an uploaded photo proof
+  /// (release 006 step 3 of 3). Transitions: awaiting_payment_verification →
+  /// completed. This is one of only two paths that can write
+  /// `status: 'completed'` — see the SECURITY INVARIANT comment in
+  /// firestore.rules (branch 5). The other is admin dispute-resolve.
+  ///
+  /// Rule gates, all of which must pass: `assignedTechnicianId == auth.uid`,
+  /// `paymentProofUrl is string`, `amountPaid >= receiptTotal`,
+  /// `amountPaid <= 50000`. Client-side we fail fast on the same checks so
+  /// the error surface is specific instead of a generic permission-denied.
+  ///
+  /// Revenue + counter movement is bumped by the `onJobStatusChanged` Cloud
+  /// Function trigger (Spec 003) when the status lands at `completed`.
+  ///
+  /// Idempotent: re-calling while already `completed` is a no-op.
+  static Future<void> verifyPaymentWithProof({
+    required String jobId,
+    required String technicianId,
+    required String paymentProofUrl,
+    required double amountPaid,
+  }) async {
+    if (paymentProofUrl.isEmpty) {
+      throw ArgumentError('paymentProofUrl is required');
+    }
+    if (!amountPaid.isFinite || amountPaid < 0 || amountPaid > 50000) {
+      throw ArgumentError('amountPaid must be in [0, 50000]');
+    }
+
+    await firestore.runTransaction((tx) async {
+      final ref = firestore.collection('jobs').doc(jobId);
+      final snap = await tx.get(ref);
+      if (!snap.exists) throw Exception('Job not found');
+      final data = snap.data()!;
+      final currentStatus = (data['status'] as String?) ?? '';
+      if (currentStatus == 'completed') return;
+      if (currentStatus != 'awaiting_payment_verification') {
+        throw StateError(
+            'Unexpected job status: got $currentStatus, expected awaiting_payment_verification');
+      }
+      if (data['assignedTechnicianId'] != technicianId) {
+        throw Exception('You are not assigned to this job');
+      }
+      final receiptTotal =
+          (data['receiptTotal'] as num?)?.toDouble() ?? 0.0;
+      if (amountPaid < receiptTotal) {
+        throw ArgumentError(
+            'amountPaid ($amountPaid) must be >= receiptTotal ($receiptTotal)');
+      }
+
+      final now = FieldValue.serverTimestamp();
+      tx.update(ref, {
+        'status': 'completed',
+        'amountPaid': amountPaid,
+        'price': amountPaid,
+        'paymentProofUrl': paymentProofUrl,
+        'paidAt': now,
+        'completedAt': now,
+        'paymentVerifiedAt': now,
+        'updatedAt': now,
+      });
+    });
+    try {
+      await firestore.collection('activity_log').add({
+        'type': 'payment_verified',
         'description':
-            'Job completed — ${amountPaid.toStringAsFixed(0)} EGP',
+            'Payment verified — ${amountPaid.toStringAsFixed(0)} EGP',
         'jobId': jobId,
         'createdAt': FieldValue.serverTimestamp(),
       });
@@ -1769,12 +1889,55 @@ class FirebaseService {
   }
 
   /// Streams the job awaiting customer receipt approval for a given customer.
+  /// Narrow stream — covers only `awaiting_customer_approval`. Kept for the
+  /// "review receipt" card UI. For a full non-terminal customer-job stream,
+  /// use `streamCustomerActiveOrder`.
   static Stream<Map<String, dynamic>?> streamCustomerPendingReceipt(
       String customerId) {
     return firestore
         .collection('jobs')
         .where('customerId', isEqualTo: customerId)
         .where('status', isEqualTo: 'awaiting_customer_approval')
+        .limit(1)
+        .snapshots()
+        .map((snap) {
+      if (snap.docs.isEmpty) return null;
+      final doc = snap.docs.first;
+      return {'id': doc.id, ...Map<String, dynamic>.from(doc.data())};
+    });
+  }
+
+  /// Streams the customer's currently-active (non-terminal) job. Added in
+  /// release 006 to back the customer's order-progress view across the
+  /// approve → initiate → verify payment flow.
+  ///
+  /// whereIn covers all 10 non-terminal statuses — exactly at Firestore's
+  /// 10-value cap. Any future non-terminal status MUST either collapse into
+  /// an existing one or this stream will need to be split. Limit 1 is a
+  /// convenience for the common case; concurrent customer orders are rare
+  /// (rate-limited to 1 order per 60 s at create time) but the UI layer
+  /// should be prepared to pick one deterministically if multiple exist.
+  ///
+  /// Callers in Phase 6 should prefer this over
+  /// `streamCustomerPendingReceipt` for anything that needs lifecycle-wide
+  /// visibility (active order card, status banner, progress indicator).
+  static Stream<Map<String, dynamic>?> streamCustomerActiveOrder(
+      String customerId) {
+    return firestore
+        .collection('jobs')
+        .where('customerId', isEqualTo: customerId)
+        .where('status', whereIn: [
+          'requested',
+          'active',
+          'technician_accepted',
+          'on_the_way',
+          'technician_arrived',
+          'work_finished',
+          'awaiting_customer_approval',
+          'awaiting_payment',
+          'awaiting_payment_verification',
+          'receipt_disputed',
+        ])
         .limit(1)
         .snapshots()
         .map((snap) {
