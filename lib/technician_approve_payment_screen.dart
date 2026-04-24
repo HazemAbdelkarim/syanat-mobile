@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import 'firebase_service.dart';
+import 'widgets/receipt_summary_card.dart';
 
 const Color _syanatBlue = Color(0xFF3C21C8);
 
@@ -232,7 +233,12 @@ class _TechnicianApprovePaymentScreenState
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
-                  _receiptSummaryCard(isEn),
+                  ReceiptSummaryCard(
+                    receiptData: _receipt,
+                    isEn: isEn,
+                    // Subtotals + grand total are off here because the
+                    // amount-due card below renders the canonical total.
+                  ),
                   const SizedBox(height: 16),
                   _amountDueCard(isEn),
                   const SizedBox(height: 16),
@@ -249,117 +255,6 @@ class _TechnicianApprovePaymentScreenState
   }
 
   // ── Sub-builders ──────────────────────────────────────────────────────────
-
-  Widget _receiptSummaryCard(bool isEn) {
-    final r = _receipt;
-    final services = (r?['services'] as List?)?.cast<dynamic>() ?? const [];
-    final parts = (r?['parts'] as List?)?.cast<dynamic>() ?? const [];
-    final notes = (r?['notes'] as String?)?.trim() ?? '';
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        boxShadow: const [
-          BoxShadow(
-              color: Color(0x0F000000),
-              blurRadius: 8,
-              offset: Offset(0, 3)),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(Icons.receipt_long, color: _syanatBlue, size: 20),
-              const SizedBox(width: 8),
-              Text(
-                isEn ? 'Receipt Summary' : 'ملخص الإيصال',
-                style: const TextStyle(
-                    fontSize: 15, fontWeight: FontWeight.bold),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          if (services.isNotEmpty) ...[
-            Text(
-              isEn ? 'Services' : 'الخدمات',
-              style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.grey.shade700),
-            ),
-            const SizedBox(height: 6),
-            ...services.map(
-              (s) => _lineRow(
-                (s is Map) ? (s['title']?.toString() ?? '') : s.toString(),
-                (s is Map) ? (s['price'] as num?)?.toDouble() ?? 0 : 0,
-              ),
-            ),
-            const SizedBox(height: 10),
-          ],
-          if (parts.isNotEmpty) ...[
-            Text(
-              isEn ? 'Parts' : 'القطع',
-              style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.grey.shade700),
-            ),
-            const SizedBox(height: 6),
-            ...parts.map(
-              (p) => _lineRow(
-                (p is Map) ? (p['name']?.toString() ?? '') : p.toString(),
-                (p is Map) ? (p['price'] as num?)?.toDouble() ?? 0 : 0,
-              ),
-            ),
-            const SizedBox(height: 10),
-          ],
-          if (notes.isNotEmpty) ...[
-            const Divider(height: 20),
-            Text(
-              isEn ? 'Notes' : 'ملاحظات',
-              style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.grey.shade700),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              notes,
-              style:
-                  TextStyle(fontSize: 13, color: Colors.grey.shade700),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _lineRow(String label, double amount) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Expanded(
-            child: Text(
-              label,
-              style: const TextStyle(fontSize: 13, color: Colors.black87),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Text(
-            '${amount.toStringAsFixed(0)} EGP',
-            style: const TextStyle(fontSize: 13, color: Colors.black87),
-          ),
-        ],
-      ),
-    );
-  }
 
   Widget _amountDueCard(bool isEn) {
     final total = _receiptTotal;
