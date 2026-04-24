@@ -80,6 +80,38 @@ class _TechnicianActiveJobScreenState
     }
   }
 
+  Future<void> _markOnTheWay() async {
+    if (_actionInProgress) return;
+    final isEn = Localizations.localeOf(context).languageCode == 'en';
+    setState(() => _actionInProgress = true);
+    try {
+      if (_jobId.isEmpty) throw Exception('Missing job ID');
+      await FirebaseService.markOnTheWay(_jobId, widget.technicianId);
+    } on FirebaseException catch (e) {
+      debugPrint('Mark on-the-way Firebase error: ${e.code} – ${e.message}');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(_permissionMsg(isEn, e,
+            en: 'Could not confirm you are on the way. Please try again.',
+            ar: 'تعذر تأكيد أنك في الطريق. يرجى المحاولة مرة أخرى.')),
+      ));
+      rethrow;
+    } catch (e) {
+      debugPrint('Mark on-the-way error: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_t(isEn,
+              'Could not confirm you are on the way. Please try again.',
+              'تعذر تأكيد أنك في الطريق. يرجى المحاولة مرة أخرى.')),
+        ),
+      );
+      rethrow;
+    } finally {
+      if (mounted) setState(() => _actionInProgress = false);
+    }
+  }
+
   Future<void> _markArrived() async {
     if (_actionInProgress) return;
     final isEn = Localizations.localeOf(context).languageCode == 'en';
@@ -121,34 +153,41 @@ class _TechnicianActiveJobScreenState
       if (_jobId.isEmpty) throw Exception('Missing job ID');
       await FirebaseService.markWorkFinished(_jobId, widget.technicianId);
       if (!mounted) return;
-      Navigator.push(
+      // pushReplacement (not push): once the slider confirms, the tech is
+      // committed to filling the receipt — we don't want them swiping back
+      // into a slider that would re-fire the (now-stale) transition.
+      await Navigator.pushReplacement(
         context,
         MaterialPageRoute(
           builder: (_) => TechnicianReceiptScreen(
             jobId: _jobId,
             technicianId: widget.technicianId,
+            job: Map<String, dynamic>.from(widget.job),
           ),
         ),
       );
     } on FirebaseException catch (e) {
       debugPrint('Mark finished Firebase error: ${e.code} – ${e.message}');
       if (!mounted) return;
+      final base = _permissionMsg(isEn, e,
+          en: 'Could not complete work.',
+          ar: 'تعذر إتمام العمل.');
+      final detail = (e.message ?? '').trim().isEmpty ? e.code : e.message!;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(_permissionMsg(isEn, e,
-            en: 'Could not complete work. Please try again.',
-            ar: 'تعذر إتمام العمل. يرجى المحاولة مرة أخرى.')),
+        content: Text('$base  [$detail]'),
+        duration: const Duration(seconds: 6),
       ));
       rethrow;
     } catch (e) {
       debugPrint('Mark work finished error: $e');
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(_t(isEn,
-              'Could not complete work. Please try again.',
-              'تعذر إتمام العمل. يرجى المحاولة مرة أخرى.')),
-        ),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(_t(isEn,
+                'Could not complete work. ',
+                'تعذر إتمام العمل. ') +
+            e.toString()),
+        duration: const Duration(seconds: 6),
+      ));
       rethrow;
     } finally {
       if (mounted) setState(() => _actionInProgress = false);
@@ -222,6 +261,7 @@ class _TechnicianActiveJobScreenState
         builder: (_) => TechnicianReceiptScreen(
           jobId: _jobId,
           technicianId: widget.technicianId,
+          job: Map<String, dynamic>.from(widget.job),
         ),
       ),
     );
@@ -243,6 +283,7 @@ class _TechnicianActiveJobScreenState
     const lockedStatuses = {
       'active',
       'technician_accepted',
+      'on_the_way',
       'technician_arrived',
       'work_finished',
     };
@@ -290,6 +331,11 @@ class _TechnicianActiveJobScreenState
                 _waitingForApprovalCard(isEn),
               ],
 
+              if (status == 'awaiting_payment') ...[
+                const SizedBox(height: 24),
+                _awaitingPaymentCard(isEn),
+              ],
+
               if (status == 'receipt_disputed') ...[
                 const SizedBox(height: 24),
                 _receiptDisputedCard(isEn),
@@ -306,15 +352,20 @@ class _TechnicianActiveJobScreenState
   // ── Sequential progress steps ────────────────────────────────────────────
 
   Widget _buildProgressSteps(String status, bool isEn) {
-    // Define the step order and their trigger statuses.
+    // Define the step order and their trigger statuses. Any `done` status
+    // indicates this step is behind the current one in the lifecycle — the
+    // compact CompletedStepRow renders instead of the full slider card.
     final steps = [
       _StepDef(
         activeStatus: 'active',
         doneStatuses: const [
           'technician_accepted',
+          'on_the_way',
           'technician_arrived',
           'work_finished',
           'awaiting_customer_approval',
+          'awaiting_payment',
+          'awaiting_payment_verification',
           'receipt_disputed',
           'completed',
         ],
@@ -326,11 +377,35 @@ class _TechnicianActiveJobScreenState
         onConfirmed: _acceptAssignment,
       ),
       _StepDef(
+        // Release-006: new step between accept and arrive.
         activeStatus: 'technician_accepted',
+        doneStatuses: const [
+          'on_the_way',
+          'technician_arrived',
+          'work_finished',
+          'awaiting_customer_approval',
+          'awaiting_payment',
+          'awaiting_payment_verification',
+          'receipt_disputed',
+          'completed',
+        ],
+        title: _t(isEn, 'On the Way', 'في الطريق'),
+        subtitle: _t(isEn,
+            'Confirm you have started heading to the customer\'s location.',
+            'أكّد أنك بدأت التوجه إلى موقع العميل.'),
+        sliderLabel:
+            _t(isEn, 'Slide to confirm on the way', 'اسحب لتأكيد الانطلاق'),
+        onConfirmed: _markOnTheWay,
+      ),
+      _StepDef(
+        // Release-006: source state moved from technician_accepted to on_the_way.
+        activeStatus: 'on_the_way',
         doneStatuses: const [
           'technician_arrived',
           'work_finished',
           'awaiting_customer_approval',
+          'awaiting_payment',
+          'awaiting_payment_verification',
           'receipt_disputed',
           'completed',
         ],
@@ -347,6 +422,8 @@ class _TechnicianActiveJobScreenState
         doneStatuses: const [
           'work_finished',
           'awaiting_customer_approval',
+          'awaiting_payment',
+          'awaiting_payment_verification',
           'receipt_disputed',
           'completed',
         ],
@@ -626,6 +703,51 @@ class _TechnicianActiveJobScreenState
       ),
     );
   }
+
+  Widget _awaitingPaymentCard(bool isEn) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: const [
+          BoxShadow(
+              color: Color(0x0F000000),
+              blurRadius: 8,
+              offset: Offset(0, 3)),
+        ],
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.payments_outlined,
+              color: _syanatBlue, size: 28),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  isEn ? 'Awaiting Customer Payment' : 'بانتظار دفع العميل',
+                  style: const TextStyle(
+                      fontSize: 15, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  isEn
+                      ? 'The customer approved the receipt. They will pay you in person; you will then confirm with a photo proof.'
+                      : 'وافق العميل على الإيصال. سيدفع لك شخصياً، ثم تؤكد الاستلام بصورة إثبات.',
+                  style: TextStyle(
+                      fontSize: 13,
+                      color: Colors.grey.shade600,
+                      height: 1.4),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -889,10 +1011,20 @@ class _SlideToConfirmBarState extends State<_SlideToConfirmBar>
         _confirmed = true;
       });
       unawaited(widget.onConfirmed().then((_) {
-        // Success — parent rebuilds with a new status so this slider
-        // is replaced by a CompletedStepRow. No reset needed.
-      }).catchError((_) {
-        // Failure — reset the slider so the user can try again.
+        // Success path: the parent usually rebuilds with a new status (e.g.
+        // status='work_finished') so this slider is replaced by a
+        // CompletedStepRow. If that stream snapshot is delayed, reset locally
+        // so the thumb never spins indefinitely after a successful write.
+        if (mounted) {
+          setState(() {
+            _confirmed = false;
+            _progress = 0.0;
+          });
+        }
+      }).catchError((Object err, StackTrace st) {
+        // Log so failures aren't silently swallowed — a silent catch was the
+        // primary cause of the "spins forever with no hint" symptom.
+        debugPrint('SlideToConfirm onConfirmed error: $err\n$st');
         if (mounted) {
           setState(() {
             _confirmed = false;

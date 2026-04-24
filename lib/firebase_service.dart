@@ -10,7 +10,8 @@ import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_storage/firebase_storage.dart';
-import 'package:image_picker/image_picker.dart';
+// XFile comes via `flutter_image_compress` (which re-exports `cross_file`).
+// `image_picker` is imported by callers that actually need the picker itself.
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 
 /// Thrown when the caller needs to wait before retrying an order.
@@ -46,6 +47,12 @@ class FirebaseService {
   static FirebaseAuth auth = FirebaseAuth.instance;
   static FirebaseFirestore firestore = FirebaseFirestore.instance;
   static FirebaseStorage storage = FirebaseStorage.instance;
+
+  /// One-shot, in-memory message displayed by `LoginScreen` after the user is
+  /// force-signed-out by `AuthGate` for having an incomplete profile. Cleared
+  /// by `LoginScreen` once shown. Process-scoped — never persisted.
+  static String? pendingAuthSnackEn;
+  static String? pendingAuthSnackAr;
 
   /// Egyptian mobile accepted formats:
   ///   * E.164:              `+201XXXXXXXXX`  (13 chars)
