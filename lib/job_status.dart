@@ -50,9 +50,8 @@ enum JobActor { admin, technician, customer, system }
 
 /// Returns a bilingual status label from the *technician's* perspective.
 /// Used by `tech_home_screen.dart` tiles and the active-job screen banners.
-/// A separate customer-perspective label helper (`jobStatusCustomerLabel`)
-/// lands with Phase 6; the two share the same status enum so adding it
-/// later is purely additive.
+/// The sibling `jobStatusCustomerLabel` below renders the same statuses
+/// from the customer's perspective; both share this file's status enum.
 ///
 /// Unknown statuses fall back to the raw string so a forgotten mapping is
 /// visible in-app rather than silently empty.
@@ -78,6 +77,53 @@ String jobStatusTechLabel(String status, {required bool isEn}) {
       return isEn ? 'Approve payment' : 'تأكيد الدفع';
     case JobStatus.receiptDisputed:
       return isEn ? 'Receipt disputed' : 'الفاتورة محل نزاع';
+    case JobStatus.completed:
+      return isEn ? 'Completed' : 'مكتملة';
+    case JobStatus.cancelled:
+      return isEn ? 'Cancelled' : 'ملغاة';
+    default:
+      return status;
+  }
+}
+
+/// Returns a bilingual status label from the *customer's* perspective.
+/// Used by `orders_screen.dart` and the customer review/payment screens.
+/// Strings are worded as full messages (not short badges) because this is
+/// the customer's primary read on what's happening with their order.
+String jobStatusCustomerLabel(String status, {required bool isEn}) {
+  switch (status) {
+    case JobStatus.requested:
+      return isEn
+          ? 'Waiting for a technician to be assigned'
+          : 'في انتظار تعيين فني';
+    case JobStatus.active:
+      return isEn
+          ? 'Technician assigned — awaiting confirmation'
+          : 'تم تعيين الفني — بانتظار التأكيد';
+    case JobStatus.technicianAccepted:
+      return isEn ? 'Technician confirmed' : 'أكد الفني';
+    case JobStatus.onTheWay:
+      return isEn ? 'Technician is on the way' : 'الفني في الطريق';
+    case JobStatus.technicianArrived:
+      return isEn ? 'Technician has arrived' : 'وصل الفني';
+    case JobStatus.workFinished:
+      return isEn
+          ? 'Work finished — technician is preparing your receipt'
+          : 'انتهى العمل — يقوم الفني بإعداد الفاتورة';
+    case JobStatus.awaitingCustomerApproval:
+      return isEn ? 'Review and approve your receipt' : 'راجع الفاتورة';
+    case JobStatus.awaitingPayment:
+      return isEn
+          ? 'Approved — please pay the technician'
+          : 'تمت الموافقة — يرجى الدفع للفني';
+    case JobStatus.awaitingPaymentVerification:
+      return isEn
+          ? 'Payment recorded — technician is confirming'
+          : 'تم تسجيل الدفع — الفني يؤكد';
+    case JobStatus.receiptDisputed:
+      return isEn
+          ? 'Receipt disputed — admin is reviewing'
+          : 'الفاتورة محل نزاع — الإدارة تراجع';
     case JobStatus.completed:
       return isEn ? 'Completed' : 'مكتملة';
     case JobStatus.cancelled:
