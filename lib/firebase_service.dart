@@ -1997,9 +1997,17 @@ class FirebaseService {
       firestore.collection('users').where('role', isEqualTo: 'customer').count().get(),
       firestore.collection('users').where('role', isEqualTo: 'technician').count().get(),
       firestore.collection('jobs').where('status', isEqualTo: 'requested').count().get(),
+      // Release-006: must include on_the_way, awaiting_payment, and
+      // awaiting_payment_verification so a bootstrap re-run (new admin
+      // onboarding, rebuilding after an incident, migrating projects)
+      // seeds `jobsOngoing` correctly. Matches STATUS_TO_BUCKET in
+      // functions/src/stats/lib/status-map.ts — keep both in lockstep.
+      // 9 values, under Firestore's 10-value whereIn cap.
       firestore.collection('jobs').where('status', whereIn: [
-        'active', 'technician_accepted', 'technician_arrived', 'work_finished',
-        'awaiting_customer_approval', 'receipt_disputed',
+        'active', 'technician_accepted', 'on_the_way', 'technician_arrived',
+        'work_finished', 'awaiting_customer_approval',
+        'awaiting_payment', 'awaiting_payment_verification',
+        'receipt_disputed',
       ]).count().get(),
       firestore.collection('jobs').where('status', isEqualTo: 'completed').count().get(),
       firestore.collection('jobs').where('status', isEqualTo: 'cancelled').count().get(),
