@@ -33,7 +33,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
 
   int activeChats = 0;
 
-  DateTime? _selectedDate;
   bool _loading = true;
 
   int _unreadSupportCount = 0;
@@ -927,7 +926,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     final techName = job['assignedTechnicianName'] as String? ?? '—';
     final amountPaid = (job['amountPaid'] as num?)?.toDouble();
     final adminClosedAt = job['adminClosedAt'];
-    final createdAt = job['createdAt'];
 
     final customerApprovedAt = job['customerApprovedAt'];
     final closedTimestamp = adminClosedAt ?? customerApprovedAt;
@@ -1910,9 +1908,12 @@ class _ActiveJobSheetState extends State<_ActiveJobSheet> {
   static const _statusLabelsEn = {
     'active': 'Active — Awaiting Tech Acceptance',
     'technician_accepted': 'Tech Accepted',
+    'on_the_way': 'On the Way',
     'technician_arrived': 'Tech Arrived',
     'work_finished': 'Work Finished — Awaiting Receipt',
     'awaiting_customer_approval': 'Awaiting Customer Approval',
+    'awaiting_payment': 'Awaiting Payment',
+    'awaiting_payment_verification': 'Payment Verification',
     'receipt_disputed': 'Receipt Disputed — Needs Resolution',
     'completed': 'Completed',
     'cancelled': 'Cancelled',
@@ -1924,9 +1925,12 @@ class _ActiveJobSheetState extends State<_ActiveJobSheet> {
   static const _statusLabelsAr = {
     'active': 'نشط — في انتظار قبول الفني',
     'technician_accepted': 'قبل الفني',
+    'on_the_way': 'في الطريق',
     'technician_arrived': 'الفني وصل',
     'work_finished': 'اكتمل العمل — في انتظار الإيصال',
     'awaiting_customer_approval': 'في انتظار موافقة العميل',
+    'awaiting_payment': 'بانتظار الدفع',
+    'awaiting_payment_verification': 'التحقق من الدفع',
     'receipt_disputed': 'إيصال متنازع عليه — يحتاج حل',
     'completed': 'مكتمل',
     'cancelled': 'ملغي',
@@ -1978,6 +1982,8 @@ class _ActiveJobSheetState extends State<_ActiveJobSheet> {
     final status = job['status'] as String? ?? '';
     final createdAt = job['createdAt'];
     final receipt = job['receipt'] as Map<String, dynamic>?;
+    final paymentProofUrl =
+        (job['paymentProofUrl'] as String?)?.trim() ?? '';
 
     final statusLabel = (isEn ? _statusLabelsEn : _statusLabelsAr)[status] ?? status;
 
@@ -2047,6 +2053,16 @@ class _ActiveJobSheetState extends State<_ActiveJobSheet> {
               ),
               const SizedBox(height: 12),
               _receiptPreview(receipt, isEn),
+            ],
+            if (paymentProofUrl.isNotEmpty) ...[
+              const Divider(height: 32),
+              Text(
+                isEn ? 'Payment Proof' : 'إثبات الدفع',
+                style: const TextStyle(
+                    fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 12),
+              _paymentProofView(paymentProofUrl, isEn),
             ],
             // ── Dispute resolution actions ────────────────────────────
             if (status == 'receipt_disputed') ...[
@@ -2286,6 +2302,122 @@ class _ActiveJobSheetState extends State<_ActiveJobSheet> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// Renders the technician-uploaded payment proof photo as a thumbnail.
+  /// Tapping opens a fullscreen InteractiveViewer so the admin can pan/zoom
+  /// the image when mediating a dispute. The admin read of
+  /// `payment_proofs/{fileName}` is covered by the existing storage.rules
+  /// match block (authenticated-read), no rules change needed.
+  Widget _paymentProofView(String url, bool isEn) {
+    return Builder(
+      builder: (context) => GestureDetector(
+        onTap: () => _openFullscreenProof(context, url, isEn),
+        child: Container(
+          height: 200,
+          width: double.infinity,
+          decoration: BoxDecoration(
+            color: Colors.grey.shade100,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.grey.shade300),
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                Image.network(
+                  url,
+                  fit: BoxFit.cover,
+                  loadingBuilder: (_, child, progress) => progress == null
+                      ? child
+                      : const Center(
+                          child: CircularProgressIndicator(
+                              color: Color(0xFF3C21C8), strokeWidth: 2),
+                        ),
+                  errorBuilder: (_, __, ___) => Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.broken_image,
+                            color: Colors.black38, size: 40),
+                        const SizedBox(height: 8),
+                        Text(
+                          isEn
+                              ? 'Could not load proof image'
+                              : 'تعذر تحميل صورة الإثبات',
+                          style: const TextStyle(color: Colors.black54),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                Positioned(
+                  right: 8,
+                  bottom: 8,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.black54,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.zoom_in,
+                            color: Colors.white, size: 14),
+                        const SizedBox(width: 4),
+                        Text(
+                          isEn ? 'Tap to zoom' : 'اضغط للتكبير',
+                          style: const TextStyle(
+                              color: Colors.white, fontSize: 11),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _openFullscreenProof(BuildContext context, String url, bool isEn) {
+    showDialog<void>(
+      context: context,
+      barrierColor: Colors.black,
+      builder: (ctx) => Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          foregroundColor: Colors.white,
+          elevation: 0,
+          title: Text(isEn ? 'Payment Proof' : 'إثبات الدفع'),
+          leading: IconButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            icon: const Icon(Icons.close),
+            tooltip: isEn ? 'Close' : 'إغلاق',
+          ),
+        ),
+        body: Center(
+          child: InteractiveViewer(
+            minScale: 0.5,
+            maxScale: 4,
+            child: Image.network(
+              url,
+              fit: BoxFit.contain,
+              errorBuilder: (_, __, ___) => const Icon(
+                  Icons.broken_image,
+                  color: Colors.white54,
+                  size: 64),
+            ),
+          ),
+        ),
       ),
     );
   }

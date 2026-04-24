@@ -1260,16 +1260,21 @@ class FirebaseService {
             }).toList());
   }
 
-  /// Streams active jobs (accepted + in_progress) for admin view.
+  /// Streams active (non-terminal) jobs for the admin dashboard. Release-006
+  /// added on_the_way / awaiting_payment / awaiting_payment_verification;
+  /// the whereIn list holds 9 values, under Firestore's 10 cap.
   static Stream<List<Map<String, dynamic>>> streamActiveJobsAdmin() {
     return firestore
         .collection('jobs')
         .where('status', whereIn: [
           'active',
           'technician_accepted',
+          'on_the_way',
           'technician_arrived',
           'work_finished',
           'awaiting_customer_approval',
+          'awaiting_payment',
+          'awaiting_payment_verification',
           'receipt_disputed',
         ])
         .orderBy('createdAt', descending: true)
