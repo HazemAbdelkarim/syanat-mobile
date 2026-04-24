@@ -8,6 +8,7 @@ import 'customer_payment_screen.dart';
 import 'customer_receipt_approval_screen.dart';
 import 'firebase_service.dart';
 import 'job_status.dart' show jobStatusCustomerLabel;
+import 'services/notification_service.dart';
 
 const Color _syanatBlue = Color(0xFF3C21C8);
 
@@ -81,6 +82,16 @@ class _OrdersScreenState extends State<OrdersScreen>
   // Populated once auth state is confirmed, then used in build().
   User? _user;
 
+  // Release-006 notifications: listens to the customer's full jobs stream
+  // (not just the active-order narrow stream — we need to catch the
+  // `awaiting_payment_verification → completed` transition, which moves the
+  // job OUT of the active set). On each snapshot we diff status-per-jobId
+  // against the local cache and fire a notification for each real change
+  // that wasn't self-caused.
+  StreamSubscription<List<Map<String, dynamic>>>? _notifJobsSub;
+  final Map<String, String> _lastKnownStatus = {};
+  bool _notifInitialSnapshotProcessed = false;
+
   @override
   void initState() {
     super.initState();
@@ -102,14 +113,52 @@ class _OrdersScreenState extends State<OrdersScreen>
           setState(() => _activeOrder = job);
         }
       });
+      _notifJobsSub = FirebaseService.streamJobs(
+        uid: user.uid,
+        role: 'customer',
+      ).listen(_handleNotificationSnapshot);
     }
   }
 
   @override
   void dispose() {
     _activeOrderSub?.cancel();
+    _notifJobsSub?.cancel();
     _tabController.dispose();
     super.dispose();
+  }
+
+  /// Diffs status-per-jobId against the local cache and fires a local
+  /// notification for each real transition that wasn't self-caused. The
+  /// first snapshot after auth populates the cache but suppresses
+  /// notifications — otherwise opening the app would fire one for every
+  /// historical state, which is useless noise.
+  void _handleNotificationSnapshot(List<Map<String, dynamic>> jobs) {
+    final isEn = mounted &&
+        Localizations.localeOf(context).languageCode == 'en';
+
+    for (final job in jobs) {
+      final jobId = (job['id'] as String?) ?? '';
+      if (jobId.isEmpty) continue;
+      final newStatus = (job['status'] as String?) ?? '';
+      final prevStatus = _lastKnownStatus[jobId];
+
+      if (_notifInitialSnapshotProcessed &&
+          prevStatus != null &&
+          prevStatus != newStatus) {
+        // Fire-and-forget — notification failures are non-critical and the
+        // service swallows them internally.
+        NotificationService.notifyJobTransition(
+          jobId: jobId,
+          from: prevStatus,
+          to: newStatus,
+          viewer: ViewerRole.customer,
+          isEn: isEn,
+        );
+      }
+      _lastKnownStatus[jobId] = newStatus;
+    }
+    _notifInitialSnapshotProcessed = true;
   }
 
   // -----------------------------------------------------------------------

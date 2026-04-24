@@ -7,6 +7,7 @@ import 'main.dart' show AppLocale;
 import 'chat_screen.dart';
 import 'glass_card.dart';
 import 'job_status.dart' show jobStatusTechLabel;
+import 'services/notification_service.dart';
 import 'technician_active_job_screen.dart';
 import 'technician_approve_payment_screen.dart';
 import 'technician_profile_screen.dart';
@@ -38,6 +39,12 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _profileSub;
   StreamSubscription<int>? _notifCountSub;
   StreamSubscription<Map<String, dynamic>?>? _activeJobSub;
+
+  // Release-006 notifications: diff status-per-jobId across jobs-stream
+  // snapshots and fire local notifications for each non-self-caused
+  // transition. First snapshot after auth populates the cache silently.
+  final Map<String, String> _lastKnownStatus = {};
+  bool _notifInitialSnapshotProcessed = false;
 
   @override
   void initState() {
@@ -268,6 +275,10 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
         _jobsError = null;
       });
 
+      // Diff status-per-jobId and fire notifications for real transitions.
+      // Runs AFTER paint so a notification miss never blocks the list.
+      _processNotificationDiff(jobs);
+
       // Best-effort customer-name prime runs AFTER the UI is rendered. Its
       // failure (typical: rules deny tech reading customer users/*) cannot
       // freeze the spinner because we already cleared _loading above.
@@ -285,6 +296,37 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
         });
       }
     });
+  }
+
+  /// Release-006: diffs status-per-jobId vs cache and fires a local
+  /// notification for each real, non-self-caused transition. The first
+  /// snapshot after auth populates the cache silently — otherwise the tech
+  /// would get a notification for every historical job on app open.
+  void _processNotificationDiff(List<Map<String, dynamic>> jobs) {
+    if (!mounted) return;
+    final isEn = Localizations.localeOf(context).languageCode == 'en';
+
+    for (final job in jobs) {
+      final jobId = (job['id'] as String?) ?? '';
+      if (jobId.isEmpty) continue;
+      final newStatus = (job['status'] as String?) ?? '';
+      final prevStatus = _lastKnownStatus[jobId];
+
+      if (_notifInitialSnapshotProcessed &&
+          prevStatus != null &&
+          prevStatus != newStatus) {
+        // Fire-and-forget — service swallows failures internally.
+        NotificationService.notifyJobTransition(
+          jobId: jobId,
+          from: prevStatus,
+          to: newStatus,
+          viewer: ViewerRole.technician,
+          isEn: isEn,
+        );
+      }
+      _lastKnownStatus[jobId] = newStatus;
+    }
+    _notifInitialSnapshotProcessed = true;
   }
 
   void _retryJobs() {

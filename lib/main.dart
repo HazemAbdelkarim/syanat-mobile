@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'auth_gate.dart';
 import 'firebase_service.dart';
+import 'services/notification_service.dart';
 
 // ---------------------------------------------------------------------------
 // AppLocale — InheritedNotifier that provides locale state to the whole tree.
@@ -28,6 +29,9 @@ class AppLocale extends InheritedNotifier<ValueNotifier<Locale>> {
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await FirebaseService.initialize();
+  // Notifications are non-critical — `initialize()` swallows failures
+  // internally so a notification-plugin issue never blocks app start.
+  await NotificationService.initialize();
   runApp(const MyApp());
 }
 
