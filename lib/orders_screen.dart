@@ -3,7 +3,11 @@ import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+
+import 'customer_payment_screen.dart';
+import 'customer_receipt_approval_screen.dart';
 import 'firebase_service.dart';
+import 'job_status.dart' show jobStatusCustomerLabel;
 
 const Color _syanatBlue = Color(0xFF3C21C8);
 
@@ -34,9 +38,12 @@ const _ongoingStatuses = {
   // new flow
   'active',
   'technician_accepted',
+  'on_the_way',
   'technician_arrived',
   'work_finished',
   'awaiting_customer_approval',
+  'awaiting_payment',
+  'awaiting_payment_verification',
   'receipt_disputed',
   // legacy statuses (backward compat for existing data)
   'accepted',
@@ -66,8 +73,11 @@ class OrdersScreen extends StatefulWidget {
 class _OrdersScreenState extends State<OrdersScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  StreamSubscription<Map<String, dynamic>?>? _pendingReceiptSub;
-  Map<String, dynamic>? _pendingReceipt;
+  // Release-006: broader than the old pending-receipt stream — covers every
+  // non-terminal customer job so the top-of-list action card can show the
+  // right next-step for each lifecycle state.
+  StreamSubscription<Map<String, dynamic>?>? _activeOrderSub;
+  Map<String, dynamic>? _activeOrder;
   // Populated once auth state is confirmed, then used in build().
   User? _user;
 
@@ -86,10 +96,10 @@ class _OrdersScreenState extends State<OrdersScreen>
     if (!mounted) return;
     setState(() => _user = user);
     if (user != null) {
-      _pendingReceiptSub =
-          FirebaseService.streamCustomerPendingReceipt(user.uid).listen((job) {
+      _activeOrderSub =
+          FirebaseService.streamCustomerActiveOrder(user.uid).listen((job) {
         if (mounted) {
-          setState(() => _pendingReceipt = job);
+          setState(() => _activeOrder = job);
         }
       });
     }
@@ -97,7 +107,7 @@ class _OrdersScreenState extends State<OrdersScreen>
 
   @override
   void dispose() {
-    _pendingReceiptSub?.cancel();
+    _activeOrderSub?.cancel();
     _tabController.dispose();
     super.dispose();
   }
@@ -265,7 +275,7 @@ class _OrdersScreenState extends State<OrdersScreen>
                   ? 'No ongoing orders'
                   : 'Ù„Ø§ ØªÙˆØ¬Ø¯ Ø·Ù„Ø¨Ø§Øª Ø¬Ø§Ø±ÙŠØ©',
               isEn: isEn,
-              topWidget: _buildPendingReceiptBanner(uid, isEn),
+              topWidget: _buildActiveOrderCard(uid, isEn),
             ),
             _buildJobList(
               jobs: recent,
@@ -322,93 +332,87 @@ class _OrdersScreenState extends State<OrdersScreen>
     );
   }
 
-  Widget? _buildPendingReceiptBanner(String uid, bool isEn) {
-    final receipt = _pendingReceipt;
-    if (receipt == null) return null;
+  /// Release-006 active-order card — renders the customer's currently-in-
+  /// flight order at the top of the Ongoing tab, with a status-driven
+  /// action area below it. Returns null when there's no active order so
+  /// the list's `topWidget` slot stays empty.
+  ///
+  /// The routing decision (what button or read-only message to show for
+  /// each status) lives in the top-level [customerOrderAction] function,
+  /// which is unit-testable — see `test/orders_action_test.dart`.
+  Widget? _buildActiveOrderCard(String uid, bool isEn) {
+    final order = _activeOrder;
+    if (order == null) return null;
 
-    final jobId = receipt['id'] as String? ?? '';
-    if (jobId.isEmpty) return null;
+    final status = (order['status'] as String?) ?? '';
+    final techName =
+        (order['assignedTechnicianName'] as String?)?.trim() ?? '';
+    final statusLabel = jobStatusCustomerLabel(status, isEn: isEn);
 
-    final receiptData = receipt['receipt'] as Map<String, dynamic>?;
-    final grandTotal = (receiptData?['grandTotal'] as num?)?.toDouble() ?? 0.0;
-    final techName = receipt['assignedTechnicianName'] as String? ?? '';
-
-    return GestureDetector(
-      onTap: () => _showReceiptApprovalSheet(
-          context, uid, jobId, receipt, receiptData, isEn),
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: const Color(0xFFF3F0FF),
-          borderRadius: BorderRadius.circular(16),
-          border: const Border(
-            left: BorderSide(color: _syanatBlue, width: 4),
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF3F0FF),
+        borderRadius: BorderRadius.circular(16),
+        border: const Border(
+          left: BorderSide(color: _syanatBlue, width: 4),
+        ),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0F000000),
+            blurRadius: 10,
+            offset: Offset(0, 4),
           ),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x0F000000),
-              blurRadius: 10,
-              offset: Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Row(
-          children: [
-            const Icon(Icons.receipt_long, color: _syanatBlue, size: 28),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    isEn
-                        ? 'Receipt Ready for Review'
-                        : 'Ø§Ù„Ø¥ÙŠØµØ§Ù„ Ø¬Ø§Ù‡Ø² Ù„Ù„Ù…Ø±Ø§Ø¬Ø¹Ø©',
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.black87,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    isEn
-                        ? 'Total: ${grandTotal.toStringAsFixed(0)} EGP${techName.isNotEmpty ? ' Â· $techName' : ''}'
-                        : 'Ø§Ù„Ø¥Ø¬Ù…Ø§Ù„ÙŠ: ${grandTotal.toStringAsFixed(0)} Ø¬Ù†ÙŠÙ‡${techName.isNotEmpty ? ' Â· $techName' : ''}',
-                    style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
-                  ),
-                ],
-              ),
-            ),
-            Icon(Icons.chevron_right, color: _syanatBlue.withOpacity(0.6)),
-          ],
-        ),
+        ],
       ),
-    );
-  }
-
-  void _showReceiptApprovalSheet(
-    BuildContext context,
-    String uid,
-    String jobId,
-    Map<String, dynamic> job,
-    Map<String, dynamic>? receiptData,
-    bool isEn,
-  ) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      isDismissible: true,
-      enableDrag: true,
-      useSafeArea: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => _ReceiptApprovalSheet(
-        uid: uid,
-        jobId: jobId,
-        receiptData: receiptData,
-        isEn: isEn,
-        onApproved: () => FirebaseService.approveReceipt(jobId, uid),
-        approving: false,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.assignment_outlined,
+                  color: _syanatBlue, size: 24),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      isEn ? 'Current Order' : 'الطلب الحالي',
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      techName.isNotEmpty
+                          ? (isEn
+                              ? 'Technician: $techName'
+                              : 'الفني: $techName')
+                          : statusLabel,
+                      style: TextStyle(
+                          fontSize: 12, color: Colors.grey.shade700),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            statusLabel,
+            style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: _syanatBlue),
+          ),
+          const SizedBox(height: 12),
+          customerOrderAction(context, order, uid, isEn),
+        ],
       ),
     );
   }
@@ -878,6 +882,12 @@ class _OrdersScreenState extends State<OrdersScreen>
           'color': const Color(0xFF3B82F6),
           'icon': Icons.person_pin_outlined,
         };
+      case 'on_the_way':
+        return {
+          'label': isEn ? 'On the Way' : 'في الطريق',
+          'color': const Color(0xFF2563EB),
+          'icon': Icons.directions_car,
+        };
       case 'technician_arrived':
         return {
           'label': isEn ? 'Tech Arrived' : 'Ø§Ù„ÙÙ†ÙŠ ÙˆØµÙ„',
@@ -895,6 +905,18 @@ class _OrdersScreenState extends State<OrdersScreen>
           'label': isEn ? 'Awaiting Approval' : 'Ø¨Ø§Ù†ØªØ¸Ø§Ø± Ù…ÙˆØ§ÙÙ‚ØªÙƒ',
           'color': const Color(0xFFF59E0B),
           'icon': Icons.receipt_long_outlined,
+        };
+      case 'awaiting_payment':
+        return {
+          'label': isEn ? 'Payment Due' : 'بانتظار الدفع',
+          'color': const Color(0xFFF59E0B),
+          'icon': Icons.payments_outlined,
+        };
+      case 'awaiting_payment_verification':
+        return {
+          'label': isEn ? 'Verifying Payment' : 'تأكيد الدفع',
+          'color': const Color(0xFFF59E0B),
+          'icon': Icons.verified_outlined,
         };
       case 'receipt_disputed':
         return {
@@ -1228,421 +1250,144 @@ class _OrderTimeline extends StatelessWidget {
   }
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-// Receipt approval bottom sheet (customer-side)
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────────────────────────────────────
+// customerOrderAction — status → action widget
+//
+// Public so it's unit-testable without exposing the entire _OrdersScreenState.
+// Returns the action widget to render under the active-order card for a given
+// job status. For passive-wait states (customer has no next step) it returns
+// a read-only message; for action states it returns a primary button that
+// navigates to the right customer screen.
+//
+// Release-006 status → action map:
+//   requested / active / technician_accepted / on_the_way /
+//     technician_arrived / work_finished → read-only status message
+//   awaiting_customer_approval           → "Review receipt" button
+//   awaiting_payment                     → "Pay technician" button
+//   awaiting_payment_verification        → read-only "Tech is confirming"
+//   receipt_disputed                     → read-only "Admin is reviewing"
+//   completed                            → read-only "Paid X EGP" (edge case —
+//                                          normally filtered from the active
+//                                          stream, but guarded anyway)
+//   anything else                        → customer-facing label from
+//                                          jobStatusCustomerLabel
+// ─────────────────────────────────────────────────────────────────────────────
 
-class _ReceiptApprovalSheet extends StatefulWidget {
-  final String uid;
-  final String jobId;
-  final Map<String, dynamic>? receiptData;
-  final bool isEn;
-  final Future<void> Function() onApproved;
-  // approving param kept for API compat but loading managed locally
-  final bool approving;
+Widget customerOrderAction(
+  BuildContext context,
+  Map<String, dynamic> job,
+  String customerId,
+  bool isEn,
+) {
+  final status = (job['status'] as String?) ?? '';
+  final jobId = (job['id'] as String?) ?? '';
 
-  const _ReceiptApprovalSheet({
-    required this.uid,
-    required this.jobId,
-    required this.receiptData,
-    required this.isEn,
-    required this.onApproved,
-    required this.approving,
-  });
+  switch (status) {
+    case 'requested':
+    case 'active':
+    case 'technician_accepted':
+    case 'on_the_way':
+    case 'technician_arrived':
+    case 'work_finished':
+      return _readOnlyActionMessage(
+          jobStatusCustomerLabel(status, isEn: isEn));
 
-  @override
-  State<_ReceiptApprovalSheet> createState() => _ReceiptApprovalSheetState();
+    case 'awaiting_customer_approval':
+      return _primaryActionButton(
+        label: isEn ? 'Review receipt' : 'راجع الفاتورة',
+        icon: Icons.receipt_long,
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => CustomerReceiptApprovalScreen(
+              jobId: jobId,
+              customerId: customerId,
+              job: Map<String, dynamic>.from(job),
+            ),
+          ),
+        ),
+      );
+
+    case 'awaiting_payment':
+      return _primaryActionButton(
+        label: isEn ? 'Pay technician' : 'ادفع للفني',
+        icon: Icons.payments_outlined,
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => CustomerPaymentScreen(
+              jobId: jobId,
+              customerId: customerId,
+              job: Map<String, dynamic>.from(job),
+            ),
+          ),
+        ),
+      );
+
+    case 'awaiting_payment_verification':
+      return _readOnlyActionMessage(isEn
+          ? 'Technician is confirming your payment.'
+          : 'الفني يؤكد عملية الدفع.');
+
+    case 'receipt_disputed':
+      return _readOnlyActionMessage(isEn
+          ? 'Receipt disputed — admin is reviewing.'
+          : 'الفاتورة محل نزاع — الإدارة تراجع.');
+
+    case 'completed':
+      final amountPaid = (job['amountPaid'] as num?)?.toDouble() ?? 0.0;
+      return _readOnlyActionMessage(isEn
+          ? 'Completed — ${amountPaid.toStringAsFixed(0)} EGP paid.'
+          : 'اكتملت — ${amountPaid.toStringAsFixed(0)} جنيه مدفوعة.');
+
+    default:
+      return _readOnlyActionMessage(
+          jobStatusCustomerLabel(status, isEn: isEn));
+  }
 }
 
-class _ReceiptApprovalSheetState extends State<_ReceiptApprovalSheet> {
-  bool _approving = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final isEn = widget.isEn;
-    final receiptData = widget.receiptData;
-    final services = (receiptData?['services'] as List<dynamic>? ?? [])
-        .cast<Map<String, dynamic>>();
-    final parts = (receiptData?['parts'] as List<dynamic>? ?? [])
-        .cast<Map<String, dynamic>>();
-    final servicesSubtotal =
-        (receiptData?['servicesSubtotal'] as num?)?.toDouble() ?? 0.0;
-    final partsSubtotal =
-        (receiptData?['partsSubtotal'] as num?)?.toDouble() ?? 0.0;
-    final grandTotal = (receiptData?['grandTotal'] as num?)?.toDouble() ?? 0.0;
-    final notes = receiptData?['notes'] as String? ?? '';
-
-    return Directionality(
-      textDirection: isEn ? TextDirection.ltr : TextDirection.rtl,
-      child: Container(
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        child: DraggableScrollableSheet(
-          initialChildSize: 0.9,
-          minChildSize: 0.5,
-          maxChildSize: 0.95,
-          expand: false,
-          shouldCloseOnMinExtent: true,
-          builder: (ctx, scrollCtrl) => ListView(
-            controller: scrollCtrl,
-            padding: EdgeInsets.fromLTRB(
-              20,
-              12,
-              20,
-              MediaQuery.of(ctx).viewInsets.bottom + 32,
-            ),
-            children: [
-              // Handle
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 20),
-                  decoration: BoxDecoration(
-                      color: Colors.grey.shade300,
-                      borderRadius: BorderRadius.circular(2)),
-                ),
-              ),
-
-              // Title
-              Row(
-                children: [
-                  const Icon(Icons.receipt_long, color: _syanatBlue, size: 24),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      isEn ? 'Service Receipt' : 'Ø¥ÙŠØµØ§Ù„ Ø§Ù„Ø®Ø¯Ù…Ø©',
-                      style: const TextStyle(
-                          fontSize: 20, fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: isEn ? 'Close' : 'إغلاق',
-                    icon: const Icon(Icons.close, color: Colors.black54),
-                    onPressed: () => Navigator.of(ctx).maybePop(),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 20),
-
-              // â”€â”€ Disclaimer (customer-only) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFFF3CD),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFFE6A817)),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.warning_amber_rounded,
-                            color: Color(0xFFCC8400), size: 18),
-                        const SizedBox(width: 8),
-                        Text(
-                          isEn ? 'Important Notice' : 'ØªÙ†Ø¨ÙŠÙ‡ Ù…Ù‡Ù…',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 14,
-                            color: Color(0xFF7A4F00),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      isEn
-                          ? 'Please make sure the prices listed here match exactly what you paid. Any manipulation in prices must not be tolerated. The technician must enter the exact prices paid by you â€” these are our official reference for any complaint, dispute, or use of the 14-day free checkup guarantee.'
-                          : 'ØªØ£ÙƒØ¯ Ù…Ù† Ø£Ù† Ø§Ù„Ø£Ø³Ø¹Ø§Ø± Ø§Ù„Ù…Ø¯Ø±Ø¬Ø© Ù‡Ù†Ø§ ØªØ·Ø§Ø¨Ù‚ ØªÙ…Ø§Ù…Ù‹Ø§ Ù…Ø§ Ø¯ÙØ¹ØªÙ‡. Ø£ÙŠ ØªÙ„Ø§Ø¹Ø¨ ÙÙŠ Ø§Ù„Ø£Ø³Ø¹Ø§Ø± ÙŠØ¬Ø¨ Ø¹Ø¯Ù… Ø§Ù„ØªØ³Ø§Ù…Ø­ Ù…Ø¹Ù‡. ÙŠØ¬Ø¨ Ø¹Ù„Ù‰ Ø§Ù„ÙÙ†ÙŠ Ø¥Ø¯Ø®Ø§Ù„ Ø§Ù„Ø£Ø³Ø¹Ø§Ø± Ø§Ù„ÙØ¹Ù„ÙŠØ© Ø§Ù„ØªÙŠ Ø¯ÙØ¹ØªÙ‡Ø§ â€” Ù‡Ø°Ù‡ Ù‡ÙŠ Ù…Ø±Ø¬Ø¹Ù†Ø§ Ø§Ù„Ø±Ø³Ù…ÙŠ ÙÙŠ Ø­Ø§Ù„Ø© Ø£ÙŠ Ø´ÙƒÙˆÙ‰ Ø£Ùˆ Ø®Ù„Ø§Ù Ø£Ùˆ Ø§Ø³ØªØ®Ø¯Ø§Ù… Ø¶Ù…Ø§Ù† Ø§Ù„ÙØ­Øµ Ø§Ù„Ù…Ø¬Ø§Ù†ÙŠ Ù„Ù…Ø¯Ø© 14 ÙŠÙˆÙ…Ù‹Ø§.',
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: Color(0xFF7A4F00),
-                        height: 1.5,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 20),
-
-              // â”€â”€ Services â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-              if (services.isNotEmpty) ...[
-                _sectionTitle(
-                    isEn
-                        ? 'Services Performed'
-                        : 'Ø§Ù„Ø®Ø¯Ù…Ø§Øª Ø§Ù„Ù…Ù†Ø¬Ø²Ø©',
-                    isEn),
-                const SizedBox(height: 10),
-                ...services.map((s) => _receiptRow(
-                      s['title'] as String? ?? '',
-                      (s['price'] as num?)?.toDouble() ?? 0.0,
-                    )),
-                const SizedBox(height: 6),
-                _subtotalRow(
-                    isEn ? 'Services Subtotal' : 'Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ø®Ø¯Ù…Ø§Øª',
-                    servicesSubtotal),
-              ],
-
-              // â”€â”€ Parts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-              if (parts.isNotEmpty) ...[
-                const SizedBox(height: 20),
-                _sectionTitle(
-                    isEn ? 'Parts Used' : 'Ø§Ù„Ù‚Ø·Ø¹ Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù…Ø©',
-                    isEn),
-                const SizedBox(height: 10),
-                ...parts.map((p) => _receiptRow(
-                      p['name'] as String? ?? '',
-                      (p['price'] as num?)?.toDouble() ?? 0.0,
-                    )),
-                const SizedBox(height: 6),
-                _subtotalRow(
-                    isEn ? 'Parts Subtotal' : 'Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ù‚Ø·Ø¹',
-                    partsSubtotal),
-              ],
-
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 16),
-                child: Divider(thickness: 1.5),
-              ),
-
-              // â”€â”€ Grand Total â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    isEn ? 'Grand Total' : 'Ø§Ù„Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„ÙƒÙ„ÙŠ',
-                    style: const TextStyle(
-                        fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                  Text(
-                    '${grandTotal.toStringAsFixed(0)} EGP',
-                    style: const TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
-                      color: _syanatBlue,
-                    ),
-                  ),
-                ],
-              ),
-
-              // â”€â”€ Notes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-              if (notes.isNotEmpty) ...[
-                const SizedBox(height: 16),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade50,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: Colors.grey.shade200),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        isEn ? 'Technician Note' : 'Ù…Ù„Ø§Ø­Ø¸Ø© Ø§Ù„ÙÙ†ÙŠ',
-                        style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.grey.shade600),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(notes,
-                          style: const TextStyle(fontSize: 14, height: 1.4)),
-                    ],
-                  ),
-                ),
-              ],
-
-              const SizedBox(height: 28),
-
-              // â”€â”€ Action buttons â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-              SizedBox(
-                width: double.infinity,
-                height: 52,
-                child: ElevatedButton.icon(
-                  onPressed: _approving
-                      ? null
-                      : () async {
-                          setState(() => _approving = true);
-                          try {
-                            await widget.onApproved();
-                            if (!mounted) return;
-                            Navigator.pop(context);
-                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                              content: Text(widget.isEn
-                                  ? 'Order completed successfully.'
-                                  : 'ØªÙ… Ø¥ØªÙ…Ø§Ù… Ø§Ù„Ø·Ù„Ø¨ Ø¨Ù†Ø¬Ø§Ø­.'),
-                              backgroundColor: Colors.green,
-                            ));
-                          } catch (e) {
-                            debugPrint('Approve receipt error: $e');
-                            if (!mounted) return;
-                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                              content: Text(widget.isEn
-                                  ? 'Something went wrong. Please try again.'
-                                  : 'Ø­Ø¯Ø« Ø®Ø·Ø£. ÙŠØ±Ø¬Ù‰ Ø§Ù„Ù…Ø­Ø§ÙˆÙ„Ø© Ù…Ø±Ø© Ø£Ø®Ø±Ù‰.'),
-                              backgroundColor: Colors.red,
-                            ));
-                          } finally {
-                            if (mounted) setState(() => _approving = false);
-                          }
-                        },
-                  icon: _approving
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                              strokeWidth: 2, color: Colors.white))
-                      : const Icon(Icons.check_circle_outline),
-                  label: Text(
-                    isEn
-                        ? 'Approve Receipt'
-                        : 'Ø§Ù„Ù…ÙˆØ§ÙÙ‚Ø© Ø¹Ù„Ù‰ Ø§Ù„Ø¥ÙŠØµØ§Ù„',
-                    style: const TextStyle(
-                        fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF10B981),
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14)),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                height: 48,
-                child: OutlinedButton.icon(
-                  onPressed: _approving
-                      ? null
-                      : () async {
-                          final confirm = await showDialog<bool>(
-                            context: context,
-                            builder: (ctx) => AlertDialog(
-                              title: Text(isEn
-                                  ? 'Reject Receipt?'
-                                  : 'Ø±ÙØ¶ Ø§Ù„Ø¥ÙŠØµØ§Ù„ØŸ'),
-                              content: Text(isEn
-                                  ? 'This will flag the order for admin review. The admin will mediate between you and the technician.'
-                                  : 'Ø³ÙŠØªÙ… ØªØ­ÙˆÙŠÙ„ Ø§Ù„Ø·Ù„Ø¨ Ù„Ù„Ø¥Ø¯Ø§Ø±Ø© Ù„Ù„Ù…Ø±Ø§Ø¬Ø¹Ø©. Ø³ØªØªÙˆØ³Ø· Ø§Ù„Ø¥Ø¯Ø§Ø±Ø© Ø¨ÙŠÙ†Ùƒ ÙˆØ¨ÙŠÙ† Ø§Ù„ÙÙ†ÙŠ.'),
-                              actions: [
-                                TextButton(
-                                  onPressed: () => Navigator.pop(ctx, false),
-                                  child: Text(isEn ? 'Cancel' : 'Ø¥Ù„ØºØ§Ø¡'),
-                                ),
-                                ElevatedButton(
-                                  onPressed: () => Navigator.pop(ctx, true),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.red.shade600,
-                                    foregroundColor: Colors.white,
-                                  ),
-                                  child: Text(isEn ? 'Reject' : 'Ø±ÙØ¶'),
-                                ),
-                              ],
-                            ),
-                          );
-                          if (confirm != true || !mounted) return;
-                          setState(() => _approving = true);
-                          try {
-                            await FirebaseService.rejectReceipt(
-                                widget.jobId, widget.uid);
-                            if (!mounted) return;
-                            Navigator.pop(context);
-                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                              content: Text(isEn
-                                  ? 'Receipt rejected. Admin will review.'
-                                  : 'ØªÙ… Ø±ÙØ¶ Ø§Ù„Ø¥ÙŠØµØ§Ù„. Ø³ØªÙ‚ÙˆÙ… Ø§Ù„Ø¥Ø¯Ø§Ø±Ø© Ø¨Ø§Ù„Ù…Ø±Ø§Ø¬Ø¹Ø©.'),
-                              backgroundColor: Colors.orange,
-                            ));
-                          } catch (e) {
-                            debugPrint('Reject receipt error: $e');
-                            if (!mounted) return;
-                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                              content: Text(isEn
-                                  ? 'Something went wrong. Please try again.'
-                                  : 'Ø­Ø¯Ø« Ø®Ø·Ø£. ÙŠØ±Ø¬Ù‰ Ø§Ù„Ù…Ø­Ø§ÙˆÙ„Ø© Ù…Ø±Ø© Ø£Ø®Ø±Ù‰.'),
-                              backgroundColor: Colors.red,
-                            ));
-                          } finally {
-                            if (mounted) {
-                              setState(() => _approving = false);
-                            }
-                          }
-                        },
-                  icon: const Icon(Icons.cancel_outlined),
-                  label: Text(
-                    isEn ? 'Reject Receipt' : 'Ø±ÙØ¶ Ø§Ù„Ø¥ÙŠØµØ§Ù„',
-                    style: const TextStyle(
-                        fontSize: 15, fontWeight: FontWeight.w600),
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.red.shade600,
-                    side: BorderSide(color: Colors.red.shade300),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14)),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _sectionTitle(String title, bool isEn) {
-    return Text(
-      title,
-      style: TextStyle(
-          fontSize: 13,
-          fontWeight: FontWeight.w700,
-          color: Colors.grey.shade600,
-          letterSpacing: 0.3),
-    );
-  }
-
-  Widget _receiptRow(String label, double price) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Expanded(
-            child:
-                Text(label, style: const TextStyle(fontSize: 14, height: 1.3)),
-          ),
-          const SizedBox(width: 16),
-          Text(
-            '${price.toStringAsFixed(0)} EGP',
-            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _subtotalRow(String label, double amount) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+Widget _readOnlyActionMessage(String message) {
+  return Container(
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(10),
+      border: Border.all(color: const Color(0x1F3C21C8)),
+    ),
+    child: Row(
       children: [
-        Text(label,
-            style: TextStyle(
-                fontSize: 12,
-                color: Colors.grey.shade500,
-                fontWeight: FontWeight.w500)),
-        Text(
-          '${amount.toStringAsFixed(0)} EGP',
-          style: TextStyle(
-              fontSize: 12,
-              color: Colors.grey.shade600,
-              fontWeight: FontWeight.w600),
+        const Icon(Icons.info_outline, color: _syanatBlue, size: 18),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            message,
+            style: const TextStyle(fontSize: 13, color: Colors.black87),
+          ),
         ),
       ],
-    );
-  }
+    ),
+  );
+}
+
+Widget _primaryActionButton({
+  required String label,
+  required IconData icon,
+  required VoidCallback onTap,
+}) {
+  return SizedBox(
+    width: double.infinity,
+    height: 44,
+    child: ElevatedButton.icon(
+      onPressed: onTap,
+      icon: Icon(icon, size: 18),
+      label: Text(label,
+          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: _syanatBlue,
+        foregroundColor: Colors.white,
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12)),
+      ),
+    ),
+  );
 }
