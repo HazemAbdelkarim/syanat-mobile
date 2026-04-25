@@ -24,6 +24,10 @@ class TechnicianProfileScreen extends StatefulWidget {
 class _TechnicianProfileScreenState extends State<TechnicianProfileScreen> {
   Map<String, dynamic>? _profile;
   bool _loading = true;
+  // Set when _loadProfile cannot resolve a signed-in user. Without this, the
+  // null-user branch returned silently and left _loading == true forever,
+  // surfacing as an infinite spinner under the AppBar.
+  bool _notSignedIn = false;
   bool _editing = false;
   bool _saving = false;
   String? _saveError;
@@ -68,10 +72,23 @@ class _TechnicianProfileScreenState extends State<TechnicianProfileScreen> {
       return;
     }
 
-    if (mounted) setState(() => _loading = true);
+    if (mounted) {
+      setState(() {
+        _loading = true;
+        _notSignedIn = false;
+      });
+    }
     try {
       final user = FirebaseService.getCurrentUser();
-      if (user == null) return;
+      if (user == null) {
+        if (mounted) {
+          setState(() {
+            _loading = false;
+            _notSignedIn = true;
+          });
+        }
+        return;
+      }
       final data = await FirebaseService.getProfile(user.uid);
       if (!mounted) return;
       _profileCache = data;
@@ -302,16 +319,24 @@ class _TechnicianProfileScreenState extends State<TechnicianProfileScreen> {
         ),
         body: _loading
             ? const Center(child: CircularProgressIndicator(color: _blue))
-            : _profile == null
+            : _notSignedIn
                 ? Center(
                     child: Text(
-                      t('Profile not found.', 'الملف الشخصي غير موجود.'),
+                      t('Please sign in again.',
+                          'يرجى تسجيل الدخول مرة أخرى.'),
                       style: const TextStyle(color: Colors.black54),
                     ),
                   )
-                : _editing
-                    ? _buildEditView(isEn, t)
-                    : _buildViewMode(isEn, t),
+                : _profile == null
+                    ? Center(
+                        child: Text(
+                          t('Profile not found.', 'الملف الشخصي غير موجود.'),
+                          style: const TextStyle(color: Colors.black54),
+                        ),
+                      )
+                    : _editing
+                        ? _buildEditView(isEn, t)
+                        : _buildViewMode(isEn, t),
       ),
     );
   }
