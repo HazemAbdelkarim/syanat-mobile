@@ -132,17 +132,39 @@ class FirebaseService {
       );
     }
 
-    // App Check �� blocks unauthorized clients from reaching Firebase APIs.
-    // IMPORTANT: Replace the placeholder reCAPTCHA key with a real one for web
-    // builds, and enable App Check enforcement for Firestore, Storage, and Auth
-    // in the Firebase Console.
-    await FirebaseAppCheck.instance.activate(
-      webProvider: ReCaptchaV3Provider('YOUR_RECAPTCHA_V3_SITE_KEY'),
-      androidProvider:
-          kDebugMode ? AndroidProvider.debug : AndroidProvider.playIntegrity,
-      appleProvider:
-          kDebugMode ? AppleProvider.debug : AppleProvider.appAttest,
-    );
+    // App Check — blocks unauthorized clients from reaching Firebase APIs.
+    //
+    // Web: a hardcoded placeholder reCAPTCHA key previously here caused
+    // recaptcha/api2/clr to 400 on every web load; the resulting AppCheck
+    // failure surfaced as `currentUser == null` past the 8-second auth-ready
+    // guard in tech_home_screen.dart. We now read the key from a build-time
+    // dart-define and skip web activation entirely when no key is provided.
+    //   Build with App Check enabled:
+    //     flutter build web --dart-define=RECAPTCHA_V3_SITE_KEY=<key>
+    //   Get the key from: https://www.google.com/recaptcha/admin
+    // Mobile builds always activate (debug providers in debug mode, attestation
+    // providers otherwise) and do not depend on the dart-define.
+    //
+    // App Check enforcement in the Firebase Console is currently MONITORING.
+    // Before flipping to ENFORCING for the web app, deploy a build that
+    // passes a real RECAPTCHA_V3_SITE_KEY and verify zero AppCheck errors in
+    // DevTools Console.
+    const recaptchaSiteKey =
+        String.fromEnvironment('RECAPTCHA_V3_SITE_KEY', defaultValue: '');
+    if (kIsWeb) {
+      if (recaptchaSiteKey.isNotEmpty) {
+        await FirebaseAppCheck.instance.activate(
+          webProvider: ReCaptchaV3Provider(recaptchaSiteKey),
+        );
+      }
+    } else {
+      await FirebaseAppCheck.instance.activate(
+        androidProvider:
+            kDebugMode ? AndroidProvider.debug : AndroidProvider.playIntegrity,
+        appleProvider:
+            kDebugMode ? AppleProvider.debug : AppleProvider.appAttest,
+      );
+    }
   }
 
   // ----------------------
