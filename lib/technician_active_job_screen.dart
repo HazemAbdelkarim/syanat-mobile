@@ -280,25 +280,13 @@ class _TechnicianActiveJobScreenState
     final address =
         (widget.job['locationAddress'] as String?)?.trim() ?? '';
 
-    const lockedStatuses = {
-      'active',
-      'technician_accepted',
-      'on_the_way',
-      'technician_arrived',
-      'work_finished',
-    };
-    final isLocked = lockedStatuses.contains(status);
-
-    return PopScope(
-      canPop: !isLocked,
-      child: Directionality(
-        textDirection: isEn ? TextDirection.ltr : TextDirection.rtl,
-        child: Scaffold(
-          backgroundColor: const Color(0xFFF7F7FB),
-          appBar: AppBar(
-            backgroundColor: _syanatBlue,
-            foregroundColor: Colors.white,
-            automaticallyImplyLeading: !isLocked,
+    return Directionality(
+      textDirection: isEn ? TextDirection.ltr : TextDirection.rtl,
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF7F7FB),
+        appBar: AppBar(
+          backgroundColor: _syanatBlue,
+          foregroundColor: Colors.white,
             title: Text(
               serviceCategory?.isNotEmpty == true
                   ? serviceCategory!
@@ -345,8 +333,7 @@ class _TechnicianActiveJobScreenState
             ],
           ),
         ),
-      ),
-    );
+      );
   }
 
   // ── Sequential progress steps ────────────────────────────────────────────

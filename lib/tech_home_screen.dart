@@ -10,6 +10,7 @@ import 'job_status.dart' show jobStatusTechLabel;
 import 'services/notification_service.dart';
 import 'technician_active_job_screen.dart';
 import 'technician_approve_payment_screen.dart';
+import 'technician_job_detail_readonly_screen.dart';
 import 'technician_profile_screen.dart';
 import 'technician_receipt_screen.dart';
 import 'settings_screen.dart';
@@ -26,19 +27,23 @@ class TechHomeScreen extends StatefulWidget {
 class _TechHomeScreenState extends State<TechHomeScreen> {
   bool _loading = true;
   Object? _jobsError;
+  // `_jobs` is an unfiltered list of every job assigned to this tech (last 50
+  // by createdAt desc). Used only for the `_earnings` stat (sum over
+  // completed jobs) and for the legacy-status migration check.
+  // `_activeJobs` is the source of truth for the rendered active-jobs list
+  // and the "Active Jobs" stat.
   List<Map<String, dynamic>> _jobs = [];
-  int _activeCount = 0;
+  List<Map<String, dynamic>> _activeJobs = [];
   double _earnings = 0.0;
   double _rating = 0.0;
   bool _isAvailable = true;
   int _unreadNotifCount = 0;
-  Map<String, dynamic>? _activeJob;
 
   final Map<String, Map<String, dynamic>> _customerCache = {};
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _jobsSub;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _profileSub;
   StreamSubscription<int>? _notifCountSub;
-  StreamSubscription<Map<String, dynamic>?>? _activeJobSub;
+  StreamSubscription<List<Map<String, dynamic>>>? _activeJobsSub;
 
   // Release-006 notifications: diff status-per-jobId across jobs-stream
   // snapshots and fire local notifications for each non-self-caused
@@ -79,7 +84,7 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
     _subscribeProfile();
     _loadJobsRealtime();
     _subscribeNotifCount();
-    _subscribeActiveJob();
+    _subscribeActiveJobs();
   }
 
   @override
@@ -87,7 +92,7 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
     _jobsSub?.cancel();
     _profileSub?.cancel();
     _notifCountSub?.cancel();
-    _activeJobSub?.cancel();
+    _activeJobsSub?.cancel();
     super.dispose();
   }
 
@@ -119,14 +124,14 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
     });
   }
 
-  void _subscribeActiveJob() {
+  void _subscribeActiveJobs() {
     final user = FirebaseService.getCurrentUser();
     if (user == null) return;
 
-    _activeJobSub =
-        FirebaseService.streamTechnicianActiveJob(user.uid).listen((job) {
+    _activeJobsSub =
+        FirebaseService.streamTechnicianActiveJobs(user.uid).listen((jobs) {
       if (mounted) {
-        setState(() => _activeJob = job);
+        setState(() => _activeJobs = jobs);
       }
     });
   }
@@ -235,28 +240,10 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
         return data;
       }).toList();
 
-      final active = jobs
-          .where(
-            (j) {
-              final s = j['status'] as String? ?? '';
-              return s == 'active' ||
-                  s == 'technician_accepted' ||
-                  s == 'on_the_way' ||
-                  s == 'technician_arrived' ||
-                  s == 'work_finished' ||
-                  s == 'awaiting_customer_approval' ||
-                  s == 'awaiting_payment' ||
-                  s == 'awaiting_payment_verification' ||
-                  s == 'receipt_disputed' ||
-                  // Legacy statuses still counted until any stragglers are
-                  // migrated via the "Open" button in _buildJobTrailing.
-                  s == 'accepted' ||
-                  s == 'in_progress' ||
-                  s == 'inprogress';
-            },
-          )
-          .length;
-
+      // `_jobs` drives the earnings stat (sum over completed jobs) and the
+      // legacy-status migration check at the bottom of the active list. The
+      // active-jobs stat and the rendered list both come from `_activeJobs`
+      // (plus legacy stragglers), not from this collection.
       final earnings = jobs
           .where((j) => j['status'] == 'completed')
           .fold<double>(
@@ -265,11 +252,8 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
           );
 
       if (!mounted) return;
-      // Paint the list immediately from the snapshot. The card and the list
-      // both read these fields, so they cannot disagree once this runs.
       setState(() {
         _jobs = jobs;
-        _activeCount = active;
         _earnings = earnings;
         _loading = false;
         _jobsError = null;
@@ -338,21 +322,19 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
     _initAfterAuth();
   }
 
-  /// Returns the full-page widget to replace the home screen with for the
-  /// given [status], or null if the home screen should stay visible (with
-  /// a passive-wait banner). This is the single routing decision for the
-  /// active-job stream — keep it here, don't scatter if/else chains through
-  /// the build tree.
+  /// Returns the full-page widget to push when a tile in the active-jobs
+  /// list is tapped. This is the single routing decision for active jobs —
+  /// keep it here, don't scatter if/else chains through the build tree.
   ///
-  /// Mapping (release 006):
+  /// Mapping:
   ///   active, technician_accepted, on_the_way, technician_arrived
   ///     → TechnicianActiveJobScreen (slider flow)
   ///   work_finished                → TechnicianReceiptScreen (fill receipt)
-  ///   awaiting_customer_approval   → null (passive: customer is reviewing)
-  ///   awaiting_payment             → null (passive: customer is paying)
   ///   awaiting_payment_verification → TechnicianApprovePaymentScreen
-  ///   receipt_disputed             → null (passive: admin is mediating)
-  ///   any other                    → null (completed/cancelled/unknown)
+  ///   awaiting_customer_approval, awaiting_payment, receipt_disputed
+  ///     → TechnicianJobDetailReadonlyScreen (passive-wait, read-only)
+  ///   any other                    → null (terminal/unknown — should not
+  ///                                  appear in `_activeJobs` at all)
   Widget? _activeJobRouteFor(
       String status, Map<String, dynamic> job, String techId) {
     switch (status) {
@@ -376,6 +358,12 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
           technicianId: techId,
           job: Map<String, dynamic>.from(job),
         );
+      case 'awaiting_customer_approval':
+      case 'awaiting_payment':
+      case 'receipt_disputed':
+        return TechnicianJobDetailReadonlyScreen(
+          job: Map<String, dynamic>.from(job),
+        );
       default:
         return null;
     }
@@ -391,21 +379,11 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
   @override
   Widget build(BuildContext context) {
     final isEn = Localizations.localeOf(context).languageCode == 'en';
-    final user = FirebaseService.getCurrentUser();
 
-    // Route to the right full-page screen based on active-job status.
-    // Passive-wait statuses (awaiting_customer_approval, awaiting_payment,
-    // receipt_disputed) return null and fall through to the home screen,
-    // which renders a banner via _buildPassiveWaitBanner. This keeps the
-    // status → screen decision in one testable place.
-    if (_activeJob != null && user != null) {
-      final route = _activeJobRouteFor(
-        _activeJob!['status'] as String? ?? '',
-        _activeJob!,
-        user.uid,
-      );
-      if (route != null) return route;
-    }
+    // Multi-assignment: home screen always renders. The tech picks which
+    // active job to drive by tapping a tile. Auto-routing was removed
+    // because it bounced the tech back into the active screen on every
+    // pop, making system back unusable.
 
     return Directionality(
       textDirection: isEn ? TextDirection.ltr : TextDirection.rtl,
@@ -551,7 +529,9 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
                             Expanded(
                               child: _buildStatCard(
                                 isEn ? 'Active Jobs' : 'Active Jobs',
-                                _loading ? '…' : '$_activeCount',
+                                _loading
+                                    ? '…'
+                                    : '${_activeJobs.length + _legacyJobsFromAll().length}',
                               ),
                             ),
                             const SizedBox(width: 10),
@@ -575,11 +555,6 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
                           ],
                         ),
                         const SizedBox(height: 24),
-                        // Banner for passive-wait active job
-                        if (_activeJob != null && user != null) ...[
-                          _buildPassiveWaitBanner(isEn, user.uid),
-                          const SizedBox(height: 16),
-                        ],
                         Text(
                           isEn ? 'Active Jobs' : 'Active Jobs',
                           style: const TextStyle(
@@ -676,7 +651,9 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
         ),
       );
     }
-    if (_jobs.isEmpty) {
+    final sortedActive = _sortActiveJobs(_activeJobs);
+    final legacy = _legacyJobsFromAll();
+    if (sortedActive.isEmpty && legacy.isEmpty) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
@@ -707,20 +684,72 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
         ),
       );
     }
-    return ListView.builder(
-      itemCount: _jobs.length,
-      itemBuilder: (context, index) => _buildJobTile(_jobs[index], isEn),
+
+    final user = FirebaseService.getCurrentUser();
+    return ListView(
+      children: [
+        ...sortedActive.map((j) => _buildActiveJobTile(j, isEn, user?.uid)),
+        if (legacy.isNotEmpty) ...[
+          const SizedBox(height: 16),
+          _buildLegacySectionHeader(isEn),
+          const SizedBox(height: 8),
+          ...legacy.map((j) => _buildLegacyJobTile(j, isEn, user?.uid)),
+        ],
+      ],
     );
   }
 
-  Widget _buildJobTile(Map<String, dynamic> j, bool isEn) {
-    final status = j['status'] as String? ?? 'requested';
-    final customerId = j['customerId'] as String? ?? '';
+  /// scheduledTime present → ascending by scheduled time.
+  /// scheduledTime absent  → ascending by assignedAt.
+  /// Two-bucket sort. Do NOT replace with a server-side
+  /// `orderBy('scheduledTime')` — Firestore drops docs that lack the field
+  /// (urgent/now orders write no `scheduledTime`).
+  List<Map<String, dynamic>> _sortActiveJobs(List<Map<String, dynamic>> jobs) {
+    final scheduled = <Map<String, dynamic>>[];
+    final unscheduled = <Map<String, dynamic>>[];
+    for (final j in jobs) {
+      (j['scheduledTime'] is Timestamp ? scheduled : unscheduled).add(j);
+    }
+    scheduled.sort((a, b) => (a['scheduledTime'] as Timestamp)
+        .compareTo(b['scheduledTime'] as Timestamp));
+    unscheduled.sort((a, b) {
+      final ta = a['assignedAt'] as Timestamp?;
+      final tb = b['assignedAt'] as Timestamp?;
+      if (ta == null && tb == null) return 0;
+      if (ta == null) return 1;
+      if (tb == null) return -1;
+      return ta.compareTo(tb);
+    });
+    return [...scheduled, ...unscheduled];
+  }
+
+  /// Filters `_jobs` for any straggler job still in a pre-release-006 status
+  /// (`accepted`, `in_progress`, …). The plural active stream's whereIn does
+  /// NOT include these statuses, so they would be invisible to the tech if
+  /// we relied on `_activeJobs` alone. Once the stragglers are migrated (or
+  /// admin-force-closed) and the count is verified zero in production, this
+  /// helper and the migration code (`_legacyActiveStatuses`,
+  /// `_legacyStatusMap`, `_migrateLegacyJob`) can all be removed.
+  List<Map<String, dynamic>> _legacyJobsFromAll() {
+    return _jobs
+        .where((j) => _legacyActiveStatuses.contains(j['status']))
+        .toList();
+  }
+
+  Widget _buildActiveJobTile(
+      Map<String, dynamic> job, bool isEn, String? techId) {
+    final status = (job['status'] as String?) ?? '';
+    final customerId = (job['customerId'] as String?) ?? '';
     final customer = _customerCache[customerId] ?? const {};
     final username =
-        customer['username'] ?? customer['email'] ?? 'Customer';
-    final description = j['description'] ?? '';
-    final price = j['price'] ?? 0;
+        (customer['username'] ?? customer['email'] ?? (isEn ? 'Customer' : 'العميل'))
+            .toString();
+    final address = ((job['locationAddress'] as String?)?.trim() ?? '');
+    final dynamic scheduled = job['scheduledTime'];
+    final scheduledLabel = scheduled is Timestamp
+        ? _formatScheduledShort(scheduled.toDate())
+        : (isEn ? 'No scheduled time' : 'بدون موعد محدد');
+    final jobId = (job['id'] as String?) ?? '';
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
@@ -729,110 +758,160 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
         child: ListTile(
           dense: true,
           visualDensity: VisualDensity.compact,
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 12,
-            vertical: 0,
-          ),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
           minVerticalPadding: 0,
           leading: CircleAvatar(
             backgroundColor: Colors.grey.shade300,
             child: const Icon(Icons.person, color: Colors.black54),
           ),
-          title: Text(
-            username.toString(),
-            style: const TextStyle(color: Colors.black),
-          ),
+          title: Text(username, style: const TextStyle(color: Colors.black)),
           subtitle: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (description.toString().isNotEmpty)
-                Text(
-                  description.toString(),
-                  style: const TextStyle(color: Colors.black54),
-                ),
-              const SizedBox(height: 6),
-              Text(
-                '${isEn ? 'Status' : 'الحالة'}: '
-                '${jobStatusTechLabel(status, isEn: isEn)}',
-                style: const TextStyle(color: Colors.black54, fontSize: 12),
-              ),
               const SizedBox(height: 4),
               Text(
-                isEn ? 'Price: $price EGP' : 'Price: $price EGP',
+                '${isEn ? 'Status' : 'الحالة'}: ${jobStatusTechLabel(status, isEn: isEn)}',
+                style: const TextStyle(color: Colors.black54, fontSize: 12),
+              ),
+              if (address.isNotEmpty) ...[
+                const SizedBox(height: 2),
+                Text(
+                  address,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Colors.black54, fontSize: 12),
+                ),
+              ],
+              const SizedBox(height: 2),
+              Text(
+                scheduledLabel,
                 style: const TextStyle(color: Colors.black54, fontSize: 12),
               ),
             ],
           ),
-          trailing: _buildJobTrailing(
-              status, customerId, j['id'] as String, isEn),
+          trailing: (techId == null || customerId.isEmpty || jobId.isEmpty)
+              ? null
+              : SizedBox(
+                  width: 64,
+                  child: ElevatedButton(
+                    onPressed: () => _openChatForJob(customerId, jobId),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: syanatBlue,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 6),
+                      textStyle: const TextStyle(fontSize: 12),
+                      minimumSize: const Size(64, 30),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    child: Text(isEn ? 'Chat' : 'محادثة'),
+                  ),
+                ),
+          onTap: techId == null
+              ? null
+              : () {
+                  final route = _activeJobRouteFor(status, job, techId);
+                  if (route != null) {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => route),
+                    );
+                  }
+                },
         ),
       ),
     );
   }
 
-  Widget _buildPassiveWaitBanner(bool isEn, String techId) {
-    final status = _activeJob!['status'] as String? ?? '';
-    final isDisputed = status == 'receipt_disputed';
-    final color = isDisputed ? Colors.red.shade400 : syanatBlue;
-    final icon = isDisputed
-        ? Icons.gavel
-        : (status == 'awaiting_payment'
-            ? Icons.payments_outlined
-            : Icons.hourglass_top);
-    final String title;
-    if (isDisputed) {
-      title = isEn
-          ? 'Receipt Disputed — Admin Reviewing'
-          : 'إيصال متنازع عليه — الإدارة تراجع';
-    } else if (status == 'awaiting_payment') {
-      title =
-          isEn ? 'Awaiting Customer Payment' : 'بانتظار دفع العميل';
-    } else if (status == 'awaiting_customer_approval') {
-      title = isEn
-          ? 'Awaiting Customer Approval'
-          : 'بانتظار موافقة العميل';
-    } else {
-      // Fallback — covers any future passive-wait status we haven't
-      // specifically labelled yet. Status text is still accurate via the
-      // bilingual label helper.
-      title = jobStatusTechLabel(status, isEn: isEn);
-    }
+  Future<void> _openChatForJob(String customerId, String jobId) async {
+    final currentUser = FirebaseService.getCurrentUser();
+    if (currentUser == null || customerId.isEmpty) return;
+    final chatId = await FirebaseService.getOrCreateChat(
+      customerId,
+      currentUser.uid,
+      jobId: jobId,
+    );
+    if (!mounted) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ChatScreen(chatId: chatId, isTechnician: true),
+      ),
+    );
+  }
 
-    return GestureDetector(
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => TechnicianActiveJobScreen(
-              job: _activeJob!,
-              technicianId: techId,
+  String _formatScheduledShort(DateTime dt) {
+    final hh = dt.hour.toString().padLeft(2, '0');
+    final mm = dt.minute.toString().padLeft(2, '0');
+    return '${dt.day}/${dt.month}/${dt.year}  $hh:$mm';
+  }
+
+  Widget _buildLegacySectionHeader(bool isEn) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: Row(
+        children: [
+          const Icon(Icons.history, size: 16, color: Color(0xFFF59E0B)),
+          const SizedBox(width: 6),
+          Text(
+            isEn ? 'Needs migration' : 'تحتاج للترحيل',
+            style: const TextStyle(
+              color: Color(0xFFF59E0B),
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.3,
             ),
           ),
-        );
-      },
-      child: Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: color.withOpacity(0.08),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: color.withOpacity(0.3)),
-        ),
-        child: Row(
-          children: [
-            Icon(icon, color: color, size: 24),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                title,
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                  color: color,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLegacyJobTile(
+      Map<String, dynamic> job, bool isEn, String? techId) {
+    final status = (job['status'] as String?) ?? '';
+    final jobId = (job['id'] as String?) ?? '';
+    final customerId = (job['customerId'] as String?) ?? '';
+    final customer = _customerCache[customerId] ?? const {};
+    final username =
+        (customer['username'] ?? customer['email'] ?? (isEn ? 'Customer' : 'العميل'))
+            .toString();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: GlassCard(
+        padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
+        child: ListTile(
+          dense: true,
+          visualDensity: VisualDensity.compact,
+          leading: const Icon(Icons.history, color: Color(0xFFF59E0B)),
+          title: Text(username, style: const TextStyle(color: Colors.black)),
+          subtitle: Text(
+            '${isEn ? 'Legacy status' : 'حالة قديمة'}: $status',
+            style: const TextStyle(color: Colors.black54, fontSize: 12),
+          ),
+          trailing: (techId == null || jobId.isEmpty)
+              ? null
+              : SizedBox(
+                  width: 64,
+                  child: ElevatedButton(
+                    onPressed: () => _migrateLegacyJob(jobId, techId, status),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFF59E0B),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 6),
+                      textStyle: const TextStyle(fontSize: 12),
+                      minimumSize: const Size(64, 30),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    child: Text(isEn ? 'Open' : 'فتح'),
+                  ),
                 ),
-              ),
-            ),
-            Icon(Icons.chevron_right, color: color.withOpacity(0.6)),
-          ],
         ),
       ),
     );
@@ -873,110 +952,6 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
         );
       }
     }
-  }
-
-  Widget _buildJobTrailing(
-      String status, String customerId, String jobId, bool isEn) {
-    // Status badge color/label
-    Color badgeColor;
-    String badgeLabel;
-    switch (status) {
-      case 'completed':
-        badgeColor = const Color(0xFF10B981);
-        badgeLabel = isEn ? 'Done' : 'مكتمل';
-        break;
-      case 'cancelled':
-        badgeColor = const Color(0xFFEF4444);
-        badgeLabel = isEn ? 'Cancelled' : 'ملغي';
-        break;
-      default:
-        badgeColor = syanatBlue;
-        badgeLabel = isEn ? 'Active' : 'نشط';
-    }
-
-    final user = FirebaseService.getCurrentUser();
-
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        // Chat button for non-terminal statuses
-        if (status != 'completed' && status != 'cancelled')
-          SizedBox(
-            width: 64,
-            child: ElevatedButton(
-              onPressed: () async {
-                final currentUser = FirebaseService.getCurrentUser();
-                if (currentUser == null || customerId.isEmpty) return;
-                final chatId = await FirebaseService.getOrCreateChat(
-                  customerId,
-                  currentUser.uid,
-                  jobId: jobId,
-                );
-                if (!mounted) return;
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => ChatScreen(
-                      chatId: chatId,
-                      isTechnician: true,
-                    ),
-                  ),
-                );
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: syanatBlue,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-                textStyle: const TextStyle(fontSize: 12),
-                minimumSize: const Size(64, 30),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ),
-              child: Text(isEn ? 'Chat' : 'محادثة'),
-            ),
-          ),
-        // Legacy fallback: "Open" button migrates the job to the new flow
-        if (_legacyActiveStatuses.contains(status) && user != null)
-          Padding(
-            padding: const EdgeInsets.only(left: 6),
-            child: SizedBox(
-              width: 64,
-              child: ElevatedButton(
-                onPressed: () => _migrateLegacyJob(jobId, user.uid, status),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFF59E0B),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-                  textStyle: const TextStyle(fontSize: 12),
-                  minimumSize: const Size(64, 30),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-                child: Text(isEn ? 'Open' : 'فتح'),
-              ),
-            ),
-          ),
-        const SizedBox(width: 6),
-        // Status badge
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          decoration: BoxDecoration(
-            color: badgeColor.withOpacity(0.12),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Text(
-            badgeLabel,
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.bold,
-              color: badgeColor,
-            ),
-          ),
-        ),
-      ],
-    );
   }
 
   Widget _buildStatCard(String label, String value) {

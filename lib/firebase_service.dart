@@ -13,6 +13,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 // XFile comes via `flutter_image_compress` (which re-exports `cross_file`).
 // `image_picker` is imported by callers that actually need the picker itself.
 import 'package:flutter_image_compress/flutter_image_compress.dart';
+import 'package:image/image.dart' as img;
 
 /// Thrown when the caller needs to wait before retrying an order.
 /// [remainingSeconds] is the rounded-up number of seconds left on the
@@ -41,6 +42,25 @@ class StoredPhoneInvalidException implements Exception {
 class MissingUserProfileException implements Exception {
   @override
   String toString() => 'MissingUserProfileException';
+}
+
+/// Thrown by image-upload paths when the compressed payload still exceeds
+/// the 5 MB Firebase Storage rule cap on `payment_proofs/*`. Callers should
+/// surface a "pick a smaller photo" message — this is unusually large media,
+/// not a network or permission failure.
+class ImageTooLargeException implements Exception {
+  final int sizeBytes;
+  ImageTooLargeException(this.sizeBytes);
+  @override
+  String toString() => 'ImageTooLargeException(size=$sizeBytes)';
+}
+
+/// Thrown on the web path when `package:image` cannot decode the raw bytes.
+/// Indicates a corrupt or unusual file slipped past the picker; callers
+/// should surface a "try a different photo" message.
+class ImageDecodeException implements Exception {
+  @override
+  String toString() => 'ImageDecodeException';
 }
 
 class FirebaseService {
@@ -770,25 +790,75 @@ class FirebaseService {
   // IMAGE COMPRESSION
   // ----------------------
   /// Compresses [file] to JPEG with max dimension [maxDimension]px and
-  /// [quality] (0–100). Returns the compressed bytes, or falls back to the
-  /// original bytes if compression is unavailable (e.g. web).
+  /// [quality] (0–100). Returns the compressed bytes.
+  ///
+  /// On mobile uses `flutter_image_compress` (native). On web,
+  /// `flutter_image_compress` has no implementation, so we decode + resize +
+  /// re-encode with pure-Dart `package:image`. Throws [ImageDecodeException]
+  /// if the web decoder cannot interpret the raw bytes.
   static Future<List<int>> compressImage(
     XFile file, {
     int maxDimension = 480,
     int quality = 60,
   }) async {
-    // Web: flutter_image_compress is not supported — fall back to raw bytes.
-    if (kIsWeb) return await file.readAsBytes();
-
     final rawBytes = await file.readAsBytes();
-    final compressed = await FlutterImageCompress.compressWithList(
-      rawBytes,
-      minWidth: maxDimension,
-      minHeight: maxDimension,
-      quality: quality,
-      format: CompressFormat.jpeg,
-    );
+    if (kDebugMode) {
+      debugPrint(
+        '[compressImage] raw: ${rawBytes.length} B '
+        '(${(rawBytes.length / 1024 / 1024).toStringAsFixed(2)} MB, '
+        'web=$kIsWeb)',
+      );
+    }
+
+    final List<int> compressed;
+    if (kIsWeb) {
+      compressed = _compressOnWebWithImagePackage(
+        rawBytes,
+        maxDimension: maxDimension,
+        quality: quality,
+      );
+    } else {
+      compressed = await FlutterImageCompress.compressWithList(
+        rawBytes,
+        minWidth: maxDimension,
+        minHeight: maxDimension,
+        quality: quality,
+        format: CompressFormat.jpeg,
+      );
+    }
+
+    if (kDebugMode) {
+      debugPrint(
+        '[compressImage] out: ${compressed.length} B '
+        '(${(compressed.length / 1024 / 1024).toStringAsFixed(2)} MB, '
+        'maxDim=$maxDimension, q=$quality)',
+      );
+    }
     return compressed;
+  }
+
+  // Synchronous; a typical 5 MP photo runs ~300-700 ms on the main isolate.
+  // Callers show a spinner around the awaited `compressImage` call, and
+  // `readAsBytes` above yields before we get here, so one paint gets in.
+  static List<int> _compressOnWebWithImagePackage(
+    Uint8List rawBytes, {
+    required int maxDimension,
+    required int quality,
+  }) {
+    final decoded = img.decodeImage(rawBytes);
+    if (decoded == null) throw ImageDecodeException();
+
+    img.Image working = decoded;
+    final longest =
+        decoded.width > decoded.height ? decoded.width : decoded.height;
+    if (longest > maxDimension) {
+      if (decoded.width >= decoded.height) {
+        working = img.copyResize(decoded, width: maxDimension);
+      } else {
+        working = img.copyResize(decoded, height: maxDimension);
+      }
+    }
+    return img.encodeJpg(working, quality: quality);
   }
 
   // ----------------------
@@ -1003,6 +1073,18 @@ class FirebaseService {
         storage.ref().child('payment_proofs/${jobId}_$timestamp.jpg');
     final compressed =
         await compressImage(file, maxDimension: 1600, quality: 70);
+
+    // `storage.rules` caps payment_proofs/* at 5 MB. Compression should bring
+    // any photograph well below 1 MB; if we're still over the cap here it
+    // means the decoder couldn't meaningfully shrink unusual input (e.g. a
+    // huge non-photographic image). Abort before `putData` so the user gets
+    // a specific error instead of a rules-rejection that masquerades as a
+    // timeout.
+    const int sizeCap = 5 * 1024 * 1024;
+    if (compressed.length >= sizeCap) {
+      throw ImageTooLargeException(compressed.length);
+    }
+
     await ref
         .putData(
           Uint8List.fromList(compressed),
@@ -1200,14 +1282,29 @@ class FirebaseService {
     // Function trigger (Spec 003).
   }
 
-  static Stream<Map<String, dynamic>?> streamTechnicianActiveJob(String technicianId) {
+  /// Plural active-jobs stream — returns ALL non-terminal jobs assigned to
+  /// the technician. Replaces the singular `streamTechnicianActiveJob` used
+  /// in earlier releases when a tech could only have one active job at a
+  /// time. Multi-assignment is now allowed (the data model has always
+  /// supported it; this is a UX unlock).
+  ///
+  /// Same 9-status whereIn list as the historical singular version — keep
+  /// in lockstep with the tech-side active-job slider
+  /// (`technician_active_job_screen.dart`). 9 values is safely under
+  /// Firestore's 10-value whereIn cap.
+  ///
+  /// IMPORTANT: no `orderBy('scheduledTime')` here. Firestore silently
+  /// drops docs that lack the field, and `scheduledTime` is null for
+  /// urgent/now orders — sorting by it server-side would hide them. Sort
+  /// client-side instead (see `_sortActiveJobs` in tech_home_screen.dart).
+  ///
+  /// Bounded at 20 — a tech is unlikely to have more than a handful of
+  /// simultaneous active jobs, but the cap defends against runaway data.
+  static Stream<List<Map<String, dynamic>>> streamTechnicianActiveJobs(
+      String technicianId) {
     return firestore
         .collection('jobs')
         .where('assignedTechnicianId', isEqualTo: technicianId)
-        // Release-006 whereIn list covers every non-terminal status the tech
-        // might be sitting on. 9 values — safely under Firestore's 10-value
-        // whereIn cap. Keep this list in lockstep with the tech-side active-
-        // job slider (`technician_active_job_screen.dart`).
         .where('status', whereIn: [
           'active',
           'technician_accepted',
@@ -1219,16 +1316,13 @@ class FirebaseService {
           'awaiting_payment_verification',
           'receipt_disputed',
         ])
-        .limit(1)
+        .limit(20)
         .snapshots()
-        .map((snap) {
-      if (snap.docs.isEmpty) return null;
-      final doc = snap.docs.first;
-      return {
-        'id': doc.id,
-        ...Map<String, dynamic>.from(doc.data()),
-      };
-    });
+        .map((snap) => snap.docs.map((d) {
+              final data = Map<String, dynamic>.from(d.data());
+              data['id'] = d.id;
+              return data;
+            }).toList());
   }
 
   // adminCloseJob was removed in release 006.
