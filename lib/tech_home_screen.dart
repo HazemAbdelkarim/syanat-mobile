@@ -540,7 +540,7 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
                                 isEn ? 'Earnings Today' : 'Earnings Today',
                                 _loading
                                     ? '—'
-                                    : '${_earnings.toStringAsFixed(2)} EGP',
+                                    : '${_earnings.toStringAsFixed(0)} EGP',
                               ),
                             ),
                             const SizedBox(width: 10),
