@@ -7,7 +7,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'customer_payment_screen.dart';
 import 'customer_receipt_approval_screen.dart';
 import 'firebase_service.dart';
-import 'job_status.dart' show jobStatusCustomerLabel;
+import 'job_status.dart' show jobDisplayPrice, jobStatusCustomerLabel;
 import 'services/notification_service.dart';
 
 const Color _syanatBlue = Color(0xFF3C21C8);
@@ -474,7 +474,7 @@ class _OrdersScreenState extends State<OrdersScreen>
     final status = (job['status'] as String? ?? 'requested').toLowerCase();
     final serviceKey = job['serviceKey'] as String? ?? '';
     final description = job['description'] as String? ?? '';
-    final price = (job['price'] as num?)?.toDouble() ?? 0.0;
+    final price = jobDisplayPrice(job).toDouble();
     final createdAt = job['createdAt'];
     final jobId = job['id'] as String? ?? '';
 

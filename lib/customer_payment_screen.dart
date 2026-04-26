@@ -9,7 +9,7 @@ const Color _syanatBlue = Color(0xFF3C21C8);
 /// Product reality: no online payment gateway is integrated yet — the
 /// customer pays the technician in cash in person. This screen exists to
 /// capture the customer's confirmation that they paid, after which the
-/// technician uploads photo proof and closes the job.
+/// technician taps to confirm receipt and closes the job.
 class CustomerPaymentScreen extends StatefulWidget {
   final String jobId;
   final String customerId;
@@ -222,8 +222,8 @@ class _CustomerPaymentScreenState extends State<CustomerPaymentScreen> {
           const SizedBox(height: 10),
           Text(
             isEn
-                ? 'Pay the technician in cash for the exact amount above. Once you\'ve paid, tap the button below. The technician will upload a photo proof and confirm the job is complete.'
-                : 'ادفع للفني نقداً بالمبلغ المحدد أعلاه. بعد الدفع، اضغط الزر أدناه. سيقوم الفني برفع صورة إثبات وتأكيد اكتمال المهمة.',
+                ? 'Pay the technician in cash for the exact amount above. Once you\'ve paid, tap the button below. The technician will then confirm receipt and complete the job.'
+                : 'ادفع للفني نقداً بالمبلغ المحدد أعلاه. بعد الدفع، اضغط الزر أدناه. سيقوم الفني بتأكيد الاستلام وإكمال المهمة.',
             style: TextStyle(
                 fontSize: 13, color: Colors.grey.shade700, height: 1.5),
           ),

@@ -133,6 +133,24 @@ String jobStatusCustomerLabel(String status, {required bool isEn}) {
   }
 }
 
+/// Returns the price to display on customer-facing surfaces for a given
+/// job map. Prefers the receipt's `grandTotal` once a receipt has been
+/// submitted, so the customer sees the actual amount they owe (which may
+/// exceed the original quote when the technician adds parts or services
+/// on-site). Falls back to the original `job.price` quote pre-receipt,
+/// then to 0 for jobs missing both fields.
+///
+/// Returned as `num` so call sites can format with `.toStringAsFixed(...)`
+/// or compare to zero without re-typing.
+num jobDisplayPrice(Map<String, dynamic> job) {
+  final receipt = job['receipt'] as Map<String, dynamic>?;
+  final grand = receipt?['grandTotal'];
+  if (grand is num) return grand;
+  final price = job['price'];
+  if (price is num) return price;
+  return 0;
+}
+
 /// Returns `true` when [actor] may transition a job from [from] to [to].
 /// Mirrors `firestore.rules:177-321` (jobs update branches).
 ///
@@ -181,8 +199,10 @@ bool isValidJobTransition({
         to == JobStatus.awaitingCustomerApproval) {
       return true;
     }
-    // Release-006 completion path: tech verifies payment with photo proof.
-    // Gated server-side on paymentProofUrl + amountPaid >= receiptTotal.
+    // Release-006 completion path: tech taps to confirm payment received.
+    // Gated server-side on amountPaid >= receiptTotal.
+    // TODO(BLAZE): photo-proof gate removed pending Storage init — see
+    // firestore.rules branch 5.
     if (from == JobStatus.awaitingPaymentVerification &&
         to == JobStatus.completed) {
       return true;

@@ -1081,8 +1081,10 @@ class FirebaseService {
   }
 
   /// Uploads a technician's payment-proof photo keyed by job and returns
-  /// the download URL (release 006). Used by the tech's verify-payment flow
-  /// via `verifyPaymentWithProof`.
+  /// the download URL (release 006). Currently unused — `verifyPayment` no
+  /// longer requires a proof URL while Storage is not initialized on the
+  /// Spark plan. Kept in place to be re-wired when Blaze is enabled. See
+  /// `TODO(BLAZE)` markers for the full restoration checklist.
   ///
   /// Compresses at 1600 px / JPEG q70 — higher quality than the default
   /// `uploadPaymentProof` because admins review cash/bill detail. Writes to
@@ -1687,7 +1689,7 @@ class FirebaseService {
   /// Release-006 downstream flow: the customer reviews the receipt, calls
   /// `approveReceipt` (→ awaiting_payment), pays the technician in person,
   /// calls `initiatePayment` (→ awaiting_payment_verification), and the
-  /// technician closes the job with `verifyPaymentWithProof`. `completedAt`
+  /// technician closes the job with `verifyPayment`. `completedAt`
   /// is set only on that final tech-verify step.
   ///
   /// Totals are RECOMPUTED from the line items here and override any values
@@ -1759,8 +1761,8 @@ class FirebaseService {
   ///
   /// No money moves here — `amountPaid`, `paidAt`, `completedAt` are NOT
   /// written. The customer then pays the technician in person and signals it
-  /// by calling `initiatePayment`; the technician uploads proof and calls
-  /// `verifyPaymentWithProof` to close the order.
+  /// by calling `initiatePayment`; the technician taps to confirm and calls
+  /// `verifyPayment` to close the order.
   ///
   /// Idempotent: re-calling while already `awaiting_payment` is a no-op.
   static Future<void> approveReceipt(
@@ -1803,10 +1805,10 @@ class FirebaseService {
   /// Customer marks that they paid the technician in person (release 006
   /// step 2 of 3). Transitions: awaiting_payment → awaiting_payment_verification.
   ///
-  /// No money data is written here — the technician then uploads a photo
-  /// proof and writes `amountPaid` + `paymentProofUrl` via
-  /// `verifyPaymentWithProof`. The customer cannot reach `completed` directly;
-  /// only the tech (with proof) or an admin (via dispute resolution) can.
+  /// No money data is written here — the technician then taps to confirm
+  /// and writes `amountPaid` via `verifyPayment`. The customer cannot reach
+  /// `completed` directly; only the tech or an admin (via dispute resolution
+  /// or force-close) can.
   ///
   /// Idempotent: re-calling while already `awaiting_payment_verification` is
   /// a no-op.
@@ -1842,30 +1844,39 @@ class FirebaseService {
     } catch (_) {}
   }
 
-  /// Technician verifies payment received with an uploaded photo proof
-  /// (release 006 step 3 of 3). Transitions: awaiting_payment_verification →
-  /// completed. This is one of only two paths that can write
-  /// `status: 'completed'` — see the SECURITY INVARIANT comment in
-  /// firestore.rules (branch 5). The other is admin dispute-resolve.
+  // TODO(BLAZE): restore photo proof upload — see firestore.rules branch 5
+  /// Technician confirms payment received (release 006 step 3 of 3).
+  /// Transitions: awaiting_payment_verification → completed. This is one of
+  /// three paths that can write `status: 'completed'` — see the SECURITY
+  /// INVARIANT comment in firestore.rules (branch 5). The others are admin
+  /// dispute-resolve (branch 6) and admin force-close (branch 7).
+  ///
+  /// Photo-proof upload is intentionally OFF on the Spark plan: the
+  /// `paymentProofUrl` parameter and Firestore field are dropped pending
+  /// the Blaze upgrade that lets `Storage` initialize. The integrity floor
+  /// is preserved by the rules-side `amountPaid >= receiptTotal` gate, so
+  /// the tech still cannot record less paid than the customer's approved
+  /// receipt says they owe.
   ///
   /// Rule gates, all of which must pass: `assignedTechnicianId == auth.uid`,
-  /// `paymentProofUrl is string`, `amountPaid >= receiptTotal`,
-  /// `amountPaid <= 50000`. Client-side we fail fast on the same checks so
-  /// the error surface is specific instead of a generic permission-denied.
+  /// `amountPaid >= receiptTotal`, `amountPaid <= 50000`. Client-side we
+  /// fail fast on the same checks so the error surface is specific instead
+  /// of a generic permission-denied.
+  ///
+  /// `'price': amountPaid` is written deliberately — the original quote is
+  /// overwritten with the actual paid amount on completion so historical
+  /// reports and the admin dashboard show the true number, not the stale
+  /// pre-receipt quote.
   ///
   /// Revenue + counter movement is bumped by the `onJobStatusChanged` Cloud
   /// Function trigger (Spec 003) when the status lands at `completed`.
   ///
   /// Idempotent: re-calling while already `completed` is a no-op.
-  static Future<void> verifyPaymentWithProof({
+  static Future<void> verifyPayment({
     required String jobId,
     required String technicianId,
-    required String paymentProofUrl,
     required double amountPaid,
   }) async {
-    if (paymentProofUrl.isEmpty) {
-      throw ArgumentError('paymentProofUrl is required');
-    }
     if (!amountPaid.isFinite || amountPaid < 0 || amountPaid > 50000) {
       throw ArgumentError('amountPaid must be in [0, 50000]');
     }
@@ -1896,7 +1907,6 @@ class FirebaseService {
         'status': 'completed',
         'amountPaid': amountPaid,
         'price': amountPaid,
-        'paymentProofUrl': paymentProofUrl,
         'paidAt': now,
         'completedAt': now,
         'paymentVerifiedAt': now,

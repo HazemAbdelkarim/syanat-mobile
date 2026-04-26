@@ -12,7 +12,7 @@ const Color _syanatBlue = Color(0xFF3C21C8);
 ///
 /// Approving does NOT mark the job paid — the customer still has to pay the
 /// technician in person via `customer_payment_screen.dart`, which then hands
-/// off to the tech for photo-proof verification.
+/// off to the tech for tap-to-confirm verification.
 class CustomerReceiptApprovalScreen extends StatefulWidget {
   final String jobId;
   final String customerId;
