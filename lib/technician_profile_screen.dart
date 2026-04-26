@@ -31,6 +31,10 @@ class _TechnicianProfileScreenState extends State<TechnicianProfileScreen> {
   bool _editing = false;
   bool _saving = false;
   String? _saveError;
+  // Computed live from the jobs collection — see `_loadEarnings`. The
+  // denormalized `users/{uid}.earnings` counter is ignored because its
+  // intended writer (the Spec 003 Cloud Function) is not deployed.
+  double _earnings = 0.0;
 
   final _nameCtrl = TextEditingController();
   final _phoneCtrl = TextEditingController();
@@ -69,6 +73,9 @@ class _TechnicianProfileScreenState extends State<TechnicianProfileScreen> {
           _loading = false;
         });
       }
+      // Earnings are not cached — recompute on every screen open so a job
+      // completed since the cache was filled is reflected immediately.
+      _loadEarnings();
       return;
     }
 
@@ -97,8 +104,41 @@ class _TechnicianProfileScreenState extends State<TechnicianProfileScreen> {
         _profile = data;
         _loading = false;
       });
+      _loadEarnings();
     } catch (_) {
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  /// Mirrors the home-screen earnings calc at
+  /// `tech_home_screen.dart:230-252` — same query (last 50 jobs by
+  /// createdAt where assignedTechnicianId == uid), same filter
+  /// (status == 'completed'), same field summed (`price`, which
+  /// `verifyPayment` writes equal to `amountPaid` on completion). The
+  /// `users/{uid}.earnings` field is the denormalized counter that the
+  /// `onJobStatusChanged` Cloud Function (Spec 003) was meant to update;
+  /// that trigger is not deployed (Spark plan), so the counter is
+  /// permanently 0 and is ignored on the read path.
+  Future<void> _loadEarnings() async {
+    final user = FirebaseService.getCurrentUser();
+    if (user == null) return;
+    try {
+      final snap = await FirebaseService.firestore
+          .collection('jobs')
+          .where('assignedTechnicianId', isEqualTo: user.uid)
+          .orderBy('createdAt', descending: true)
+          .limit(50)
+          .get();
+      final total = snap.docs
+          .where((d) => d.data()['status'] == 'completed')
+          .fold<double>(
+            0.0,
+            (sum, d) => sum + (d.data()['price'] as num? ?? 0).toDouble(),
+          );
+      if (!mounted) return;
+      setState(() => _earnings = total);
+    } catch (_) {
+      // Non-fatal — leave the previous value in place.
     }
   }
 
@@ -352,7 +392,7 @@ class _TechnicianProfileScreenState extends State<TechnicianProfileScreen> {
     final city = (p['city'] as String? ?? '').trim();
     final service = (p['service'] as String? ?? '').trim();
     final photoUrl = (p['photoUrl'] as String? ?? '').trim();
-    final earnings = (p['earnings'] as num?)?.toDouble() ?? 0.0;
+    final earnings = _earnings;
     final rating = (p['rating'] as num?)?.toDouble() ?? 0.0;
     final available = p['available'] as bool? ?? true;
 
