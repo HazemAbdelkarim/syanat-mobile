@@ -3,22 +3,31 @@
 // Decision tree:
 //   1. Auth stream hydrating                       → Splash
 //   2. Auth error                                  → Splash (let it retry)
-//   3. Signed out (user == null)                   → LoginScreen
+//   3a. Signed out, no pending edge-case message   → WelcomeScreen
+//   3b. Signed out, pending edge-case message set  → LoginScreen
 //   4. Signed in, profile snapshot hydrating       → Splash
 //   5. Signed in, profile read error               → Splash (transient App Check /
 //                                                     rules / network issues recover
 //                                                     once the token or doc settles)
 //   6. Signed in, profile doc missing-from-cache   → Splash (wait for server)
-//   7. Signed in, profile incomplete               → CompleteProfileScreen
+//   7. Signed in, profile incomplete               → force sign-out + queue
+//                                                     LoginScreen snackbar
 //   8. Signed in, profile complete + admin role    → AdminRedirectScreen
 //   9. Signed in, profile complete + technician    → TechHomeScreen
 //  10. Signed in, profile complete + customer      → UserHomeScreen
 //
-// Never flashes Login or Signup during limbo. The new-user signup (Role
-// Selection → Customer/Technician signup flow) is reachable ONLY from
-// LoginScreen's "Create an account" link, never as a landing page for
-// authenticated-but-incomplete users — those get the dedicated
-// CompleteProfileScreen with a visible Log Out escape hatch.
+// The legacy "Finish setting up your account" landing page (CompleteProfileScreen)
+// was removed in 006-mobile-admin-cleanup. The previous design routed every
+// half-signed-up user to that screen on cold start, which silently pulled
+// users back into signup flow on every refresh. The new behavior instead
+// signs the half-signed-up user out so they can re-enter through the
+// canonical LoginScreen, which now surfaces a one-shot snackbar explaining
+// what happened.
+//
+// The new-user signup (RoleSelectionScreen → OnboardingFlow) is reachable
+// only from WelcomeScreen's "Create account" CTA and from LoginScreen's
+// social-signin path for incomplete users — never from AuthGate as a
+// landing page.
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -26,12 +35,12 @@ import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 
 import 'admin_redirect_screen.dart';
-import 'complete_profile_screen.dart';
 import 'firebase_service.dart';
 import 'login_screen.dart';
 import 'splash_screen.dart';
 import 'tech_home_screen.dart';
 import 'user_home_screen.dart';
+import 'welcome_screen.dart';
 
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
@@ -61,12 +70,21 @@ class AuthGate extends StatelessWidget {
 
         final User? user = authSnap.data;
 
-        // (3) Signed out → Login.
+        // (3) Signed out. By default → Welcome. But if AuthGate just kicked a
+        // half-signed-up user out (case 7 below), route them straight to
+        // LoginScreen so the queued snackbar surfaces immediately.
         if (user == null) {
+          final bool hasPendingMsg =
+              FirebaseService.pendingAuthSnackEn != null ||
+                  FirebaseService.pendingAuthSnackAr != null;
           if (kDebugMode) {
-            debugPrint('[AuthGate] user=null → LoginScreen');
+            debugPrint(
+              '[AuthGate] user=null '
+              '${hasPendingMsg ? "(pending snack)" : ""} '
+              '→ ${hasPendingMsg ? "LoginScreen" : "WelcomeScreen"}',
+            );
           }
-          return const LoginScreen();
+          return hasPendingMsg ? const LoginScreen() : const WelcomeScreen();
         }
 
         // Signed in → stream the Firestore profile. Using snapshots() rather
@@ -132,22 +150,33 @@ class AuthGate extends StatelessWidget {
             final Map<String, dynamic>? data = exists ? doc.data() : null;
             final bool complete = FirebaseService.isProfileComplete(data);
 
-            // (7) Signed in but no complete profile. Route to the dedicated
-            // CompleteProfileScreen — NEVER to the new-user RoleSelectionScreen
-            // as a landing page. CompleteProfileScreen carries a visible
-            // Log Out action so the user is never dead-ended.
+            // (7) Signed in but profile incomplete — half-signed-up account.
+            // Force a sign-out so the user re-enters through LoginScreen.
+            // The legacy "Finish setting up your account" screen used to live
+            // here; it was removed because it silently re-entered signup flow
+            // on every cold start.
+            //
+            // The presence of the queued message also acts as the idempotency
+            // guard: subsequent rebuilds skip this branch's side effects
+            // because the message is already set.
             if (!complete) {
-              if (kDebugMode) {
-                debugPrint(
-                  '[AuthGate] ${user.uid} profile incomplete '
-                  '(exists=$exists, fromCache=$fromCache) → CompleteProfileScreen',
-                );
+              if (FirebaseService.pendingAuthSnackEn == null) {
+                FirebaseService.pendingAuthSnackEn =
+                    'Please sign in again to complete your account setup';
+                FirebaseService.pendingAuthSnackAr =
+                    'يرجى تسجيل الدخول مرة أخرى لإكمال إعداد الحساب';
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  FirebaseService.auth.signOut();
+                });
+                if (kDebugMode) {
+                  debugPrint(
+                    '[AuthGate] ${user.uid} profile incomplete '
+                    '(exists=$exists, fromCache=$fromCache) '
+                    '→ force sign-out + queued LoginScreen snackbar',
+                  );
+                }
               }
-              return CompleteProfileScreen(
-                uid: user.uid,
-                email: user.email ?? '',
-                name: user.displayName ?? '',
-              );
+              return const SplashScreen();
             }
 
             // (8–10) Complete profile → route by role.

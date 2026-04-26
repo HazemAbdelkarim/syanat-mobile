@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -5,14 +6,25 @@ import 'firebase_service.dart';
 
 const Color _syanatBlue = Color(0xFF3C21C8);
 
+// Length caps on free-text receipt fields. Mirrored in firestore.rules so the
+// client guard and the rule stay in lockstep.
+const int _kItemNameMaxLen = 80;
+const int _kNotesMaxLen = 500;
+const int _kPriceMaxLen = 10;
+
 class TechnicianReceiptScreen extends StatefulWidget {
   final String jobId;
   final String technicianId;
+
+  /// Optional snapshot of the job document so the first service row can be
+  /// prefilled from `serviceCategory` / `serviceKey` without a re-fetch.
+  final Map<String, dynamic>? job;
 
   const TechnicianReceiptScreen({
     super.key,
     required this.jobId,
     required this.technicianId,
+    this.job,
   });
 
   @override
@@ -27,11 +39,56 @@ class _TechnicianReceiptScreenState extends State<TechnicianReceiptScreen> {
   final TextEditingController _notesCtrl = TextEditingController();
   bool _submitting = false;
 
+  // Indices (in _services) whose price is invalid on the last submit attempt.
+  // Cleared on successful validation; drives the red border on the row.
+  Set<int> _invalidServicePriceIndices = {};
+
   @override
   void initState() {
     super.initState();
-    // Start with one empty service row
-    _services.add(_LineItem());
+    // Seed the first service row from the job's requested category/key so the
+    // tech doesn't have to retype it.
+    final seed = _LineItem();
+    final job = widget.job;
+    if (job != null) {
+      final category = (job['serviceCategory'] as String?)?.trim() ?? '';
+      final key = (job['serviceKey'] as String?)?.trim() ?? '';
+      final subservice = (job['subservice'] as String?)?.trim() ?? '';
+      final label = [category, subservice]
+          .where((s) => s.isNotEmpty)
+          .join(' — ');
+      seed.titleCtrl.text = label.isNotEmpty ? label : key;
+    }
+    _services.add(seed);
+  }
+
+  Future<void> _openAddPartSheet() async {
+    final isEn = _isEn;
+    final picked = await showModalBottomSheet<_PartPick>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius:
+            BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(ctx).viewInsets.bottom,
+          ),
+          child: ReceiptAddPartSheet(isEn: isEn),
+        );
+      },
+    );
+    if (!mounted || picked == null) return;
+    final li = _LineItem();
+    li.titleCtrl.text = picked.name;
+    if (picked.price > 0) {
+      li.priceCtrl.text = picked.price.toStringAsFixed(
+          picked.price == picked.price.roundToDouble() ? 0 : 2);
+    }
+    setState(() => _parts.add(li));
   }
 
   @override
@@ -65,9 +122,12 @@ class _TechnicianReceiptScreenState extends State<TechnicianReceiptScreen> {
 
   Future<void> _submit() async {
     // Validate: at least one service with a title
-    final filledServices =
-        _services.where((i) => i.titleCtrl.text.trim().isNotEmpty).toList();
-    if (filledServices.isEmpty) {
+    final filledServiceEntries = _services
+        .asMap()
+        .entries
+        .where((e) => e.value.titleCtrl.text.trim().isNotEmpty)
+        .toList();
+    if (filledServiceEntries.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(_t(
             'Please add at least one service.', 'أضف خدمة واحدة على الأقل.')),
@@ -76,12 +136,31 @@ class _TechnicianReceiptScreenState extends State<TechnicianReceiptScreen> {
       return;
     }
 
+    // Each filled service must have a positive price. Highlight offending rows.
+    final invalid = filledServiceEntries
+        .where((e) => _parsePrice(e.value.priceCtrl.text) <= 0)
+        .map((e) => e.key)
+        .toSet();
+    if (invalid.isNotEmpty) {
+      setState(() => _invalidServicePriceIndices = invalid);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(_t(
+            'Please enter a price for every service.',
+            'يرجى إدخال سعر لكل خدمة.')),
+        backgroundColor: Colors.red,
+      ));
+      return;
+    }
+    if (_invalidServicePriceIndices.isNotEmpty) {
+      setState(() => _invalidServicePriceIndices = {});
+    }
+
     setState(() => _submitting = true);
     try {
-      final services = filledServices
-          .map((i) => {
-                'title': i.titleCtrl.text.trim(),
-                'price': _parsePrice(i.priceCtrl.text),
+      final services = filledServiceEntries
+          .map((e) => {
+                'title': e.value.titleCtrl.text.trim(),
+                'price': _parsePrice(e.value.priceCtrl.text),
               })
           .toList();
 
@@ -118,8 +197,11 @@ class _TechnicianReceiptScreenState extends State<TechnicianReceiptScreen> {
       debugPrint('Receipt submit error: $e');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(_t('Failed to submit receipt. Please try again.', 'فشل إرسال الإيصال. يرجى المحاولة مرة أخرى.')),
+        content: Text(_t(
+                'Failed to submit receipt: ', 'فشل إرسال الإيصال: ') +
+            e.toString()),
         backgroundColor: Colors.red,
+        duration: const Duration(seconds: 6),
       ));
     } finally {
       if (mounted) setState(() => _submitting = false);
@@ -129,18 +211,15 @@ class _TechnicianReceiptScreenState extends State<TechnicianReceiptScreen> {
   @override
   Widget build(BuildContext context) {
     final isEn = _isEn;
-    return PopScope(
-      canPop: false,
-      child: Directionality(
-        textDirection: isEn ? TextDirection.ltr : TextDirection.rtl,
-        child: Scaffold(
-          backgroundColor: const Color(0xFFF7F7FB),
-          appBar: AppBar(
-            backgroundColor: _syanatBlue,
-            foregroundColor: Colors.white,
-            automaticallyImplyLeading: false,
-            title: Text(_t('Submit Receipt', 'تقديم الإيصال')),
-          ),
+    return Directionality(
+      textDirection: isEn ? TextDirection.ltr : TextDirection.rtl,
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF7F7FB),
+        appBar: AppBar(
+          backgroundColor: _syanatBlue,
+          foregroundColor: Colors.white,
+          title: Text(_t('Submit Receipt', 'تقديم الإيصال')),
+        ),
         body: Column(
           children: [
             Expanded(
@@ -164,9 +243,11 @@ class _TechnicianReceiptScreenState extends State<TechnicianReceiptScreen> {
                       onRemove: _services.length > 1
                           ? () => setState(() {
                                 _services.removeAt(i).dispose();
+                                _invalidServicePriceIndices = {};
                               })
                           : null,
                       key: ValueKey('svc_$i'),
+                      hasError: _invalidServicePriceIndices.contains(i),
                     );
                   }),
                   _addRowButton(
@@ -209,7 +290,7 @@ class _TechnicianReceiptScreenState extends State<TechnicianReceiptScreen> {
                   }),
                   _addRowButton(
                     label: _t('+ Add Part', '+ إضافة قطعة'),
-                    onTap: () => setState(() => _parts.add(_LineItem())),
+                    onTap: _openAddPartSheet,
                   ),
 
                   const SizedBox(height: 24),
@@ -229,6 +310,7 @@ class _TechnicianReceiptScreenState extends State<TechnicianReceiptScreen> {
                   TextField(
                     controller: _notesCtrl,
                     maxLines: 3,
+                    maxLength: _kNotesMaxLen,
                     onChanged: (_) => setState(() {}),
                     decoration: InputDecoration(
                       hintText:
@@ -320,7 +402,6 @@ class _TechnicianReceiptScreenState extends State<TechnicianReceiptScreen> {
           ],
         ),
       ),
-      ),
     );
   }
 
@@ -359,7 +440,10 @@ class _TechnicianReceiptScreenState extends State<TechnicianReceiptScreen> {
     required String titleHint,
     required VoidCallback? onRemove,
     required Key key,
+    bool hasError = false,
   }) {
+    final priceBorderColor =
+        hasError ? Colors.red.shade400 : Colors.grey.shade200;
     return Padding(
       key: key,
       padding: const EdgeInsets.only(bottom: 8),
@@ -370,6 +454,7 @@ class _TechnicianReceiptScreenState extends State<TechnicianReceiptScreen> {
             child: TextField(
               controller: item.titleCtrl,
               onChanged: (_) => setState(() {}),
+              maxLength: _kItemNameMaxLen,
               decoration: InputDecoration(
                 hintText: titleHint,
                 hintStyle:
@@ -378,6 +463,7 @@ class _TechnicianReceiptScreenState extends State<TechnicianReceiptScreen> {
                 fillColor: Colors.white,
                 contentPadding: const EdgeInsets.symmetric(
                     horizontal: 12, vertical: 12),
+                counterText: '',
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(10),
                   borderSide: BorderSide(color: Colors.grey.shade200),
@@ -396,6 +482,7 @@ class _TechnicianReceiptScreenState extends State<TechnicianReceiptScreen> {
               controller: item.priceCtrl,
               keyboardType:
                   const TextInputType.numberWithOptions(decimal: true),
+              maxLength: _kPriceMaxLen,
               inputFormatters: [
                 FilteringTextInputFormatter.allow(
                     RegExp(r'^\d+\.?\d{0,2}')),
@@ -409,16 +496,23 @@ class _TechnicianReceiptScreenState extends State<TechnicianReceiptScreen> {
                 fillColor: Colors.white,
                 contentPadding: const EdgeInsets.symmetric(
                     horizontal: 12, vertical: 12),
+                counterText: '',
                 suffixText: 'EGP',
                 suffixStyle: TextStyle(
                     fontSize: 11, color: Colors.grey.shade500),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(10),
-                  borderSide: BorderSide(color: Colors.grey.shade200),
+                  borderSide: BorderSide(color: priceBorderColor),
                 ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(10),
-                  borderSide: BorderSide(color: Colors.grey.shade200),
+                  borderSide: BorderSide(color: priceBorderColor),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: BorderSide(
+                    color: hasError ? Colors.red.shade400 : _syanatBlue,
+                  ),
                 ),
               ),
             ),
@@ -528,5 +622,146 @@ class _LineItem {
   void dispose() {
     titleCtrl.dispose();
     priceCtrl.dispose();
+  }
+}
+
+class _PartPick {
+  final String name;
+  final double price;
+  const _PartPick(this.name, this.price);
+}
+
+/// Bottom sheet for adding a custom part to the receipt.
+///
+/// The inventory picker was removed in the April 2026 technician-inventory
+/// retirement (release 006). Parts are now free-form entries only.
+///
+/// Public (instead of underscored) so widget tests can pump it without
+/// needing Firebase initialization — the sheet has no external dependencies.
+@visibleForTesting
+class ReceiptAddPartSheet extends StatefulWidget {
+  final bool isEn;
+
+  const ReceiptAddPartSheet({super.key, required this.isEn});
+
+  @override
+  State<ReceiptAddPartSheet> createState() => _ReceiptAddPartSheetState();
+}
+
+class _ReceiptAddPartSheetState extends State<ReceiptAddPartSheet> {
+  final TextEditingController _customName = TextEditingController();
+  final TextEditingController _customPrice = TextEditingController();
+
+  @override
+  void dispose() {
+    _customName.dispose();
+    _customPrice.dispose();
+    super.dispose();
+  }
+
+  String _t(String en, String ar) => widget.isEn ? en : ar;
+
+  @override
+  Widget build(BuildContext context) {
+    return Directionality(
+      textDirection: widget.isEn ? TextDirection.ltr : TextDirection.rtl,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  const Icon(Icons.add_box_outlined, color: _syanatBlue),
+                  const SizedBox(width: 8),
+                  Text(
+                    _t('Add Custom Item', 'إضافة عنصر مخصص'),
+                    style: const TextStyle(
+                        fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: _customName,
+                maxLength: _kItemNameMaxLen,
+                decoration: InputDecoration(
+                  labelText: _t('Item name', 'اسم العنصر'),
+                  filled: true,
+                  fillColor: Colors.grey.shade50,
+                  counterText: '',
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _customPrice,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                maxLength: _kPriceMaxLen,
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(
+                      RegExp(r'^\d+\.?\d{0,2}')),
+                ],
+                decoration: InputDecoration(
+                  labelText: _t('Price (EGP)', 'السعر (ج.م)'),
+                  filled: true,
+                  fillColor: Colors.grey.shade50,
+                  counterText: '',
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _syanatBlue,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                  onPressed: () {
+                    final name = _customName.text.trim();
+                    if (name.isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                        content: Text(_t('Enter an item name.',
+                            'أدخل اسم العنصر.')),
+                      ));
+                      return;
+                    }
+                    final price =
+                        double.tryParse(_customPrice.text.trim()) ?? 0.0;
+                    Navigator.pop(context, _PartPick(name, price));
+                  },
+                  child: Text(
+                    _t('Add to Receipt', 'إضافة إلى الإيصال'),
+                    style: const TextStyle(
+                        fontSize: 15, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }

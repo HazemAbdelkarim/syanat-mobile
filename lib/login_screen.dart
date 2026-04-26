@@ -28,6 +28,26 @@ class _LoginScreenState extends State<LoginScreen> {
   String? _loginError;
 
   @override
+  void initState() {
+    super.initState();
+    // Drain any one-shot snackbar queued by AuthGate (e.g. user was
+    // force-signed-out for an incomplete profile).
+    final String? en = FirebaseService.pendingAuthSnackEn;
+    final String? ar = FirebaseService.pendingAuthSnackAr;
+    FirebaseService.pendingAuthSnackEn = null;
+    FirebaseService.pendingAuthSnackAr = null;
+    if (en == null && ar == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final bool isEn =
+          Localizations.localeOf(context).languageCode == 'en';
+      final String msg = (isEn ? en : ar) ?? en ?? ar ?? '';
+      if (msg.isEmpty) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    });
+  }
+
+  @override
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();

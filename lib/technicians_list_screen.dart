@@ -5,7 +5,6 @@ import '../firebase_service.dart';
 import 'chat_screen.dart';
 import 'payment_screen.dart';
 import 'glass_card.dart';
-import 'user_item_prices_screen.dart';
 
 const Color syanatBlue = Color(0xFF3C21C8);
 
@@ -369,76 +368,31 @@ class _TechniciansListScreenState extends State<TechniciansListScreen> {
                                         ),
                                         trailing: SizedBox(
                                           width: 90,
-                                          child: Column(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              ElevatedButton(
-                                                onPressed: available
-                                                    ? () => _requestJob(t)
-                                                    : null,
-                                                style: ElevatedButton
-                                                    .styleFrom(
-                                                  backgroundColor:
-                                                      syanatBlue,
-                                                  foregroundColor:
-                                                      Colors.white,
-                                                  padding:
-                                                      const EdgeInsets
-                                                          .symmetric(
-                                                    horizontal: 12,
-                                                    vertical: 3,
-                                                  ),
-                                                  minimumSize:
-                                                      const Size(90, 32),
-                                                ),
-                                                child: Text(
-                                                  isEn
-                                                      ? "Request"
-                                                      : "اطلب",
-                                                  style: const TextStyle(
-                                                    fontSize: 11,
-                                                  ),
-                                                ),
+                                          child: ElevatedButton(
+                                            onPressed: available
+                                                ? () => _requestJob(t)
+                                                : null,
+                                            style: ElevatedButton
+                                                .styleFrom(
+                                              backgroundColor:
+                                                  syanatBlue,
+                                              foregroundColor:
+                                                  Colors.white,
+                                              padding:
+                                                  const EdgeInsets
+                                                      .symmetric(
+                                                horizontal: 12,
+                                                vertical: 3,
                                               ),
-                                              const SizedBox(height: 2),
-                                              OutlinedButton(
-                                                onPressed: () =>
-                                                    Navigator.push(
-                                                  context,
-                                                  MaterialPageRoute(
-                                                    builder: (_) =>
-                                                        UserItemPricesScreen(
-                                                      technicianId: t['id'],
-                                                      technicianName: name,
-                                                    ),
-                                                  ),
-                                                ),
-                                                style: OutlinedButton
-                                                    .styleFrom(
-                                                  foregroundColor:
-                                                      Colors.black,
-                                                  side: const BorderSide(
-                                                    color: Colors.black54,
-                                                  ),
-                                                  padding:
-                                                      const EdgeInsets
-                                                          .symmetric(
-                                                    horizontal: 8,
-                                                    vertical: 2,
-                                                  ),
-                                                  minimumSize:
-                                                      const Size(90, 28),
-                                                ),
-                                                child: Text(
-                                                  isEn
-                                                      ? "Prices"
-                                                      : "الأسعار",
-                                                  style: const TextStyle(
-                                                    fontSize: 10,
-                                                  ),
-                                                ),
+                                              minimumSize:
+                                                  const Size(90, 32),
+                                            ),
+                                            child: Text(
+                                              isEn ? "Request" : "اطلب",
+                                              style: const TextStyle(
+                                                fontSize: 11,
                                               ),
-                                            ],
+                                            ),
                                           ),
                                         ),
                                       ),

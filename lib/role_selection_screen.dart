@@ -1,11 +1,33 @@
+// RoleSelectionScreen — gateway between WelcomeScreen's "Create account"
+// and the new OnboardingFlow. Lets the user pick customer vs technician,
+// styled to match the design system in app-onboarding/.
 import 'package:flutter/material.dart';
 
-import 'customer_signup_flow.dart';
 import 'login_screen.dart';
 import 'main.dart' show AppLocale;
-import 'technician_signup_flow.dart';
+import 'onboarding_flow.dart';
 
-const Color syanatBlue = Color(0xFF3C21C8);
+const Color _sBlue = Color(0xFF3C21C8);
+const Color _sBlueTop = Color(0xFF3832FF);
+const Color _sBlueLight = Color(0xFF615DFF);
+const Color _sInk = Color(0xFF0B0A1F);
+const Color _sMuted = Color(0xFF5B5973);
+const Color _sFieldBg = Color(0xFFF4F2FA);
+const Color _sFieldBorder = Color(0xFFE7E3F3);
+
+const LinearGradient _gradSoft = LinearGradient(
+  begin: Alignment.topCenter,
+  end: Alignment.bottomCenter,
+  stops: [0.0, 0.6],
+  colors: [Color(0xFFF3F1FF), Colors.white],
+);
+
+const LinearGradient _gradBtn = LinearGradient(
+  begin: Alignment.topLeft,
+  end: Alignment.bottomRight,
+  stops: [0.0, 0.6, 1.0],
+  colors: [_sBlueTop, _sBlue, _sBlueLight],
+);
 
 class RoleSelectionScreen extends StatefulWidget {
   final String? prefillUid;
@@ -37,262 +59,328 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
 
   void _continue() {
     if (_selectedRole == null) return;
-    final route = MaterialPageRoute(
-      builder: (_) => _selectedRole == 'technician'
-          ? TechnicianSignupFlow(
-              prefillUid: widget.prefillUid,
-              prefillEmail: widget.prefillEmail,
-              prefillName: widget.prefillName,
-            )
-          : CustomerSignupFlow(
-              prefillUid: widget.prefillUid,
-              prefillEmail: widget.prefillEmail,
-              prefillName: widget.prefillName,
-            ),
+    Navigator.push(
+      context,
+      MaterialPageRoute<void>(
+        builder: (_) => OnboardingFlow(
+          role: _selectedRole!,
+          prefillUid: widget.prefillUid,
+          prefillEmail: widget.prefillEmail,
+          prefillName: widget.prefillName,
+        ),
+      ),
     );
-    Navigator.push(context, route);
+  }
+
+  void _goLogin() {
+    if (Navigator.of(context).canPop()) {
+      Navigator.of(context).pop();
+    } else {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute<void>(builder: (_) => const LoginScreen()),
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final isEn = Localizations.localeOf(context).languageCode == 'en';
+    final isLtr = isEn;
 
     return Directionality(
-      textDirection: isEn ? TextDirection.ltr : TextDirection.rtl,
+      textDirection: isLtr ? TextDirection.ltr : TextDirection.rtl,
       child: Scaffold(
-        backgroundColor: syanatBlue,
-        body: SafeArea(
-          child: LayoutBuilder(
-            builder: (context, constraints) => SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                child: Column(
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        IconButton(
-                          onPressed: () {
-                            if (Navigator.of(context).canPop()) {
-                              Navigator.of(context).pop();
-                            } else {
-                              Navigator.of(context).pushReplacement(
-                                MaterialPageRoute<void>(
-                                  builder: (_) => const LoginScreen(),
-                                ),
-                              );
-                            }
-                          },
-                          icon: const Icon(Icons.arrow_back, color: Colors.white),
+        body: DecoratedBox(
+          decoration: const BoxDecoration(gradient: _gradSoft),
+          child: SafeArea(
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 6),
+                  child: Row(
+                    children: [
+                      _RoundIconButton(
+                        onTap: () => Navigator.of(context).maybePop(),
+                        child: Icon(
+                          isLtr
+                              ? Icons.arrow_back_ios_new
+                              : Icons.arrow_forward_ios,
+                          size: 16,
+                          color: _sInk,
                         ),
-                        IconButton(
-                          onPressed: _switchLanguage,
-                          icon: const Icon(Icons.language, color: Colors.white),
+                      ),
+                      const Spacer(),
+                      IconButton(
+                        onPressed: _switchLanguage,
+                        icon: const Icon(Icons.language, color: _sInk),
+                        tooltip: _t(isEn, 'Language', 'اللغة'),
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(28, 8, 28, 0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _t(isEn, 'Who are you?', 'من أنت؟'),
+                          style: const TextStyle(
+                            color: _sInk,
+                            fontSize: 30,
+                            fontWeight: FontWeight.w800,
+                            height: 1.1,
+                            letterSpacing: -0.8,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          _t(
+                            isEn,
+                            'Choose your account type to get started.',
+                            'اختر نوع حسابك للبدء.',
+                          ),
+                          style: const TextStyle(
+                            color: _sMuted,
+                            fontSize: 15,
+                            height: 1.45,
+                          ),
+                        ),
+                        const SizedBox(height: 28),
+                        _RoleCard(
+                          role: 'customer',
+                          icon: Icons.person,
+                          title: _t(isEn, 'Customer', 'عميل'),
+                          subtitle: _t(
+                            isEn,
+                            'Book services at home',
+                            'احجز خدمات في المنزل',
+                          ),
+                          selected: _selectedRole == 'customer',
+                          onTap: () =>
+                              setState(() => _selectedRole = 'customer'),
+                        ),
+                        const SizedBox(height: 14),
+                        _RoleCard(
+                          role: 'technician',
+                          icon: Icons.handyman,
+                          title: _t(isEn, 'Technician', 'فنّي'),
+                          subtitle: _t(
+                            isEn,
+                            'Join our network of professionals',
+                            'انضم إلى شبكة المحترفين',
+                          ),
+                          selected: _selectedRole == 'technician',
+                          onTap: () =>
+                              setState(() => _selectedRole = 'technician'),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 24),
-                    Center(
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 520),
-                        child: Container(
-                          padding: const EdgeInsets.all(28),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(24),
-                            boxShadow: const [
-                              BoxShadow(
-                                color: Color(0x0F000000),
-                                blurRadius: 8,
-                                offset: Offset(0, 3),
-                              ),
-                            ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 8, 24, 16),
+                  child: Column(
+                    children: [
+                      _GradButton(
+                        label: _t(isEn, 'Continue', 'متابعة'),
+                        onTap: _selectedRole == null ? null : _continue,
+                      ),
+                      TextButton(
+                        onPressed: _goLogin,
+                        child: Text(
+                          _t(
+                            isEn,
+                            'Already have an account? Log in',
+                            'لديك حساب بالفعل؟ سجّل الدخول',
                           ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                _t(isEn, 'Who are you?', 'من أنت؟'),
-                                style: const TextStyle(
-                                  fontSize: 26,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.black,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                _t(
-                                  isEn,
-                                  'Choose your account type to get started',
-                                  'اختر نوع حسابك للبدء',
-                                ),
-                                style: const TextStyle(
-                                  fontSize: 14,
-                                  color: Colors.black54,
-                                ),
-                              ),
-                              const SizedBox(height: 32),
-                              _roleCard(
-                                role: 'customer',
-                                icon: Icons.person,
-                                title: _t(isEn, 'Customer', 'عميل'),
-                                subtitle: _t(
-                                  isEn,
-                                  'Book services at home',
-                                  'احجز خدمات في المنزل',
-                                ),
-                              ),
-                              const SizedBox(height: 16),
-                              _roleCard(
-                                role: 'technician',
-                                icon: Icons.build,
-                                title: _t(isEn, 'Potential Technician', 'فني محتمل'),
-                                subtitle: _t(
-                                  isEn,
-                                  'Join our network of professionals',
-                                  'انضم إلى شبكة المحترفين',
-                                ),
-                              ),
-                              const SizedBox(height: 28),
-                              SizedBox(
-                                width: double.infinity,
-                                height: 52,
-                                child: ElevatedButton(
-                                  onPressed: _selectedRole == null ? null : _continue,
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: syanatBlue,
-                                    disabledBackgroundColor: Colors.grey.shade300,
-                                    foregroundColor: Colors.white,
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(14),
-                                    ),
-                                  ),
-                                  child: Text(
-                                    _t(isEn, 'Continue', 'متابعة'),
-                                    style: const TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: 10),
-                              Center(
-                                child: TextButton(
-                                  onPressed: () {
-                                    // Pop back to LoginScreen when we were
-                                    // pushed from it (the normal path). If
-                                    // there's no route below us (deep link /
-                                    // unusual entry), replace with LoginScreen
-                                    // so the user is never dead-ended.
-                                    if (Navigator.of(context).canPop()) {
-                                      Navigator.of(context).pop();
-                                    } else {
-                                      Navigator.of(context).pushReplacement(
-                                        MaterialPageRoute<void>(
-                                          builder: (_) => const LoginScreen(),
-                                        ),
-                                      );
-                                    }
-                                  },
-                                  child: Text(
-                                    _t(
-                                      isEn,
-                                      'Already have an account? Log in',
-                                      'لديك حساب بالفعل؟ سجّل الدخول',
-                                    ),
-                                    style: const TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w600,
-                                      color: syanatBlue,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: _sBlue,
                           ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
+              ],
             ),
           ),
         ),
       ),
     );
   }
+}
 
-  Widget _roleCard({
-    required String role,
-    required IconData icon,
-    required String title,
-    required String subtitle,
-  }) {
-    final selected = _selectedRole == role;
+class _RoleCard extends StatelessWidget {
+  final String role;
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final bool selected;
+  final VoidCallback onTap;
 
-    return InkWell(
-      onTap: () => setState(() => _selectedRole = role),
+  const _RoleCard({
+    required this.role,
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: selected ? Colors.white : _sFieldBg,
       borderRadius: BorderRadius.circular(16),
-      child: Container(
-        height: 80,
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 18),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: selected ? syanatBlue : Colors.grey.shade200,
-            width: selected ? 2 : 1,
-          ),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x0F000000),
-              blurRadius: 8,
-              offset: Offset(0, 3),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Ink(
+          decoration: BoxDecoration(
+            border: Border.all(
+              color: selected ? _sBlue : _sFieldBorder,
+              width: selected ? 2 : 1,
             ),
-          ],
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 46,
-              height: 46,
-              decoration: BoxDecoration(
-                color: syanatBlue.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: Icon(icon, color: syanatBlue),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.black,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: selected
+                ? const [
+                    BoxShadow(
+                      color: Color(0x243C21C8),
+                      blurRadius: 18,
+                      offset: Offset(0, 8),
                     ),
+                  ]
+                : const [
+                    BoxShadow(
+                      color: Color(0x0A110C2E),
+                      blurRadius: 8,
+                      offset: Offset(0, 3),
+                    ),
+                  ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+            child: Row(
+              children: [
+                Container(
+                  width: 46,
+                  height: 46,
+                  decoration: BoxDecoration(
+                    gradient: _gradBtn,
+                    borderRadius: BorderRadius.circular(14),
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    subtitle,
-                    style: const TextStyle(fontSize: 13, color: Colors.black54),
+                  child: Icon(icon, color: Colors.white),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: const TextStyle(
+                          color: _sInk,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        subtitle,
+                        style: const TextStyle(
+                          color: _sMuted,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(
+                  selected
+                      ? Icons.check_circle
+                      : Icons.radio_button_unchecked,
+                  color: selected ? _sBlue : const Color(0xFFB6B0CE),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RoundIconButton extends StatelessWidget {
+  final Widget child;
+  final VoidCallback? onTap;
+  const _RoundIconButton({required this.child, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 40,
+      height: 40,
+      child: Material(
+        color: _sFieldBg,
+        shape: const CircleBorder(),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onTap,
+          child: Center(child: child),
+        ),
+      ),
+    );
+  }
+}
+
+class _GradButton extends StatelessWidget {
+  final String label;
+  final VoidCallback? onTap;
+  const _GradButton({required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final disabled = onTap == null;
+    return SizedBox(
+      width: double.infinity,
+      height: 54,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: disabled ? null : _gradBtn,
+          color: disabled ? Colors.grey.shade400 : null,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: disabled
+              ? null
+              : const [
+                  BoxShadow(
+                    color: Color(0x593C21C8),
+                    blurRadius: 24,
+                    offset: Offset(0, 10),
                   ),
                 ],
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(16),
+            child: Center(
+              child: Text(
+                label,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 17,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -0.2,
+                ),
               ),
             ),
-            Icon(
-              selected ? Icons.check_circle : Icons.radio_button_unchecked,
-              color: selected ? syanatBlue : Colors.grey.shade400,
-            ),
-          ],
+          ),
         ),
       ),
     );

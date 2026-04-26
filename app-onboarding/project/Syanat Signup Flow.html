@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Syanat — iOS Signup Flow</title>
+  <link rel="stylesheet" href="syanat/colors_and_type.css"/>
+  <style>
+    html, body { margin:0; padding:0; background:#f0eee9; overflow:hidden; }
+    @keyframes blink { 0%,50%{opacity:1} 51%,100%{opacity:0} }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+  <script type="text/babel" src="lib/design-canvas.jsx"></script>
+  <script type="text/babel" src="lib/ios-frame.jsx"></script>
+  <script type="text/babel" src="lib/signup-screens.jsx"></script>
+
+  <script type="text/babel">
+    const { DesignCanvas, DCSection, DCArtboard, DCPostIt } = window;
+    const { IOSDevice } = window;
+    const { ScreenWelcome, ScreenPhone, ScreenOTP, ScreenProfile, ScreenLocation, ScreenSuccess } = window;
+
+    // Wrap each screen in an IOSDevice frame
+    const W = 402, H = 874;
+    function Framed({children, dark=false}) {
+      return (
+        <IOSDevice width={W} height={H} dark={dark}>
+          {children}
+        </IOSDevice>
+      );
+    }
+
+    function App() {
+      return (
+        <DesignCanvas>
+          <DCSection id="signup" title="Syanat — iOS Signup Flow"
+            subtitle="Blue + white, gradient accents. 6 screens from welcome to success.">
+
+            <DCArtboard id="welcome" label="01 · Welcome" width={W} height={H}>
+              <div data-screen-label="01 Welcome" style={{width:'100%',height:'100%'}}>
+                <Framed dark><ScreenWelcome/></Framed>
+              </div>
+            </DCArtboard>
+
+            <DCArtboard id="phone" label="02 · Phone" width={W} height={H}>
+              <div data-screen-label="02 Phone" style={{width:'100%',height:'100%'}}>
+                <Framed><ScreenPhone/></Framed>
+              </div>
+            </DCArtboard>
+
+            <DCArtboard id="otp" label="03 · Verify code" width={W} height={H}>
+              <div data-screen-label="03 OTP" style={{width:'100%',height:'100%'}}>
+                <Framed><ScreenOTP/></Framed>
+              </div>
+            </DCArtboard>
+
+            <DCArtboard id="profile" label="04 · Your info" width={W} height={H}>
+              <div data-screen-label="04 Profile" style={{width:'100%',height:'100%'}}>
+                <Framed><ScreenProfile/></Framed>
+              </div>
+            </DCArtboard>
+
+            <DCArtboard id="location" label="05 · Location" width={W} height={H}>
+              <div data-screen-label="05 Location" style={{width:'100%',height:'100%'}}>
+                <Framed><ScreenLocation/></Framed>
+              </div>
+            </DCArtboard>
+
+            <DCArtboard id="success" label="06 · You're in" width={W} height={H}>
+              <div data-screen-label="06 Success" style={{width:'100%',height:'100%'}}>
+                <Framed dark><ScreenSuccess/></Framed>
+              </div>
+            </DCArtboard>
+
+            <DCPostIt top={-60} left={60} rotate={-3}>
+              Scroll / pinch to pan + zoom.<br/>
+              Click any screen to focus.
+            </DCPostIt>
+          </DCSection>
+        </DesignCanvas>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+  </script>
+</body>
+</html>

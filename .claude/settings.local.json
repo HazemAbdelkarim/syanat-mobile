@@ -120,7 +120,23 @@
       "Read(//c/src/flutter/**)",
       "Read(//c/tools/flutter/**)",
       "Read(//c/Users/LTC/dev/flutter/**)",
-      "Read(//c/Users/LTC/**)"
+      "Read(//c/Users/LTC/**)",
+      "Bash(grep -iE \"serviceAccount|adminsdk|firebase.*key\\\\.json|GoogleService-Info|google-services\\\\.json|\\\\.env$|\\\\.env\\\\.\")",
+      "Bash(xxd)",
+      "Bash(awk 'NR==1504' lib/orders_screen.dart)",
+      "Bash(awk 'NR>=1400 && NR<=1420' lib/orders_screen.dart)",
+      "Bash(awk 'NR==1478' lib/orders_screen.dart)",
+      "Bash(awk 'NR==1508 || NR==1517' lib/orders_screen.dart)",
+      "Bash(flutter test *)",
+      "Bash(echo \"---exit: $?---\")",
+      "Bash(firebase firestore:rules:releases)",
+      "Bash(firebase --help)",
+      "Bash(firebase firestore *)",
+      "Bash(awk 'NR>=270 && /^[[:space:]]*\\\\\\)\\\\\\)\\\\\\)\\\\\\);[[:space:]]*$|^[[:space:]]*\\\\\\)\\\\\\)\\\\\\);[[:space:]]*$|^[[:space:]]*\\\\\\)\\\\\\)\\\\\\);$|^[[:space:]]*\\\\\\)\\\\\\)\\\\;[[:space:]]*$|^[[:space:]]*}[[:space:]]*$/{print NR\": \"$0; if\\(/^[[:space:]]*}[[:space:]]*$/\\)c++; if\\(c>=2\\)exit}' lib/technician_active_job_screen.dart)"
     ]
-  }
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "firebase"
+  ]
 }
