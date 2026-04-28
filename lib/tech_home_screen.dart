@@ -6,7 +6,7 @@ import '../firebase_service.dart';
 import 'main.dart' show AppLocale;
 import 'chat_screen.dart';
 import 'glass_card.dart';
-import 'job_status.dart' show canStartTrip, jobStatusTechLabel;
+import 'job_status.dart' show isSameDay, jobStatusTechLabel;
 import 'services/notification_service.dart';
 import 'technician_active_job_screen.dart';
 import 'technician_approve_payment_screen.dart';
@@ -543,7 +543,7 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
                                 isEn ? 'Active Jobs' : 'Active Jobs',
                                 _loading
                                     ? '…'
-                                    : '${_activeJobs.length + _legacyJobsFromAll().length}',
+                                    : '${_todayActiveJobs().length + _legacyJobsFromAll().length}',
                               ),
                             ),
                             const SizedBox(width: 10),
@@ -663,7 +663,7 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
         ),
       );
     }
-    final sortedActive = _sortActiveJobs(_activeJobs);
+    final sortedActive = _sortActiveJobs(_todayActiveJobs());
     final legacy = _legacyJobsFromAll();
     if (sortedActive.isEmpty && legacy.isEmpty) {
       return Center(
@@ -709,6 +709,19 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
         ],
       ],
     );
+  }
+
+  /// Restricts the active stream to jobs that belong on today's list:
+  /// scheduledTime null (urgent) or scheduledTime on the local calendar
+  /// day. Future-scheduled jobs live on the Schedule view instead — they
+  /// would only clutter Active Jobs since the tech can't act on them yet.
+  List<Map<String, dynamic>> _todayActiveJobs() {
+    final now = DateTime.now();
+    return _activeJobs.where((j) {
+      final dynamic s = j['scheduledTime'];
+      final DateTime? sch = s is Timestamp ? s.toDate() : null;
+      return isSameDay(sch, now);
+    }).toList();
   }
 
   /// scheduledTime present → ascending by scheduled time.
@@ -764,18 +777,10 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
         ? _formatScheduledShort(scheduledAt)
         : (isEn ? 'No scheduled time' : 'بدون موعد محدد');
     final jobId = (job['id'] as String?) ?? '';
-    // Dim tiles for jobs whose scheduledTime is more than 60 minutes ahead.
-    // Mirrors the rule that gates the "On the way" slider — a tech can
-    // still tap in to view details, but the visual treatment communicates
-    // "this is for later" without an extra badge.
-    final bool isFutureScheduled =
-        scheduledAt != null && !canStartTrip(scheduledAt, DateTime.now());
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
-      child: Opacity(
-        opacity: isFutureScheduled ? 0.6 : 1.0,
-        child: GlassCard(
+      child: GlassCard(
         padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
         child: ListTile(
           dense: true,
@@ -843,7 +848,6 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
                     );
                   }
                 },
-        ),
         ),
       ),
     );

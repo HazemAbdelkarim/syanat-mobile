@@ -152,6 +152,21 @@ bool canStartTrip(DateTime? scheduledTime, DateTime now) {
   return scheduledTime.difference(now) <= const Duration(minutes: 60);
 }
 
+/// Returns true when [scheduledTime] falls on the same local calendar day
+/// as [now]. A null [scheduledTime] (urgent / now jobs) is also considered
+/// same-day so urgent work always sits on the technician's active list.
+///
+/// Used by the technician home routing logic to split jobs between the
+/// Active Jobs list (today / urgent) and the Schedule view (other days).
+/// Boundary is local midnight — a job at 23:59 today is same-day, a job
+/// at 00:01 tomorrow is not.
+bool isSameDay(DateTime? scheduledTime, DateTime now) {
+  if (scheduledTime == null) return true;
+  return scheduledTime.year == now.year &&
+      scheduledTime.month == now.month &&
+      scheduledTime.day == now.day;
+}
+
 /// Returns the price to display on customer-facing surfaces for a given
 /// job map. Prefers the receipt's `grandTotal` once a receipt has been
 /// submitted, so the customer sees the actual amount they owe (which may

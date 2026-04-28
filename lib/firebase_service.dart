@@ -1584,8 +1584,21 @@ class FirebaseService {
   /// the future. The same gate exists server-side in `firestore.rules`; we
   /// also enforce it inside the transaction so a stale UI snapshot can't
   /// slip a too-early start past the rule with a misleading error code.
+  ///
+  /// [scheduledTimeFastFail] is the in-memory scheduledTime the caller
+  /// already has on hand. When provided we use it for a fast-fail check
+  /// before opening the transaction, saving a wasted transaction round-
+  /// trip on rejection. The in-transaction check below remains as defense
+  /// in depth — it uses the freshly-read scheduledTime and is the only
+  /// authoritative source if the two ever disagree.
   static Future<void> markOnTheWay(
-      String jobId, String technicianId) async {
+      String jobId, String technicianId,
+      {DateTime? scheduledTimeFastFail}) async {
+    if (scheduledTimeFastFail != null &&
+        !canStartTrip(scheduledTimeFastFail, DateTime.now())) {
+      throw StateError(
+          'Cannot start trip yet — scheduled time is more than 60 minutes away.');
+    }
     await firestore.runTransaction((tx) async {
       final ref = firestore.collection('jobs').doc(jobId);
       final snap = await tx.get(ref);

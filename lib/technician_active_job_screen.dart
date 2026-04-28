@@ -38,6 +38,13 @@ class _TechnicianActiveJobScreenState
   // the server-side write lands.
   late Map<String, dynamic> _currentJob;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _jobSub;
+  // Forces a rebuild every minute so canStartTrip() re-evaluates against a
+  // fresh DateTime.now(). Without this, a tech who opens the screen at
+  // 14:00 with a 16:30 job would see the slider stay disabled past 15:30
+  // because the only rebuild triggers are snapshot updates and button
+  // presses. Cost is negligible: one setState per minute while the
+  // screen is mounted.
+  Timer? _minuteTicker;
 
   String get _status => (_currentJob['status'] as String?) ?? '';
   String get _jobId => (_currentJob['id'] as String?) ?? '';
@@ -47,10 +54,14 @@ class _TechnicianActiveJobScreenState
     super.initState();
     _currentJob = Map<String, dynamic>.from(widget.job);
     _subscribeJob();
+    _minuteTicker = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) setState(() {});
+    });
   }
 
   @override
   void dispose() {
+    _minuteTicker?.cancel();
     _jobSub?.cancel();
     super.dispose();
   }
@@ -137,7 +148,14 @@ class _TechnicianActiveJobScreenState
     setState(() => _actionInProgress = true);
     try {
       if (_jobId.isEmpty) throw Exception('Missing job ID');
-      await FirebaseService.markOnTheWay(_jobId, widget.technicianId);
+      final dynamic scheduledRaw = _currentJob['scheduledTime'];
+      final DateTime? scheduledAt =
+          scheduledRaw is Timestamp ? scheduledRaw.toDate() : null;
+      await FirebaseService.markOnTheWay(
+        _jobId,
+        widget.technicianId,
+        scheduledTimeFastFail: scheduledAt,
+      );
     } on FirebaseException catch (e) {
       debugPrint('Mark on-the-way Firebase error: ${e.code} – ${e.message}');
       if (!mounted) return;
@@ -588,11 +606,10 @@ class _TechnicianActiveJobScreenState
   }
 
   Widget _addressCard(String address, bool isEn) {
-    // Mirrors design-system/JobAcceptance.jsx > AddressCard. The new bit is
-    // the trailing "Maps" button — kept as a no-op placeholder for now since
-    // there is no Maps integration in the codebase. Wire it once Storage /
-    // url_launcher land. (TODO(BLAZE) is not relevant here: this is purely
-    // a client-side intent.)
+    // Mirrors design-system/JobAcceptance.jsx > AddressCard. The trailing
+    // "Maps" button is intentionally absent: url_launcher is not in
+    // pubspec.yaml, and a button that does nothing is worse than no
+    // button. Re-add the affordance once a launcher dependency lands.
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
       decoration: BoxDecoration(
@@ -643,33 +660,6 @@ class _TechnicianActiveJobScreenState
                   ),
                 ),
               ],
-            ),
-          ),
-          const SizedBox(width: 10),
-          Container(
-            decoration: BoxDecoration(
-              border: Border.all(color: const Color(0xFFE0E0E0)),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: TextButton.icon(
-              style: TextButton.styleFrom(
-                foregroundColor: _syanatBlue,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                minimumSize: Size.zero,
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10)),
-              ),
-              icon: const Icon(Icons.directions, size: 14),
-              label: Text(
-                _t(isEn, 'Maps', 'الخريطة'),
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              onPressed: address.isEmpty ? null : () {},
             ),
           ),
         ],

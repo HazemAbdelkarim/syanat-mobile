@@ -92,6 +92,7 @@ class _TechnicianScheduleScreenState extends State<TechnicianScheduleScreen> {
         .limit(50)
         .snapshots()
         .listen((snap) {
+      final now = DateTime.now();
       final jobs = snap.docs
           .map((d) {
             final data = Map<String, dynamic>.from(d.data());
@@ -103,6 +104,16 @@ class _TechnicianScheduleScreenState extends State<TechnicianScheduleScreen> {
           // list — surfacing them here would make the calendar feel like an
           // inbox of unanswered assignments.
           .where((j) => _scheduleStatuses.contains(j['status']))
+          // Same-day (and urgent / null-scheduled) accepted jobs live on
+          // the home Active Jobs list. The Schedule view is only for the
+          // future calendar — past days are kept for context, today is
+          // routed elsewhere so the tech doesn't see the same job in two
+          // places.
+          .where((j) {
+            final dynamic s = j['scheduledTime'];
+            final DateTime? sch = s is Timestamp ? s.toDate() : null;
+            return !isSameDay(sch, now);
+          })
           .toList();
       if (!mounted) return;
       setState(() {
