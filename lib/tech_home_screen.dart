@@ -6,13 +6,14 @@ import '../firebase_service.dart';
 import 'main.dart' show AppLocale;
 import 'chat_screen.dart';
 import 'glass_card.dart';
-import 'job_status.dart' show jobStatusTechLabel;
+import 'job_status.dart' show canStartTrip, jobStatusTechLabel;
 import 'services/notification_service.dart';
 import 'technician_active_job_screen.dart';
 import 'technician_approve_payment_screen.dart';
 import 'technician_job_detail_readonly_screen.dart';
 import 'technician_profile_screen.dart';
 import 'technician_receipt_screen.dart';
+import 'technician_schedule_screen.dart';
 import 'settings_screen.dart';
 
 const Color syanatBlue = Color(0xFF3C21C8);
@@ -490,6 +491,17 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
                             onPressed: () => Navigator.push(
                               context,
                               MaterialPageRoute(
+                                builder: (_) => const TechnicianScheduleScreen(),
+                              ),
+                            ),
+                            icon: const Icon(Icons.calendar_month_outlined,
+                                color: Colors.white),
+                            tooltip: isEn ? 'Schedule' : 'الجدول',
+                          ),
+                          IconButton(
+                            onPressed: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
                                 builder: (_) => const TechnicianProfileScreen(),
                               ),
                             ),
@@ -746,14 +758,24 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
             .toString();
     final address = ((job['locationAddress'] as String?)?.trim() ?? '');
     final dynamic scheduled = job['scheduledTime'];
-    final scheduledLabel = scheduled is Timestamp
-        ? _formatScheduledShort(scheduled.toDate())
+    final DateTime? scheduledAt =
+        scheduled is Timestamp ? scheduled.toDate() : null;
+    final scheduledLabel = scheduledAt != null
+        ? _formatScheduledShort(scheduledAt)
         : (isEn ? 'No scheduled time' : 'بدون موعد محدد');
     final jobId = (job['id'] as String?) ?? '';
+    // Dim tiles for jobs whose scheduledTime is more than 60 minutes ahead.
+    // Mirrors the rule that gates the "On the way" slider — a tech can
+    // still tap in to view details, but the visual treatment communicates
+    // "this is for later" without an extra badge.
+    final bool isFutureScheduled =
+        scheduledAt != null && !canStartTrip(scheduledAt, DateTime.now());
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
-      child: GlassCard(
+      child: Opacity(
+        opacity: isFutureScheduled ? 0.6 : 1.0,
+        child: GlassCard(
         padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
         child: ListTile(
           dense: true,
@@ -821,6 +843,7 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
                     );
                   }
                 },
+        ),
         ),
       ),
     );

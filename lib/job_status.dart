@@ -133,6 +133,25 @@ String jobStatusCustomerLabel(String status, {required bool isEn}) {
   }
 }
 
+/// Returns true when the technician's "On the way" slider may fire for a
+/// job whose [scheduledTime] is being evaluated against [now].
+///
+/// Rules (mirrors `firestore.rules` branch `technician_accepted → on_the_way`):
+///   - `null` scheduledTime → urgent job, always allowed
+///   - scheduledTime in the past or now → allowed (tech starting late is fine)
+///   - scheduledTime within 60 minutes → allowed
+///   - scheduledTime more than 60 minutes ahead → blocked
+///
+/// The 60-minute window is the same gate enforced server-side in the rules,
+/// so a successful client-side check should never see a permission-denied
+/// from the server. The check is duplicated here so the slider can disable
+/// itself with explanatory copy instead of letting the user slide and fail.
+bool canStartTrip(DateTime? scheduledTime, DateTime now) {
+  if (scheduledTime == null) return true;
+  if (!scheduledTime.isAfter(now)) return true;
+  return scheduledTime.difference(now) <= const Duration(minutes: 60);
+}
+
 /// Returns the price to display on customer-facing surfaces for a given
 /// job map. Prefers the receipt's `grandTotal` once a receipt has been
 /// submitted, so the customer sees the actual amount they owe (which may

@@ -15,6 +15,8 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:image/image.dart' as img;
 
+import 'job_status.dart' show canStartTrip;
+
 /// Thrown when the caller needs to wait before retrying an order.
 /// [remainingSeconds] is the rounded-up number of seconds left on the
 /// server-side 60-second cooldown window.
@@ -1577,6 +1579,11 @@ class FirebaseService {
   /// Step 2a (release 006): Technician starts the trip to the customer.
   /// Transitions: technician_accepted → on_the_way.
   /// Idempotent: re-calling while already `on_the_way` is a no-op.
+  ///
+  /// Time-gated: rejects when `scheduledTime` is more than 60 minutes in
+  /// the future. The same gate exists server-side in `firestore.rules`; we
+  /// also enforce it inside the transaction so a stale UI snapshot can't
+  /// slip a too-early start past the rule with a misleading error code.
   static Future<void> markOnTheWay(
       String jobId, String technicianId) async {
     await firestore.runTransaction((tx) async {
@@ -1592,6 +1599,13 @@ class FirebaseService {
       }
       if (data['assignedTechnicianId'] != technicianId) {
         throw Exception('You are not assigned to this job');
+      }
+      final dynamic scheduledRaw = data['scheduledTime'];
+      final DateTime? scheduledAt =
+          scheduledRaw is Timestamp ? scheduledRaw.toDate() : null;
+      if (!canStartTrip(scheduledAt, DateTime.now())) {
+        throw StateError(
+            'Cannot start trip yet — scheduled time is more than 60 minutes away.');
       }
       tx.update(ref, {
         'status': 'on_the_way',
