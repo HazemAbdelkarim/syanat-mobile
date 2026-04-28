@@ -6,7 +6,7 @@ import '../firebase_service.dart';
 import 'main.dart' show AppLocale;
 import 'chat_screen.dart';
 import 'glass_card.dart';
-import 'job_status.dart' show isSameDay, jobStatusTechLabel;
+import 'job_status.dart' show JobStatus, isSameDay, jobStatusTechLabel;
 import 'services/notification_service.dart';
 import 'technician_active_job_screen.dart';
 import 'technician_approve_payment_screen.dart';
@@ -46,6 +46,13 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
   StreamSubscription<int>? _notifCountSub;
   StreamSubscription<List<Map<String, dynamic>>>? _activeJobsSub;
 
+  // One-minute rebuild ticker. The same-day routing in `_todayActiveJobs`
+  // depends on `DateTime.now()`, so a job accepted at 23:55 for tomorrow
+  // 09:00 must auto-promote into Active Jobs at 00:01 even with no new
+  // Firestore snapshot. Without this ticker the list stays frozen on the
+  // last snapshot's clock until the next stream event arrives.
+  Timer? _minuteTicker;
+
   // Release-006 notifications: diff status-per-jobId across jobs-stream
   // snapshots and fire local notifications for each non-self-caused
   // transition. First snapshot after auth populates the cache silently.
@@ -56,6 +63,9 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
   void initState() {
     super.initState();
     _initAfterAuth();
+    _minuteTicker = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) setState(() {});
+    });
   }
 
   Future<void> _initAfterAuth() async {
@@ -90,6 +100,7 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
 
   @override
   void dispose() {
+    _minuteTicker?.cancel();
     _jobsSub?.cancel();
     _profileSub?.cancel();
     _notifCountSub?.cancel();
@@ -711,13 +722,26 @@ class _TechHomeScreenState extends State<TechHomeScreen> {
     );
   }
 
-  /// Restricts the active stream to jobs that belong on today's list:
-  /// scheduledTime null (urgent) or scheduledTime on the local calendar
-  /// day. Future-scheduled jobs live on the Schedule view instead — they
-  /// would only clutter Active Jobs since the tech can't act on them yet.
+  /// Restricts the active stream to jobs that belong on today's list.
+  ///
+  /// Same-day routing applies ONLY to `technician_accepted`: that's the
+  /// status where the tech has committed but hasn't started moving, so
+  /// future-day acceptances (e.g. a Tuesday job accepted Monday night)
+  /// belong on the Schedule view until the day arrives.
+  ///
+  /// Every other non-terminal status stays on Active Jobs regardless of
+  /// `scheduledTime`:
+  ///   - `active`: admin-assigned, awaiting tech accept — must be visible
+  ///     so the tech can accept it.
+  ///   - `on_the_way` / `technician_arrived` / `work_finished` /
+  ///     `awaiting_*` / `receipt_disputed`: in-flight work, date-
+  ///     irrelevant. A trip that crosses midnight must not vanish from
+  ///     Active Jobs into yesterday's Schedule cell.
   List<Map<String, dynamic>> _todayActiveJobs() {
     final now = DateTime.now();
     return _activeJobs.where((j) {
+      final status = (j['status'] as String?) ?? '';
+      if (status != JobStatus.technicianAccepted) return true;
       final dynamic s = j['scheduledTime'];
       final DateTime? sch = s is Timestamp ? s.toDate() : null;
       return isSameDay(sch, now);

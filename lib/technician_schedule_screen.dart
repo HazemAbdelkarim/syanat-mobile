@@ -24,18 +24,16 @@ import 'technician_receipt_screen.dart';
 /// View mode for the schedule.
 enum _ScheduleMode { month, week, day }
 
-/// Statuses that surface a job in the schedule view. `active` is excluded —
-/// those jobs are still inbox-style assignments that the tech hasn't yet
-/// committed to and belong on the Active Jobs list, not the calendar.
+/// Statuses that surface a job in the schedule view.
+///
+/// Only `technician_accepted` belongs here. The Schedule view exists for
+/// future-day commitments the tech is sitting on; once they hit
+/// `on_the_way` (or any later in-flight status), the job is the tech's
+/// current task and lives on Active Jobs regardless of the calendar.
+/// `active` is also out — those are unanswered admin assignments and
+/// belong on Active Jobs until accepted.
 const Set<String> _scheduleStatuses = {
   JobStatus.technicianAccepted,
-  JobStatus.onTheWay,
-  JobStatus.technicianArrived,
-  JobStatus.workFinished,
-  JobStatus.awaitingCustomerApproval,
-  JobStatus.awaitingPayment,
-  JobStatus.awaitingPaymentVerification,
-  JobStatus.receiptDisputed,
 };
 
 class TechnicianScheduleScreen extends StatefulWidget {
@@ -55,16 +53,26 @@ class _TechnicianScheduleScreenState extends State<TechnicianScheduleScreen> {
   _ScheduleMode _mode = _ScheduleMode.week;
   late DateTime _selectedDate;
 
+  // One-minute rebuild ticker. The schedule's `!isSameDay` filter is
+  // computed in `build()` against `DateTime.now()`, so a job scheduled
+  // for today that's now mid-day still needs to fall off the Schedule
+  // at 00:01 of the next day even if no new Firestore snapshot arrives.
+  Timer? _minuteTicker;
+
   @override
   void initState() {
     super.initState();
     final now = DateTime.now();
     _selectedDate = DateTime(now.year, now.month, now.day);
     _subscribe();
+    _minuteTicker = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) setState(() {});
+    });
   }
 
   @override
   void dispose() {
+    _minuteTicker?.cancel();
     _sub?.cancel();
     super.dispose();
   }
@@ -92,28 +100,19 @@ class _TechnicianScheduleScreenState extends State<TechnicianScheduleScreen> {
         .limit(50)
         .snapshots()
         .listen((snap) {
-      final now = DateTime.now();
+      // Status filter is time-independent so it stays here. The
+      // same-day filter moved into `build()` (see `_visibleJobs`) so
+      // the minute ticker can re-evaluate `DateTime.now()` between
+      // snapshots — otherwise a job scheduled for today that's still
+      // mid-day at 23:59 would stay visible forever until Firestore
+      // pushed a new snapshot.
       final jobs = snap.docs
           .map((d) {
             final data = Map<String, dynamic>.from(d.data());
             data['id'] = d.id;
             return data;
           })
-          // Schedule shows only jobs the tech has accepted. Jobs in `active`
-          // (assigned but not yet acknowledged) live on the home Active Jobs
-          // list — surfacing them here would make the calendar feel like an
-          // inbox of unanswered assignments.
           .where((j) => _scheduleStatuses.contains(j['status']))
-          // Same-day (and urgent / null-scheduled) accepted jobs live on
-          // the home Active Jobs list. The Schedule view is only for the
-          // future calendar — past days are kept for context, today is
-          // routed elsewhere so the tech doesn't see the same job in two
-          // places.
-          .where((j) {
-            final dynamic s = j['scheduledTime'];
-            final DateTime? sch = s is Timestamp ? s.toDate() : null;
-            return !isSameDay(sch, now);
-          })
           .toList();
       if (!mounted) return;
       setState(() {
@@ -241,7 +240,17 @@ class _TechnicianScheduleScreenState extends State<TechnicianScheduleScreen> {
       );
     }
 
-    final byDate = _groupByDate(_jobs);
+    // Re-filter on every rebuild so the minute ticker can move a job
+    // from today's Schedule cell to nowhere (it'll appear on Active
+    // Jobs instead) at the local midnight boundary without waiting
+    // for a new Firestore snapshot.
+    final now = DateTime.now();
+    final visibleJobs = _jobs.where((j) {
+      final dynamic s = j['scheduledTime'];
+      final DateTime? sch = s is Timestamp ? s.toDate() : null;
+      return !isSameDay(sch, now);
+    }).toList();
+    final byDate = _groupByDate(visibleJobs);
     final dayJobs = byDate[_dateKey(_selectedDate)] ?? const <Map<String, dynamic>>[];
 
     return SingleChildScrollView(
