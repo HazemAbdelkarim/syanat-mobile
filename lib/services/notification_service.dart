@@ -42,6 +42,9 @@ TransitionActor? inferTransitionActor(String from, String to) {
   }
   // Admin-driven
   if ((from == JobStatus.requested && to == JobStatus.active) ||
+      // Auto-bounce of an unaccepted assignment when its acceptance window
+      // expires — only admin can drive `active → requested` per rules.
+      (from == JobStatus.active && to == JobStatus.requested) ||
       (from == JobStatus.receiptDisputed &&
           (to == JobStatus.completed ||
               to == JobStatus.awaitingCustomerApproval ||
@@ -233,6 +236,25 @@ class NotificationService {
         ? TransitionActor.customer
         : TransitionActor.tech;
     if (actor == viewerAsActor) return false; // self-caused — suppress.
+
+    // Special case: tech sees an "assignment expired" message when admin
+    // auto-bounces an unaccepted job back to `requested`. The generic
+    // `transitionNotificationFor` path would skip this (target status
+    // `requested` isn't on the tech's notify list).
+    if (viewer == ViewerRole.technician &&
+        from == JobStatus.active &&
+        to == JobStatus.requested) {
+      await show(
+        jobId: jobId,
+        title: isEn
+            ? 'Assignment expired'
+            : 'انتهت صلاحية المهمة',
+        body: isEn
+            ? 'Too close to scheduled time — admin reassigned.'
+            : 'اقترب الموعد — أعاد المسؤول التعيين.',
+      );
+      return true;
+    }
 
     final content =
         transitionNotificationFor(viewer: viewer, toStatus: to, isEn: isEn);

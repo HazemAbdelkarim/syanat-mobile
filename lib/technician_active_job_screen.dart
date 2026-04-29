@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'firebase_service.dart';
 import 'job_status.dart';
 import 'technician_receipt_screen.dart';
+import 'widgets/cancel_job_dialog.dart';
 
 const Color _syanatBlue = Color(0xFF3C21C8);
 
@@ -266,40 +267,35 @@ class _TechnicianActiveJobScreenState
   Future<void> _cancelJob() async {
     final isEn = Localizations.localeOf(context).languageCode == 'en';
 
-    // Confirmation dialog
-    final confirmed = await showDialog<bool>(
+    final result = await showCancelJobDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Text(_t(isEn, 'Cancel Order?', 'إلغاء الطلب؟')),
-        content: Text(_t(
-          isEn,
-          'Are you sure you want to cancel this assignment? This cannot be undone.',
-          'هل أنت متأكد من إلغاء هذه المهمة؟ لا يمكن التراجع عن هذا.',
-        )),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: Text(_t(isEn, 'No', 'لا')),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: Text(_t(isEn, 'Yes, Cancel', 'نعم، إلغاء')),
-          ),
-        ],
-      ),
+      scheduledTime: _currentJob['scheduledTime'],
+      isEn: isEn,
     );
-    if (confirmed != true || !mounted) return;
+    if (result == null || !result.confirmed || !mounted) return;
 
     setState(() => _actionInProgress = true);
     try {
       if (_jobId.isEmpty) throw Exception('Missing job ID');
-      if (_status != 'active') {
-        throw Exception('Cannot cancel after acceptance');
+      if (_status != 'active' && _status != 'technician_accepted') {
+        throw Exception('Cannot cancel from current state');
       }
-      await FirebaseService.technicianCancelJob(_jobId, widget.technicianId);
-      // After cancel, the stream will clear the active job and return to home.
+      await FirebaseService.cancelJobByTech(
+        jobId: _jobId,
+        technicianId: widget.technicianId,
+        reason: result.reason,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_t(
+            isEn,
+            'Job cancelled.',
+            'تم إلغاء المهمة.',
+          )),
+        ),
+      );
+      Navigator.of(context).pop();
     } on FirebaseException catch (e) {
       debugPrint('Technician cancel Firebase error: ${e.code} – ${e.message}');
       if (!mounted) return;
@@ -368,8 +364,10 @@ class _TechnicianActiveJobScreenState
               _addressCard(address, isEn),
               const SizedBox(height: 20),
 
-              // ── Cancel button (before acceptance only) ──────────────
-              if (status == 'active') ...[
+              // ── Cancel button (active or post-accept) ───────────────
+              // Pre-accept: no penalty. Post-accept: penalty per
+              // hours-before-scheduledTime, displayed in the dialog.
+              if (status == 'active' || status == 'technician_accepted') ...[
                 _cancelButton(isEn),
                 const SizedBox(height: 20),
               ],

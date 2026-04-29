@@ -20,6 +20,7 @@ import 'technician_active_job_screen.dart';
 import 'technician_approve_payment_screen.dart';
 import 'technician_job_detail_readonly_screen.dart';
 import 'technician_receipt_screen.dart';
+import 'widgets/cancel_job_dialog.dart';
 
 /// View mode for the schedule.
 enum _ScheduleMode { month, week, day }
@@ -128,6 +129,62 @@ class _TechnicianScheduleScreenState extends State<TechnicianScheduleScreen> {
         _error = e;
       });
     });
+  }
+
+  // ── Cancel-from-tile flow ────────────────────────────────────────────
+  // The Schedule view filters to `technician_accepted` only, so every tile
+  // here is in the "may cancel with penalty" state. The dialog computes
+  // the EGP amount and confirms; on success the job stream drops the doc
+  // automatically (status flips to `cancelled`).
+  Future<void> _cancelJobFromTile(Map<String, dynamic> job) async {
+    final isEn = Localizations.localeOf(context).languageCode == 'en';
+    final user = FirebaseService.getCurrentUser();
+    if (user == null) return;
+    final jobId = (job['id'] as String?) ?? '';
+    if (jobId.isEmpty) return;
+
+    final result = await showCancelJobDialog(
+      context: context,
+      scheduledTime: job['scheduledTime'],
+      isEn: isEn,
+    );
+    if (result == null || !result.confirmed || !mounted) return;
+
+    try {
+      await FirebaseService.cancelJobByTech(
+        jobId: jobId,
+        technicianId: user.uid,
+        reason: result.reason,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(isEn ? 'Job cancelled.' : 'تم إلغاء المهمة.'),
+        ),
+      );
+    } on FirebaseException catch (e) {
+      if (kDebugMode) {
+        debugPrint('[Schedule] cancel error: ${e.code} – ${e.message}');
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(isEn
+              ? 'Could not cancel. Please try again.'
+              : 'تعذر الإلغاء. يرجى المحاولة مرة أخرى.'),
+        ),
+      );
+    } catch (e) {
+      if (kDebugMode) debugPrint('[Schedule] cancel error: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(isEn
+              ? 'Could not cancel. Please try again.'
+              : 'تعذر الإلغاء. يرجى المحاولة مرة أخرى.'),
+        ),
+      );
+    }
   }
 
   // ── Routing ──────────────────────────────────────────────────────────
@@ -271,7 +328,12 @@ class _TechnicianScheduleScreenState extends State<TechnicianScheduleScreen> {
             const SizedBox(height: 14),
             _agendaSectionHeader(dayJobs.length, isEn),
             const SizedBox(height: 8),
-            _AgendaList(jobs: dayJobs, onTap: _openJob, isEn: isEn),
+            _AgendaList(
+              jobs: dayJobs,
+              onTap: _openJob,
+              onCancel: _cancelJobFromTile,
+              isEn: isEn,
+            ),
           ] else ...[
             _WeekStrip(
               selectedDate: _selectedDate,
@@ -287,7 +349,12 @@ class _TechnicianScheduleScreenState extends State<TechnicianScheduleScreen> {
                 isEn: isEn,
               )
             else
-              _AgendaList(jobs: dayJobs, onTap: _openJob, isEn: isEn),
+              _AgendaList(
+                jobs: dayJobs,
+                onTap: _openJob,
+                onCancel: _cancelJobFromTile,
+                isEn: isEn,
+              ),
           ],
         ],
       ),
@@ -1284,11 +1351,13 @@ String _blockSubtitle(Map<String, dynamic> job, bool isEn) {
 class _AgendaList extends StatelessWidget {
   final List<Map<String, dynamic>> jobs;
   final void Function(Map<String, dynamic>) onTap;
+  final void Function(Map<String, dynamic>)? onCancel;
   final bool isEn;
   const _AgendaList({
     required this.jobs,
     required this.onTap,
     required this.isEn,
+    this.onCancel,
   });
 
   @override
@@ -1331,7 +1400,12 @@ class _AgendaList extends StatelessWidget {
       children: sorted
           .map((j) => Padding(
                 padding: const EdgeInsets.only(bottom: 10),
-                child: _AgendaCard(job: j, onTap: () => onTap(j), isEn: isEn),
+                child: _AgendaCard(
+                  job: j,
+                  onTap: () => onTap(j),
+                  onCancel: onCancel == null ? null : () => onCancel!(j),
+                  isEn: isEn,
+                ),
               ))
           .toList(),
     );
@@ -1341,11 +1415,13 @@ class _AgendaList extends StatelessWidget {
 class _AgendaCard extends StatelessWidget {
   final Map<String, dynamic> job;
   final VoidCallback onTap;
+  final VoidCallback? onCancel;
   final bool isEn;
   const _AgendaCard({
     required this.job,
     required this.onTap,
     required this.isEn,
+    this.onCancel,
   });
 
   @override
@@ -1429,6 +1505,34 @@ class _AgendaCard extends StatelessWidget {
                     ),
                     const SizedBox(width: 8),
                     _StatusPill(status: status, isEn: isEn),
+                    if (onCancel != null &&
+                        (status == JobStatus.active ||
+                            status == JobStatus.technicianAccepted))
+                      PopupMenuButton<String>(
+                        tooltip: isEn ? 'More' : 'المزيد',
+                        icon: const Icon(Icons.more_vert,
+                            size: 18, color: Colors.black54),
+                        padding: EdgeInsets.zero,
+                        onSelected: (v) {
+                          if (v == 'cancel') onCancel!();
+                        },
+                        itemBuilder: (_) => <PopupMenuEntry<String>>[
+                          PopupMenuItem<String>(
+                            value: 'cancel',
+                            child: Row(
+                              children: [
+                                Icon(Icons.close,
+                                    size: 18, color: Colors.red.shade700),
+                                const SizedBox(width: 8),
+                                Text(
+                                  isEn ? 'Cancel job' : 'إلغاء المهمة',
+                                  style: TextStyle(color: Colors.red.shade700),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
                   ],
                 ),
               ),
