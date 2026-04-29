@@ -280,8 +280,14 @@ bool isValidJobTransition({
         to == JobStatus.completed) {
       return true;
     }
-    // Tech may cancel only before they've accepted.
+    // Tech may cancel from `active` (no penalty) or `technician_accepted`
+    // (penalty applies, see calculateCancellationPenalty). Both branches
+    // are authorised in firestore.rules and exercised by cancelJobByTech;
+    // keep them in sync here.
     if (from == JobStatus.active && to == JobStatus.cancelled) return true;
+    if (from == JobStatus.technicianAccepted && to == JobStatus.cancelled) {
+      return true;
+    }
   }
 
   // Customer-driven transitions

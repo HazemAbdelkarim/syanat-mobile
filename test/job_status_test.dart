@@ -255,14 +255,31 @@ void main() {
         );
       });
 
-      test('technician cannot cancel once they have accepted', () {
+      test(
+          'technician CAN cancel from active (no penalty) and from '
+          'technician_accepted (penalty applies)', () {
+        expect(
+          isValidJobTransition(
+            from: JobStatus.active,
+            to: JobStatus.cancelled,
+            actor: JobActor.technician,
+          ),
+          isTrue,
+          reason:
+              'Pre-acceptance tech-cancel is allowed by firestore.rules and '
+              'cancelJobByTech writes cancellationPenalty=0 / escalateForReview=false.',
+        );
         expect(
           isValidJobTransition(
             from: JobStatus.technicianAccepted,
             to: JobStatus.cancelled,
             actor: JobActor.technician,
           ),
-          isFalse,
+          isTrue,
+          reason:
+              'Post-acceptance tech-cancel is now allowed; cancelJobByTech '
+              'computes the penalty via calculateCancellationPenalty and '
+              'flags late cancels for review.',
         );
       });
 

@@ -1720,6 +1720,10 @@ class FirebaseService {
       if (!snap.exists) throw Exception('Job not found');
       final data = snap.data()!;
       prevStatus = (data['status'] as String?) ?? '';
+      // Idempotent: re-calling on an already-cancelled job is a no-op so a
+      // double-tap (or a retried call after a flaky network) doesn't surface
+      // an error to the tech. Same shape as approveReceipt's early return.
+      if (prevStatus == 'cancelled') return;
       if (prevStatus != 'active' && prevStatus != 'technician_accepted') {
         throw Exception('Job cannot be cancelled in its current state');
       }
@@ -1750,7 +1754,9 @@ class FirebaseService {
       });
     });
     // Counters move via the `onJobStatusChanged` Cloud Function trigger
-    // (Spec 003). Activity log entry is fire-and-forget audit.
+    // (Spec 003). Activity log entry is fire-and-forget audit. Skip on the
+    // idempotent path — a double-tap shouldn't write a second log entry.
+    if (prevStatus == 'cancelled') return;
     try {
       final desc = penaltyAmount > 0
           ? 'Technician cancelled (from $prevStatus, penalty ${penaltyAmount.toStringAsFixed(0)} EGP${escalate ? ', escalated' : ''})'

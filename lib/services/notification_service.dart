@@ -28,7 +28,11 @@ TransitionActor? inferTransitionActor(String from, String to) {
       (from == JobStatus.workFinished &&
           to == JobStatus.awaitingCustomerApproval) ||
       (from == JobStatus.awaitingPaymentVerification &&
-          to == JobStatus.completed)) {
+          to == JobStatus.completed) ||
+      // Post-acceptance tech-cancel (Batch B): only the assigned technician
+      // can drive `technician_accepted → cancelled` per firestore.rules.
+      (from == JobStatus.technicianAccepted &&
+          to == JobStatus.cancelled)) {
     return TransitionActor.tech;
   }
   // Customer-driven
