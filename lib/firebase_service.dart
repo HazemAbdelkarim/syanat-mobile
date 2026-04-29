@@ -15,7 +15,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:image/image.dart' as img;
 
-import 'job_status.dart' show canStartTrip;
+import 'job_status.dart' show calculateCancellationPenalty, canStartTrip;
 
 /// Thrown when the caller needs to wait before retrying an order.
 /// [remainingSeconds] is the rounded-up number of seconds left on the
@@ -1684,30 +1684,86 @@ class FirebaseService {
   /// Technician cancels an assigned job BEFORE accepting it.
   /// Transitions: active → cancelled.
   /// Only the assigned technician may cancel, and only from 'active' status.
+  ///
+  /// Kept as a thin shim over [cancelJobByTech] so existing call sites
+  /// continue to work; new UI flows should call [cancelJobByTech] directly.
   static Future<void> technicianCancelJob(
       String jobId, String technicianId) async {
+    await cancelJobByTech(jobId: jobId, technicianId: technicianId);
+  }
+
+  /// Technician cancels an assigned job. Transitions:
+  ///   - `active`               → `cancelled` (no penalty, no escalation)
+  ///   - `technician_accepted`  → `cancelled` (penalty per scheduling tier)
+  ///
+  /// Penalty is computed via [calculateCancellationPenalty] using the local
+  /// clock at cancel time. The amount is stored on the job for audit/wallet
+  /// integration, but no money moves here — wallet wiring is a future task.
+  ///
+  /// `cancellationPenalty` and `escalateForReview` are written even from
+  /// `active` (as 0 / false) so the rule's affectedKeys whitelist can match
+  /// the same field shape regardless of source status.
+  static Future<void> cancelJobByTech({
+    required String jobId,
+    required String technicianId,
+    String reason = '',
+  }) async {
+    if (reason.length > 500) {
+      throw ArgumentError.value(reason, 'reason', 'max 500 chars');
+    }
     String prevStatus = '';
+    num penaltyAmount = 0;
+    bool escalate = false;
     await firestore.runTransaction((tx) async {
       final ref = firestore.collection('jobs').doc(jobId);
       final snap = await tx.get(ref);
       if (!snap.exists) throw Exception('Job not found');
       final data = snap.data()!;
       prevStatus = (data['status'] as String?) ?? '';
-      if (prevStatus != 'active') {
-        throw Exception('Job can only be cancelled before acceptance');
+      if (prevStatus != 'active' && prevStatus != 'technician_accepted') {
+        throw Exception('Job cannot be cancelled in its current state');
       }
       if (data['assignedTechnicianId'] != technicianId) {
         throw Exception('You are not assigned to this job');
       }
+
+      // Penalty applies only to cancels after acceptance. Pre-acceptance
+      // cancels still write the penalty fields (as zeros) so a single rule
+      // shape covers both branches.
+      if (prevStatus == 'technician_accepted') {
+        final dynamic schedRaw = data['scheduledTime'];
+        final DateTime? scheduled =
+            schedRaw is Timestamp ? schedRaw.toDate() : null;
+        final result = calculateCancellationPenalty(scheduled, DateTime.now());
+        penaltyAmount = result.penalty;
+        escalate = result.escalate;
+      }
+
       tx.update(ref, {
         'status': 'cancelled',
         'cancelledBy': 'technician',
         'cancelledAt': FieldValue.serverTimestamp(),
+        'cancelReason': reason,
+        'cancellationPenalty': penaltyAmount,
+        'escalateForReview': escalate,
         'updatedAt': FieldValue.serverTimestamp(),
       });
     });
     // Counters move via the `onJobStatusChanged` Cloud Function trigger
-    // (Spec 003).
+    // (Spec 003). Activity log entry is fire-and-forget audit.
+    try {
+      final desc = penaltyAmount > 0
+          ? 'Technician cancelled (from $prevStatus, penalty ${penaltyAmount.toStringAsFixed(0)} EGP${escalate ? ', escalated' : ''})'
+          : 'Technician cancelled (from $prevStatus, no penalty)';
+      await firestore.collection('activity_log').add({
+        'type': 'job_cancelled',
+        'description': desc,
+        'jobId': jobId,
+        'userId': technicianId,
+        'role': 'technician',
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+    } catch (_) {}
   }
 
   /// Technician submits a structured receipt after finishing work.

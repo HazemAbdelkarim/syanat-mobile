@@ -152,6 +152,45 @@ bool canStartTrip(DateTime? scheduledTime, DateTime now) {
   return scheduledTime.difference(now) <= const Duration(minutes: 60);
 }
 
+/// Cancellation-penalty result for a tech-initiated cancel of an accepted
+/// job. [penalty] is the EGP amount to record on the job document; [escalate]
+/// flags cases that warrant manual review (urgent jobs, past-scheduled, or
+/// cancels under one hour before the slot). Wallet deduction is intentionally
+/// NOT modelled here — a future task will read these fields and act on them.
+typedef CancellationPenalty = ({num penalty, bool escalate});
+
+/// Returns the cancellation penalty in EGP for a tech-side cancellation of
+/// an accepted job whose [scheduledTime] is being evaluated at [now].
+///
+/// Tiers, by hours-before-scheduledTime:
+///   - more than 6 h           → 0   EGP, no escalation
+///   - 6 h ≤ Δ < 5 h            → 20  EGP, no escalation
+///   - 5 h ≤ Δ < 4 h            → 40  EGP, no escalation
+///   - 4 h ≤ Δ < 3 h            → 70  EGP, no escalation
+///   - 3 h ≤ Δ < 2 h            → 100 EGP, no escalation
+///   - 2 h ≤ Δ < 1 h            → 200 EGP, no escalation
+///   - less than 1 h or past    → 200 EGP, escalate
+///   - urgent (scheduledTime null) → 200 EGP, escalate
+///
+/// Boundaries: each tier is half-open at the lower end. A job exactly 6 h
+/// out is in the "more than 6 h" tier (Δ = 6:00:00 → 0 EGP); at 5:59:59 it
+/// drops into the 20 EGP tier.
+CancellationPenalty calculateCancellationPenalty(
+  DateTime? scheduledTime,
+  DateTime now,
+) {
+  if (scheduledTime == null) return (penalty: 200, escalate: true);
+  if (!scheduledTime.isAfter(now)) return (penalty: 200, escalate: true);
+  final delta = scheduledTime.difference(now);
+  if (delta < const Duration(hours: 1)) return (penalty: 200, escalate: true);
+  if (delta < const Duration(hours: 2)) return (penalty: 200, escalate: false);
+  if (delta < const Duration(hours: 3)) return (penalty: 100, escalate: false);
+  if (delta < const Duration(hours: 4)) return (penalty: 70, escalate: false);
+  if (delta < const Duration(hours: 5)) return (penalty: 40, escalate: false);
+  if (delta < const Duration(hours: 6)) return (penalty: 20, escalate: false);
+  return (penalty: 0, escalate: false);
+}
+
 /// Returns true when [scheduledTime] falls on the same local calendar day
 /// as [now]. A null [scheduledTime] (urgent / now jobs) is also considered
 /// same-day so urgent work always sits on the technician's active list.
