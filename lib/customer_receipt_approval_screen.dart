@@ -110,14 +110,140 @@ class _CustomerReceiptApprovalScreenState
     }
   }
 
-  void _disputeStub() {
-    // Dispute flow is a deferred follow-up — see Phase 6 deferral list.
-    // Stubbing as a SnackBar (no state change, no network call).
+  Future<void> _dispute() async {
+    if (_approving) return;
     final isEn = _isEn;
+    final TextEditingController reasonCtrl = TextEditingController();
+    bool submitting = false;
+    String? inlineError;
+
+    final bool? submitted = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setLocal) {
+            return Directionality(
+              textDirection: isEn ? TextDirection.ltr : TextDirection.rtl,
+              child: AlertDialog(
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16)),
+                title: Text(isEn ? 'Dispute receipt' : 'الاعتراض على الفاتورة'),
+                content: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        isEn
+                            ? 'Tell admin why you are disputing this receipt. They will review and resolve.'
+                            : 'أخبر الإدارة بسبب اعتراضك على هذه الفاتورة. سيتم المراجعة والحل.',
+                        style: const TextStyle(fontSize: 13),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: reasonCtrl,
+                        autofocus: true,
+                        maxLines: 4,
+                        maxLength: 500,
+                        enabled: !submitting,
+                        textInputAction: TextInputAction.newline,
+                        decoration: InputDecoration(
+                          labelText: isEn ? 'Reason (required)' : 'السبب (مطلوب)',
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          errorText: inlineError,
+                        ),
+                        onChanged: (_) {
+                          if (inlineError != null) {
+                            setLocal(() => inlineError = null);
+                          }
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: submitting
+                        ? null
+                        : () => Navigator.pop(ctx, false),
+                    child: Text(isEn ? 'Cancel' : 'إلغاء'),
+                  ),
+                  TextButton(
+                    style: TextButton.styleFrom(
+                        foregroundColor: Colors.red.shade700),
+                    onPressed: submitting
+                        ? null
+                        : () async {
+                            final String reason = reasonCtrl.text.trim();
+                            if (reason.isEmpty) {
+                              setLocal(() {
+                                inlineError = isEn
+                                    ? 'Please enter a reason.'
+                                    : 'يرجى إدخال السبب.';
+                              });
+                              return;
+                            }
+                            setLocal(() {
+                              submitting = true;
+                              inlineError = null;
+                            });
+                            try {
+                              await FirebaseService.rejectReceipt(
+                                widget.jobId,
+                                widget.customerId,
+                                reason: reason,
+                              );
+                              if (!ctx.mounted) return;
+                              Navigator.pop(ctx, true);
+                            } on FirebaseException catch (e) {
+                              if (!ctx.mounted) return;
+                              final detail =
+                                  (e.message ?? '').trim().isEmpty
+                                      ? e.code
+                                      : e.message!;
+                              setLocal(() {
+                                submitting = false;
+                                inlineError = isEn
+                                    ? 'Could not submit dispute. [$detail]'
+                                    : 'تعذر إرسال الاعتراض. [$detail]';
+                              });
+                            } catch (e) {
+                              if (!ctx.mounted) return;
+                              setLocal(() {
+                                submitting = false;
+                                inlineError = isEn
+                                    ? 'Could not submit dispute. Please try again.'
+                                    : 'تعذر إرسال الاعتراض. يرجى المحاولة مرة أخرى.';
+                              });
+                            }
+                          },
+                    child: submitting
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : Text(isEn ? 'Submit dispute' : 'إرسال الاعتراض'),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    reasonCtrl.dispose();
+    if (submitted != true || !mounted) return;
+    Navigator.pop(context);
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text(isEn
-          ? 'Dispute flow coming soon'
-          : 'ميزة النزاع قريباً'),
+          ? 'Dispute submitted — admin will review the receipt.'
+          : 'تم إرسال الاعتراض — ستراجع الإدارة الفاتورة.'),
+      backgroundColor: Colors.orange,
     ));
   }
 
@@ -248,7 +374,7 @@ class _CustomerReceiptApprovalScreenState
               width: double.infinity,
               height: 44,
               child: OutlinedButton.icon(
-                onPressed: _approving ? null : _disputeStub,
+                onPressed: _approving ? null : _dispute,
                 icon: const Icon(Icons.report_gmailerrorred_outlined,
                     size: 18),
                 label: Text(

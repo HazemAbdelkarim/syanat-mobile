@@ -2019,8 +2019,17 @@ class FirebaseService {
   /// Transitions: awaiting_customer_approval → receipt_disputed.
   /// The job moves to a distinct status so it no longer surfaces as a pending
   /// receipt and cannot be approved until admin mediates.
+  ///
+  /// [reason] is the customer's free-text explanation of why they're
+  /// disputing — required by the customer UI, capped at 500 chars to mirror
+  /// the firestore.rules validator on this branch.
   static Future<void> rejectReceipt(
-      String jobId, String customerId) async {
+      String jobId, String customerId,
+      {required String reason}) async {
+    final String trimmedReason = reason.trim();
+    if (trimmedReason.length > 500) {
+      throw ArgumentError.value(reason, 'reason', 'max 500 chars');
+    }
     await firestore.runTransaction((tx) async {
       final ref = firestore.collection('jobs').doc(jobId);
       final snap = await tx.get(ref);
@@ -2036,6 +2045,8 @@ class FirebaseService {
         'status': 'receipt_disputed',
         'receiptRejected': true,
         'receiptRejectedAt': FieldValue.serverTimestamp(),
+        'disputeReason': trimmedReason,
+        'disputedAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
     });
