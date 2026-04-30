@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'service_details_screen.dart';
 import 'orders_screen.dart';
@@ -8,10 +8,10 @@ const Color syanatBlue = Color(0xFF3C21C8);
 const Color bgGrey = Color(0xFFF4F5F7); // Sahl-like light grey background
 
 const String homeMoreLabelEn = 'More';
-const String homeMoreLabelAr = 'Ø§Ù„Ù…Ø²ÙŠØ¯';
+const String homeMoreLabelAr = 'المزيد';
 const String homeMoreDescriptionEn =
     'Choose from the rest of our available services.';
-const String homeMoreDescriptionAr = 'Ø§Ø®ØªØ± Ù…Ù† Ø¨Ø§Ù‚ÙŠ Ø§Ù„Ø®Ø¯Ù…Ø§Øª Ø§Ù„Ù…ØªØ§Ø­Ø©.';
+const String homeMoreDescriptionAr = 'اختر من باقي الخدمات المتاحة.';
 const List<String> prioritizedHomeServiceKeys = [
   'electricity',
   'ac',
@@ -52,7 +52,7 @@ const List<HomeServiceCatalogEntry> homeServiceCatalog = [
   HomeServiceCatalogEntry(
     key: 'electricity',
     routeLabelEn: 'Electrical',
-    routeLabelAr: 'ÙƒÙ‡Ø±Ø¨Ø§Ø¡',
+    routeLabelAr: 'كهرباء',
     tileLabelEn: 'Electricity',
     icon: Icons.electric_bolt_outlined,
     assetName: 'Electricity.png',
@@ -60,63 +60,63 @@ const List<HomeServiceCatalogEntry> homeServiceCatalog = [
   HomeServiceCatalogEntry(
     key: 'ac',
     routeLabelEn: 'Air Conditioning',
-    routeLabelAr: 'ØªÙƒÙŠÙŠÙ',
+    routeLabelAr: 'تكييف',
     icon: Icons.ac_unit,
     assetName: 'air conditioning.png',
   ),
   HomeServiceCatalogEntry(
     key: 'plumbing',
     routeLabelEn: 'Plumbing',
-    routeLabelAr: 'Ø³Ø¨Ø§ÙƒØ©',
+    routeLabelAr: 'سباكة',
     icon: Icons.water_drop_outlined,
     assetName: 'Plumbing.png',
   ),
   HomeServiceCatalogEntry(
     key: 'security_intercom',
     routeLabelEn: 'Security & Intercom',
-    routeLabelAr: 'Ø£Ù†Ø¸Ù…Ø© Ø£Ù…Ù† ÙˆØ¥Ù†ØªØ±ÙƒÙ…',
+    routeLabelAr: 'أنظمة أمن وإنتركم',
     icon: Icons.videocam_outlined,
     assetName: 'Security and intercom.png',
   ),
   HomeServiceCatalogEntry(
     key: 'large_appliances',
     routeLabelEn: 'Large Appliances',
-    routeLabelAr: 'Ø£Ø¬Ù‡Ø²Ø© Ù…Ù†Ø²Ù„ÙŠØ© ÙƒØ¨ÙŠØ±Ø©',
+    routeLabelAr: 'أجهزة منزلية كبيرة',
     icon: Icons.kitchen_outlined,
     assetName: 'Large appliances.png',
   ),
   HomeServiceCatalogEntry(
     key: 'small_appliances',
     routeLabelEn: 'Small Appliances',
-    routeLabelAr: 'Ø£Ø¬Ù‡Ø²Ø© ØµØºÙŠØ±Ø©',
+    routeLabelAr: 'أجهزة صغيرة',
     icon: Icons.coffee_maker_outlined,
     assetName: 'Small appliances.png',
   ),
   HomeServiceCatalogEntry(
     key: 'carpentry',
     routeLabelEn: 'Carpentry',
-    routeLabelAr: 'Ù†Ø¬Ø§Ø±Ø©',
+    routeLabelAr: 'نجارة',
     icon: Icons.handyman_outlined,
     assetName: 'carpentry.png',
   ),
   HomeServiceCatalogEntry(
     key: 'pest_control',
     routeLabelEn: 'Pest Control',
-    routeLabelAr: 'Ù…ÙƒØ§ÙØ­Ø© Ø­Ø´Ø±Ø§Øª',
+    routeLabelAr: 'مكافحة حشرات',
     icon: Icons.bug_report_outlined,
     assetName: 'Pest Control.png',
   ),
   HomeServiceCatalogEntry(
     key: 'aluminum',
     routeLabelEn: 'Aluminum',
-    routeLabelAr: 'Ø£Ù„ÙˆÙ…ÙŠØªØ§Ù„',
+    routeLabelAr: 'ألوميتال',
     icon: Icons.window_outlined,
     assetName: 'Aluminum.png',
   ),
   HomeServiceCatalogEntry(
     key: 'finishing',
     routeLabelEn: 'Finishing',
-    routeLabelAr: 'ØªØ´Ø·ÙŠØ¨Ø§Øª',
+    routeLabelAr: 'تشطيبات',
     icon: Icons.format_paint_outlined,
     assetName: 'Finishing.png',
   ),
@@ -319,7 +319,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                           ),
                         ),
                         IconButton(
-                          tooltip: isEn ? 'Close' : 'إغلاق',
+                          tooltip: isEn ? 'Close' : '?????',
                           icon: const Icon(Icons.close, color: Colors.black54),
                           onPressed: () => Navigator.of(ctx).maybePop(),
                         ),
@@ -387,17 +387,17 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
               BottomNavigationBarItem(
                 icon: const Icon(Icons.home_outlined),
                 activeIcon: const Icon(Icons.home_rounded),
-                label: isEn ? 'Home' : 'Ø§Ù„Ø±Ø¦ÙŠØ³ÙŠØ©',
+                label: isEn ? 'Home' : 'الرئيسية',
               ),
               BottomNavigationBarItem(
                 icon: const Icon(Icons.receipt_long_outlined),
                 activeIcon: const Icon(Icons.receipt_long),
-                label: isEn ? 'My Orders' : 'Ø·Ù„Ø¨Ø§ØªÙŠ',
+                label: isEn ? 'My Orders' : 'طلباتي',
               ),
               BottomNavigationBarItem(
                 icon: const Icon(Icons.person_outline),
                 activeIcon: const Icon(Icons.person),
-                label: isEn ? 'Account' : 'Ø­Ø³Ø§Ø¨ÙŠ',
+                label: isEn ? 'Account' : 'حسابي',
               ),
             ],
           ),
@@ -471,7 +471,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
                   child: Text(
-                    isEn ? 'Services' : 'Ø§Ù„Ø®Ø¯Ù…Ø§Øª',
+                    isEn ? 'Services' : 'الخدمات',
                     style: const TextStyle(
                       color: Colors.black87,
                       fontSize: 18, // Slightly smaller, cleaner like Sahl
@@ -490,7 +490,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                       if (services.isEmpty) {
                         return Center(
                           child: Text(
-                            isEn ? 'No services found' : 'Ù„Ø§ ØªÙˆØ¬Ø¯ Ø®Ø¯Ù…Ø§Øª Ù…ØªØ§Ø­Ø©',
+                            isEn ? 'No services found' : 'لا توجد خدمات متاحة',
                             style: const TextStyle(color: Colors.black54),
                           ),
                         );

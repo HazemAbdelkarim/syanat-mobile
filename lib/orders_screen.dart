@@ -12,7 +12,7 @@ import 'services/notification_service.dart';
 
 const Color _syanatBlue = Color(0xFF3C21C8);
 
-// â”€â”€â”€ Premium Theme Colors â”€â”€â”€
+// ─── Premium Theme Colors ───
 const Color kPrimary = Color(0xFF6C3CE1);
 const Color kPrimaryDark = Color(0xFF5228B5);
 const Color kSurfaceBg = Color(0xFFF6F7F9);
@@ -74,7 +74,7 @@ class OrdersScreen extends StatefulWidget {
 class _OrdersScreenState extends State<OrdersScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  // Release-006: broader than the old pending-receipt stream — covers every
+  // Release-006: broader than the old pending-receipt stream � covers every
   // non-terminal customer job so the top-of-list action card can show the
   // right next-step for each lifecycle state.
   StreamSubscription<Map<String, dynamic>?>? _activeOrderSub;
@@ -83,8 +83,8 @@ class _OrdersScreenState extends State<OrdersScreen>
   User? _user;
 
   // Release-006 notifications: listens to the customer's full jobs stream
-  // (not just the active-order narrow stream — we need to catch the
-  // `awaiting_payment_verification → completed` transition, which moves the
+  // (not just the active-order narrow stream � we need to catch the
+  // `awaiting_payment_verification ? completed` transition, which moves the
   // job OUT of the active set). On each snapshot we diff status-per-jobId
   // against the local cache and fire a notification for each real change
   // that wasn't self-caused.
@@ -131,7 +131,7 @@ class _OrdersScreenState extends State<OrdersScreen>
   /// Diffs status-per-jobId against the local cache and fires a local
   /// notification for each real transition that wasn't self-caused. The
   /// first snapshot after auth populates the cache but suppresses
-  /// notifications — otherwise opening the app would fire one for every
+  /// notifications � otherwise opening the app would fire one for every
   /// historical state, which is useless noise.
   void _handleNotificationSnapshot(List<Map<String, dynamic>> jobs) {
     final isEn = mounted &&
@@ -146,7 +146,7 @@ class _OrdersScreenState extends State<OrdersScreen>
       if (_notifInitialSnapshotProcessed &&
           prevStatus != null &&
           prevStatus != newStatus) {
-        // Fire-and-forget — notification failures are non-critical and the
+        // Fire-and-forget � notification failures are non-critical and the
         // service swallows them internally.
         NotificationService.notifyJobTransition(
           jobId: jobId,
@@ -203,7 +203,7 @@ class _OrdersScreenState extends State<OrdersScreen>
                     child: Container(
                       alignment: AlignmentDirectional.centerStart,
                       child: Text(
-                        isEn ? 'My Orders' : 'Ø·Ù„Ø¨Ø§ØªÙŠ',
+                        isEn ? 'My Orders' : 'طلباتي',
                         style: const TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.w600,
@@ -242,7 +242,7 @@ class _OrdersScreenState extends State<OrdersScreen>
                           padding: const EdgeInsets.symmetric(
                               horizontal: 16, vertical: 8),
                           child: Text(
-                              (isEn ? 'Ongoing' : 'Ø¬Ø§Ø±ÙŠØ©').toUpperCase()),
+                              (isEn ? 'Ongoing' : 'جارية').toUpperCase()),
                         ),
                       ),
                       Tab(
@@ -250,14 +250,14 @@ class _OrdersScreenState extends State<OrdersScreen>
                           padding: const EdgeInsets.symmetric(
                               horizontal: 16, vertical: 8),
                           child: Text(
-                              (isEn ? 'Recent' : 'ØØ¯ÙŠØ«Ø©').toUpperCase()),
+                              (isEn ? 'Recent' : '�ديثة').toUpperCase()),
                         ),
                       ),
                       Tab(
                         child: Padding(
                           padding: const EdgeInsets.symmetric(
                               horizontal: 16, vertical: 8),
-                          child: Text((isEn ? 'Cancelled' : 'Ù…Ù„ØºÙŠØ©')
+                          child: Text((isEn ? 'Cancelled' : 'ملغية')
                               .toUpperCase()),
                         ),
                       ),
@@ -278,7 +278,7 @@ class _OrdersScreenState extends State<OrdersScreen>
   }
 
   // -----------------------------------------------------------------------
-  // Tab views â€” one StreamBuilder per tab filter
+  // Tab views — one StreamBuilder per tab filter
   // -----------------------------------------------------------------------
 
   Widget _buildTabViews(String uid, bool isEn) {
@@ -322,7 +322,7 @@ class _OrdersScreenState extends State<OrdersScreen>
               emptyIcon: Icons.pending_actions,
               emptyLabel: isEn
                   ? 'No ongoing orders'
-                  : 'Ù„Ø§ ØªÙˆØ¬Ø¯ Ø·Ù„Ø¨Ø§Øª Ø¬Ø§Ø±ÙŠØ©',
+                  : 'لا توجد طلبات جارية',
               isEn: isEn,
               topWidget: _buildActiveOrderCard(uid, isEn),
             ),
@@ -331,7 +331,7 @@ class _OrdersScreenState extends State<OrdersScreen>
               emptyIcon: Icons.check_circle_outline,
               emptyLabel: isEn
                   ? 'No recent orders'
-                  : 'Ù„Ø§ ØªÙˆØ¬Ø¯ Ø·Ù„Ø¨Ø§Øª Ø­Ø¯ÙŠØ«Ø©',
+                  : 'لا توجد طلبات حديثة',
               isEn: isEn,
             ),
             _buildJobList(
@@ -339,7 +339,7 @@ class _OrdersScreenState extends State<OrdersScreen>
               emptyIcon: Icons.cancel_outlined,
               emptyLabel: isEn
                   ? 'No cancelled orders'
-                  : 'Ù„Ø§ ØªÙˆØ¬Ø¯ Ø·Ù„Ø¨Ø§Øª Ù…Ù„ØºÙŠØ©',
+                  : 'لا توجد طلبات ملغية',
               isEn: isEn,
             ),
           ],
@@ -381,14 +381,14 @@ class _OrdersScreenState extends State<OrdersScreen>
     );
   }
 
-  /// Release-006 active-order card — renders the customer's currently-in-
+  /// Release-006 active-order card � renders the customer's currently-in-
   /// flight order at the top of the Ongoing tab, with a status-driven
   /// action area below it. Returns null when there's no active order so
   /// the list's `topWidget` slot stays empty.
   ///
   /// The routing decision (what button or read-only message to show for
   /// each status) lives in the top-level [customerOrderAction] function,
-  /// which is unit-testable — see `test/orders_action_test.dart`.
+  /// which is unit-testable � see `test/orders_action_test.dart`.
   Widget? _buildActiveOrderCard(String uid, bool isEn) {
     final order = _activeOrder;
     if (order == null) return null;
@@ -427,7 +427,7 @@ class _OrdersScreenState extends State<OrdersScreen>
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      isEn ? 'Current Order' : 'الطلب الحالي',
+                      isEn ? 'Current Order' : '????? ??????',
                       style: const TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.bold,
@@ -439,7 +439,7 @@ class _OrdersScreenState extends State<OrdersScreen>
                       techName.isNotEmpty
                           ? (isEn
                               ? 'Technician: $techName'
-                              : 'الفني: $techName')
+                              : '?????: $techName')
                           : statusLabel,
                       style: TextStyle(
                           fontSize: 12, color: Colors.grey.shade700),
@@ -500,19 +500,19 @@ class _OrdersScreenState extends State<OrdersScreen>
           final confirmed = await showDialog<bool>(
             context: context,
             builder: (ctx) => AlertDialog(
-              title: Text(isEn ? 'Delete Order?' : 'Ø­Ø°Ù Ø§Ù„Ø·Ù„Ø¨ØŸ'),
+              title: Text(isEn ? 'Delete Order?' : 'حذف الطلب؟'),
               content: Text(isEn
                   ? 'Are you sure you want to delete this order from your history?'
-                  : 'Ù‡Ù„ Ø£Ù†Øª Ù…ØªØ£ÙƒØ¯ Ù…Ù† Ø­Ø°Ù Ù‡Ø°Ø§ Ø§Ù„Ø·Ù„Ø¨ Ù…Ù† Ø§Ù„Ø³Ø¬Ù„ØŸ'),
+                  : 'هل أنت متأكد من حذف هذا الطلب من السجل؟'),
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(ctx, false),
-                  child: Text(isEn ? 'Cancel' : 'Ø¥Ù„ØºØ§Ø¡'),
+                  child: Text(isEn ? 'Cancel' : 'إلغاء'),
                 ),
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
                   onPressed: () => Navigator.pop(ctx, true),
-                  child: Text(isEn ? 'Delete' : 'Ø­Ø°Ù',
+                  child: Text(isEn ? 'Delete' : 'حذف',
                       style: const TextStyle(color: Colors.white)),
                 ),
               ],
@@ -528,7 +528,7 @@ class _OrdersScreenState extends State<OrdersScreen>
                 SnackBar(
                   content: Text(isEn
                       ? 'Failed to delete order. Please try again.'
-                      : 'ÙØ´Ù„ Ø­Ø°Ù Ø§Ù„Ø·Ù„Ø¨. ÙŠØ±Ø¬Ù‰ Ø§Ù„Ù…Ø­Ø§ÙˆÙ„Ø© Ù…Ø±Ø© Ø£Ø®Ø±Ù‰.'),
+                      : 'فشل حذف الطلب. يرجى المحاولة مرة أخرى.'),
                 ),
               );
             }
@@ -539,7 +539,7 @@ class _OrdersScreenState extends State<OrdersScreen>
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
                 content:
-                    Text(isEn ? 'Order deleted' : 'ØªÙ… Ø­Ø°Ù Ø§Ù„Ø·Ù„Ø¨')),
+                    Text(isEn ? 'Order deleted' : 'تم حذف الطلب')),
           );
         },
         background: Container(
@@ -566,7 +566,7 @@ class _OrdersScreenState extends State<OrdersScreen>
           ),
           child: Column(
             children: [
-              // â”€â”€ Top strip: service key + status badge â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+              // ── Top strip: service key + status badge ─────────────────────
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
                 child: Row(
@@ -676,7 +676,7 @@ class _OrdersScreenState extends State<OrdersScreen>
 
               const Divider(height: 1, thickness: 1, color: Color(0xFFF0F0F0)),
 
-              // â”€â”€ Body â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+              // ── Body ─────────────────────────────────────────────────────
               Padding(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -713,7 +713,7 @@ class _OrdersScreenState extends State<OrdersScreen>
                                   ? '${price.toStringAsFixed(0)} EGP'
                                   : (isEn
                                       ? 'Price TBD'
-                                      : 'Ø§Ù„Ø³Ø¹Ø± Ø³ÙŠÙØ­Ø¯ÙŽÙ‘Ø¯'),
+                                      : 'السعر سيُحدَّد'),
                               style: TextStyle(
                                 fontSize: 14,
                                 fontWeight: FontWeight.bold,
@@ -754,7 +754,7 @@ class _OrdersScreenState extends State<OrdersScreen>
                 ),
               ),
 
-              // â”€â”€ Bottom action buttons â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+              // ── Bottom action buttons ────────────────────────────────────
               // Customer can only cancel before technician accepts (requested/active).
               // After acceptance, only admin can cancel.
               if (isOngoing && (status == 'requested' || status == 'active'))
@@ -776,7 +776,7 @@ class _OrdersScreenState extends State<OrdersScreen>
                             _showCancelDialog(context, jobId, isEn),
                         icon: const Icon(Icons.close, size: 18),
                         label: Text(
-                          isEn ? 'Cancel Order' : 'Ø¥Ù„ØºØ§Ø¡ Ø§Ù„Ø·Ù„Ø¨',
+                          isEn ? 'Cancel Order' : 'إلغاء الطلب',
                           style: const TextStyle(
                               fontWeight: FontWeight.w600, fontSize: 13),
                         ),
@@ -804,16 +804,16 @@ class _OrdersScreenState extends State<OrdersScreen>
     showDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: Text(isEn ? 'Cancel Order?' : 'Ø¥Ù„ØºØ§Ø¡ Ø§Ù„Ø·Ù„Ø¨ØŸ'),
+        title: Text(isEn ? 'Cancel Order?' : 'إلغاء الطلب؟'),
         content: Text(
           isEn
               ? 'Are you sure you want to cancel this order? This action cannot be undone.'
-              : 'Ù‡Ù„ Ø£Ù†Øª Ù…ØªØ£ÙƒØ¯ Ù…Ù† Ø¥Ù„ØºØ§Ø¡ Ù‡Ø°Ø§ Ø§Ù„Ø·Ù„Ø¨ØŸ Ù„Ø§ ÙŠÙ…ÙƒÙ† Ø§Ù„ØªØ±Ø§Ø¬Ø¹ Ø¹Ù† Ù‡Ø°Ø§ Ø§Ù„Ø¥Ø¬Ø±Ø§Ø¡.',
+              : 'هل أنت متأكد من إلغاء هذا الطلب؟ لا يمكن التراجع عن هذا الإجراء.',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext),
-            child: Text(isEn ? 'Keep It' : 'Ø§Ù„Ø§Ø­ØªÙØ§Ø¸ Ø¨Ù‡'),
+            child: Text(isEn ? 'Keep It' : 'الاحتفاظ به'),
           ),
           ElevatedButton(
             onPressed: () async {
@@ -826,7 +826,7 @@ class _OrdersScreenState extends State<OrdersScreen>
                       content: Text(
                         isEn
                             ? 'Order cancelled successfully'
-                            : 'ØªÙ… Ø¥Ù„ØºØ§Ø¡ Ø§Ù„Ø·Ù„Ø¨ Ø¨Ù†Ø¬Ø§Ø­',
+                            : 'تم إلغاء الطلب بنجاح',
                       ),
                       backgroundColor: Colors.green,
                     ),
@@ -840,7 +840,7 @@ class _OrdersScreenState extends State<OrdersScreen>
                       content: Text(
                         isEn
                             ? 'Failed to cancel order. Please try again.'
-                            : 'ÙØ´Ù„ Ø¥Ù„ØºØ§Ø¡ Ø§Ù„Ø·Ù„Ø¨. ÙŠØ±Ø¬Ù‰ Ø§Ù„Ù…Ø­Ø§ÙˆÙ„Ø© Ù…Ø±Ø© Ø£Ø®Ø±Ù‰.',
+                            : 'فشل إلغاء الطلب. يرجى المحاولة مرة أخرى.',
                       ),
                       backgroundColor: Colors.red,
                     ),
@@ -852,7 +852,7 @@ class _OrdersScreenState extends State<OrdersScreen>
               backgroundColor: Colors.red.shade600,
               foregroundColor: Colors.white,
             ),
-            child: Text(isEn ? 'Cancel Order' : 'Ø¥Ù„ØºØ§Ø¡ Ø§Ù„Ø·Ù„Ø¨'),
+            child: Text(isEn ? 'Cancel Order' : 'إلغاء الطلب'),
           ),
         ],
       ),
@@ -865,19 +865,19 @@ class _OrdersScreenState extends State<OrdersScreen>
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(isEn ? 'Delete Order?' : 'Ø­Ø°Ù Ø§Ù„Ø·Ù„Ø¨ØŸ'),
+        title: Text(isEn ? 'Delete Order?' : 'حذف الطلب؟'),
         content: Text(isEn
             ? 'Are you sure you want to delete this order from your history?'
-            : 'Ù‡Ù„ Ø£Ù†Øª Ù…ØªØ£ÙƒØ¯ Ù…Ù† Ø­Ø°Ù Ù‡Ø°Ø§ Ø§Ù„Ø·Ù„Ø¨ Ù…Ù† Ø§Ù„Ø³Ø¬Ù„ØŸ'),
+            : 'هل أنت متأكد من حذف هذا الطلب من السجل؟'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: Text(isEn ? 'Cancel' : 'Ø¥Ù„ØºØ§Ø¡'),
+            child: Text(isEn ? 'Cancel' : 'إلغاء'),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () => Navigator.pop(ctx, true),
-            child: Text(isEn ? 'Delete' : 'Ø­Ø°Ù',
+            child: Text(isEn ? 'Delete' : 'حذف',
                 style: const TextStyle(color: Colors.white)),
           ),
         ],
@@ -889,7 +889,7 @@ class _OrdersScreenState extends State<OrdersScreen>
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-            content: Text(isEn ? 'Order deleted' : 'ØªÙ… Ø­Ø°Ù Ø§Ù„Ø·Ù„Ø¨')),
+            content: Text(isEn ? 'Order deleted' : 'تم حذف الطلب')),
       );
     } catch (e) {
       if (!mounted) return;
@@ -897,7 +897,7 @@ class _OrdersScreenState extends State<OrdersScreen>
         SnackBar(
           content: Text(isEn
               ? 'Failed to delete order. Please try again.'
-              : 'ÙØ´Ù„ Ø­Ø°Ù Ø§Ù„Ø·Ù„Ø¨. ÙŠØ±Ø¬Ù‰ Ø§Ù„Ù…Ø­Ø§ÙˆÙ„Ø© Ù…Ø±Ø© Ø£Ø®Ø±Ù‰.'),
+              : 'فشل حذف الطلب. يرجى المحاولة مرة أخرى.'),
           backgroundColor: Colors.red,
         ),
       );
@@ -912,7 +912,7 @@ class _OrdersScreenState extends State<OrdersScreen>
     switch (status) {
       case 'requested':
         return {
-          'label': isEn ? 'Requested' : 'Ù…Ø·Ù„ÙˆØ¨',
+          'label': isEn ? 'Requested' : 'مطلوب',
           'color': const Color(0xFFF59E0B),
           'icon': Icons.hourglass_top,
         };
@@ -921,92 +921,92 @@ class _OrdersScreenState extends State<OrdersScreen>
         return {
           'label': isEn
               ? 'Pending Acceptance'
-              : 'Ø¨Ø§Ù†ØªØ¸Ø§Ø± Ù‚Ø¨ÙˆÙ„ Ø§Ù„ÙÙ†ÙŠ',
+              : 'بانتظار قبول الفني',
           'color': const Color(0xFFF59E0B),
           'icon': Icons.hourglass_bottom,
         };
       case 'technician_accepted':
         return {
-          'label': isEn ? 'Assigned' : 'ØªÙ… Ø§Ù„ØªØ¹ÙŠÙŠÙ†',
+          'label': isEn ? 'Assigned' : 'تم التعيين',
           'color': const Color(0xFF3B82F6),
           'icon': Icons.person_pin_outlined,
         };
       case 'on_the_way':
         return {
-          'label': isEn ? 'On the Way' : 'في الطريق',
+          'label': isEn ? 'On the Way' : '?? ??????',
           'color': const Color(0xFF2563EB),
           'icon': Icons.directions_car,
         };
       case 'technician_arrived':
         return {
-          'label': isEn ? 'Tech Arrived' : 'Ø§Ù„ÙÙ†ÙŠ ÙˆØµÙ„',
+          'label': isEn ? 'Tech Arrived' : 'الفني وصل',
           'color': const Color(0xFF2563EB),
           'icon': Icons.directions_walk,
         };
       case 'work_finished':
         return {
-          'label': isEn ? 'Work Done' : 'Ø§ÙƒØªÙ…Ù„ Ø§Ù„Ø¹Ù…Ù„',
+          'label': isEn ? 'Work Done' : 'اكتمل العمل',
           'color': const Color(0xFF8B5CF6),
           'icon': Icons.construction,
         };
       case 'awaiting_customer_approval':
         return {
-          'label': isEn ? 'Awaiting Approval' : 'Ø¨Ø§Ù†ØªØ¸Ø§Ø± Ù…ÙˆØ§ÙÙ‚ØªÙƒ',
+          'label': isEn ? 'Awaiting Approval' : 'بانتظار موافقتك',
           'color': const Color(0xFFF59E0B),
           'icon': Icons.receipt_long_outlined,
         };
       case 'awaiting_payment':
         return {
-          'label': isEn ? 'Payment Due' : 'بانتظار الدفع',
+          'label': isEn ? 'Payment Due' : '??????? ?????',
           'color': const Color(0xFFF59E0B),
           'icon': Icons.payments_outlined,
         };
       case 'awaiting_payment_verification':
         return {
-          'label': isEn ? 'Verifying Payment' : 'تأكيد الدفع',
+          'label': isEn ? 'Verifying Payment' : '????? ?????',
           'color': const Color(0xFFF59E0B),
           'icon': Icons.verified_outlined,
         };
       case 'receipt_disputed':
         return {
-          'label': isEn ? 'Disputed' : 'Ù…ØªÙ†Ø§Ø²Ø¹ Ø¹Ù„ÙŠÙ‡',
+          'label': isEn ? 'Disputed' : 'متنازع عليه',
           'color': const Color(0xFFEF4444),
           'icon': Icons.gavel,
         };
       // Legacy statuses
       case 'accepted':
         return {
-          'label': isEn ? 'Accepted' : 'Ù…Ù‚Ø¨ÙˆÙ„',
+          'label': isEn ? 'Accepted' : 'مقبول',
           'color': const Color(0xFF3B82F6),
           'icon': Icons.thumb_up_alt_outlined,
         };
       case 'en_route':
         return {
-          'label': isEn ? 'En Route' : 'ÙÙŠ Ø§Ù„Ø·Ø±ÙŠÙ‚',
+          'label': isEn ? 'En Route' : 'في الطريق',
           'color': const Color(0xFF2563EB),
           'icon': Icons.directions_car,
         };
       case 'payment_pending':
         return {
-          'label': isEn ? 'Payment Pending' : 'Ø¨Ø§Ù†ØªØ¸Ø§Ø± Ø§Ù„Ø¯ÙØ¹',
+          'label': isEn ? 'Payment Pending' : 'بانتظار الدفع',
           'color': const Color(0xFFF59E0B),
           'icon': Icons.payments_outlined,
         };
       case 'in_progress':
         return {
-          'label': isEn ? 'In Progress' : 'Ù‚ÙŠØ¯ Ø§Ù„ØªÙ†ÙÙŠØ°',
+          'label': isEn ? 'In Progress' : 'قيد التنفيذ',
           'color': const Color(0xFF8B5CF6),
           'icon': Icons.construction,
         };
       case 'completed':
         return {
-          'label': isEn ? 'Completed' : 'Ù…ÙƒØªÙ…Ù„',
+          'label': isEn ? 'Completed' : 'مكتمل',
           'color': const Color(0xFF10B981),
           'icon': Icons.check_circle,
         };
       case 'cancelled':
         return {
-          'label': isEn ? 'Cancelled' : 'Ù…Ù„ØºÙŠ',
+          'label': isEn ? 'Cancelled' : 'ملغي',
           'color': const Color(0xFFEF4444),
           'icon': Icons.cancel,
         };
@@ -1033,16 +1033,16 @@ class _OrdersScreenState extends State<OrdersScreen>
   };
 
   static const _serviceLabelsAr = {
-    'ac': 'ØªÙƒÙŠÙŠÙ',
-    'plumbing': 'Ø³Ø¨Ø§ÙƒØ©',
-    'electricity': 'ÙƒÙ‡Ø±Ø¨Ø§Ø¡',
-    'security_intercom': 'Ø£Ù†Ø¸Ù…Ø© Ø£Ù…Ù† ÙˆØ¥Ù†ØªØ±ÙƒÙ…',
-    'large_appliances': 'Ø£Ø¬Ù‡Ø²Ø© Ù…Ù†Ø²Ù„ÙŠØ© ÙƒØ¨ÙŠØ±Ø©',
-    'small_appliances': 'Ø£Ø¬Ù‡Ø²Ø© Ù…Ù†Ø²Ù„ÙŠØ© ØµØºÙŠØ±Ø©',
-    'carpentry': 'Ù†Ø¬Ø§Ø±Ø©',
-    'pest_control': 'Ù…ÙƒØ§ÙØ­Ø© Ø­Ø´Ø±Ø§Øª',
-    'aluminum': 'Ø£Ù„ÙˆÙ…ÙŠØªØ§Ù„',
-    'finishing': 'ØªØ´Ø·ÙŠØ¨Ø§Øª',
+    'ac': 'تكييف',
+    'plumbing': 'سباكة',
+    'electricity': 'كهرباء',
+    'security_intercom': 'أنظمة أمن وإنتركم',
+    'large_appliances': 'أجهزة منزلية كبيرة',
+    'small_appliances': 'أجهزة منزلية صغيرة',
+    'carpentry': 'نجارة',
+    'pest_control': 'مكافحة حشرات',
+    'aluminum': 'ألوميتال',
+    'finishing': 'تشطيبات',
   };
 
   /// Returns the localized service label for a given key.
@@ -1105,7 +1105,7 @@ class _OrdersScreenState extends State<OrdersScreen>
               Text(
                 isEn
                     ? "When you place an order, it will appear here."
-                    : "Ø¹Ù†Ø¯Ù…Ø§ ØªÙ‚ÙˆÙ… Ø¨ØªÙ‚Ø¯ÙŠÙ… Ø·Ù„Ø¨ØŒ Ø³ÙŠØ¸Ù‡Ø± Ù‡Ù†Ø§.",
+                    : "عندما تقوم بتقديم طلب، سيظهر هنا.",
                 style: TextStyle(
                   color: Colors.grey.shade600,
                   fontSize: 15,
@@ -1130,7 +1130,7 @@ class _OrdersScreenState extends State<OrdersScreen>
           Text(
             isEn
                 ? 'Please log in to view your orders'
-                : 'ÙŠØ±Ø¬Ù‰ ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø¯Ø®ÙˆÙ„ Ù„Ù…Ø´Ø§Ù‡Ø¯Ø© Ø·Ù„Ø¨Ø§ØªÙƒ',
+                : 'يرجى تسجيل الدخول لمشاهدة طلباتك',
             textAlign: TextAlign.center,
             style: TextStyle(color: Colors.grey.shade500, fontSize: 16),
           ),
@@ -1151,7 +1151,7 @@ class _OrdersScreenState extends State<OrdersScreen>
             Text(
               isEn
                   ? 'Failed to load orders'
-                  : 'ÙØ´Ù„ ØªØ­Ù…ÙŠÙ„ Ø§Ù„Ø·Ù„Ø¨Ø§Øª',
+                  : 'فشل تحميل الطلبات',
               style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
@@ -1184,11 +1184,11 @@ class _OrderTimeline extends StatelessWidget {
       'awaiting_customer_approval': 'Approval',
     };
     final Map<String, String> stepsLabelAr = {
-      'requested': 'Ù…Ø·Ù„ÙˆØ¨',
-      'technician_accepted': 'ØªÙ… Ø§Ù„ØªØ¹ÙŠÙŠÙ†',
-      'technician_arrived': 'ÙˆØµÙ„',
-      'work_finished': 'Ø§ÙƒØªÙ…Ù„',
-      'awaiting_customer_approval': 'Ù…ÙˆØ§ÙÙ‚Ø©',
+      'requested': 'مطلوب',
+      'technician_accepted': 'تم التعيين',
+      'technician_arrived': 'وصل',
+      'work_finished': 'اكتمل',
+      'awaiting_customer_approval': 'موافقة',
     };
 
     final List<String> stepKeys = [
@@ -1299,8 +1299,8 @@ class _OrderTimeline extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// customerOrderAction — status → action widget
+// -----------------------------------------------------------------------------
+// customerOrderAction � status ? action widget
 //
 // Public so it's unit-testable without exposing the entire _OrdersScreenState.
 // Returns the action widget to render under the active-order card for a given
@@ -1308,19 +1308,19 @@ class _OrderTimeline extends StatelessWidget {
 // a read-only message; for action states it returns a primary button that
 // navigates to the right customer screen.
 //
-// Release-006 status → action map:
+// Release-006 status ? action map:
 //   requested / active / technician_accepted / on_the_way /
-//     technician_arrived / work_finished → read-only status message
-//   awaiting_customer_approval           → "Review receipt" button
-//   awaiting_payment                     → "Pay technician" button
-//   awaiting_payment_verification        → read-only "Tech is confirming"
-//   receipt_disputed                     → read-only "Admin is reviewing"
-//   completed                            → read-only "Paid X EGP" (edge case —
+//     technician_arrived / work_finished ? read-only status message
+//   awaiting_customer_approval           ? "Review receipt" button
+//   awaiting_payment                     ? "Pay technician" button
+//   awaiting_payment_verification        ? read-only "Tech is confirming"
+//   receipt_disputed                     ? read-only "Admin is reviewing"
+//   completed                            ? read-only "Paid X EGP" (edge case �
 //                                          normally filtered from the active
 //                                          stream, but guarded anyway)
-//   anything else                        → customer-facing label from
+//   anything else                        ? customer-facing label from
 //                                          jobStatusCustomerLabel
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 Widget customerOrderAction(
   BuildContext context,
@@ -1343,7 +1343,7 @@ Widget customerOrderAction(
 
     case 'awaiting_customer_approval':
       return _primaryActionButton(
-        label: isEn ? 'Review receipt' : 'راجع الفاتورة',
+        label: isEn ? 'Review receipt' : '???? ????????',
         icon: Icons.receipt_long,
         onTap: () => Navigator.push(
           context,
@@ -1359,7 +1359,7 @@ Widget customerOrderAction(
 
     case 'awaiting_payment':
       return _primaryActionButton(
-        label: isEn ? 'Pay technician' : 'ادفع للفني',
+        label: isEn ? 'Pay technician' : '???? ?????',
         icon: Icons.payments_outlined,
         onTap: () => Navigator.push(
           context,
@@ -1376,18 +1376,18 @@ Widget customerOrderAction(
     case 'awaiting_payment_verification':
       return _readOnlyActionMessage(isEn
           ? 'Technician is confirming your payment.'
-          : 'الفني يؤكد عملية الدفع.');
+          : '????? ???? ????? ?????.');
 
     case 'receipt_disputed':
       return _readOnlyActionMessage(isEn
-          ? 'Receipt disputed — admin is reviewing.'
-          : 'الفاتورة محل نزاع — الإدارة تراجع.');
+          ? 'Receipt disputed � admin is reviewing.'
+          : '???????? ??? ???? � ??????? ?????.');
 
     case 'completed':
       final amountPaid = (job['amountPaid'] as num?)?.toDouble() ?? 0.0;
       return _readOnlyActionMessage(isEn
-          ? 'Completed — ${amountPaid.toStringAsFixed(0)} EGP paid.'
-          : 'اكتملت — ${amountPaid.toStringAsFixed(0)} جنيه مدفوعة.');
+          ? 'Completed � ${amountPaid.toStringAsFixed(0)} EGP paid.'
+          : '?????? � ${amountPaid.toStringAsFixed(0)} ???? ??????.');
 
     default:
       return _readOnlyActionMessage(
