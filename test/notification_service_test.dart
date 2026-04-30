@@ -31,6 +31,15 @@ void main() {
               'awaiting_payment_verification', 'completed'),
           TransitionActor.tech);
     });
+    test('technician_accepted → cancelled is tech (Batch B post-accept cancel)',
+        () {
+      // Only the assigned technician can drive this transition per
+      // firestore.rules; the inference must resolve unambiguously so the
+      // self-caused notification on the cancelling tech\'s device is
+      // suppressed.
+      expect(inferTransitionActor('technician_accepted', 'cancelled'),
+          TransitionActor.tech);
+    });
   });
 
   group('inferTransitionActor — customer-driven', () {

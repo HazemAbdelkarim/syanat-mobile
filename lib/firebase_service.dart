@@ -1756,6 +1756,8 @@ class FirebaseService {
     // Counters move via the `onJobStatusChanged` Cloud Function trigger
     // (Spec 003). Activity log entry is fire-and-forget audit. Skip on the
     // idempotent path — a double-tap shouldn't write a second log entry.
+    // The transaction's early-return only exits the tx callback; this second
+    // guard prevents writing a duplicate activity_log row on the idempotent path.
     if (prevStatus == 'cancelled') return;
     try {
       final desc = penaltyAmount > 0
