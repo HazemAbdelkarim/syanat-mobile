@@ -319,7 +319,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                           ),
                         ),
                         IconButton(
-                          tooltip: isEn ? 'Close' : '?????',
+                          tooltip: isEn ? 'Close' : 'إغلاق',
                           icon: const Icon(Icons.close, color: Colors.black54),
                           onPressed: () => Navigator.of(ctx).maybePop(),
                         ),

@@ -2035,8 +2035,11 @@ class FirebaseService {
       final snap = await tx.get(ref);
       if (!snap.exists) throw Exception('Job not found');
       final data = snap.data()!;
-      if (data['status'] != 'awaiting_customer_approval') {
-        throw Exception('Order is not awaiting approval');
+      final currentStatus = (data['status'] as String?) ?? '';
+      if (currentStatus == 'receipt_disputed') return;
+      if (currentStatus != 'awaiting_customer_approval') {
+        throw StateError(
+            'Unexpected job status: got $currentStatus, expected awaiting_customer_approval');
       }
       if (data['customerId'] != customerId) {
         throw Exception('You are not authorized to reject this order');

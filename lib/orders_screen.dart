@@ -74,7 +74,7 @@ class OrdersScreen extends StatefulWidget {
 class _OrdersScreenState extends State<OrdersScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  // Release-006: broader than the old pending-receipt stream � covers every
+  // Release-006: broader than the old pending-receipt stream — covers every
   // non-terminal customer job so the top-of-list action card can show the
   // right next-step for each lifecycle state.
   StreamSubscription<Map<String, dynamic>?>? _activeOrderSub;
@@ -83,8 +83,8 @@ class _OrdersScreenState extends State<OrdersScreen>
   User? _user;
 
   // Release-006 notifications: listens to the customer's full jobs stream
-  // (not just the active-order narrow stream � we need to catch the
-  // `awaiting_payment_verification ? completed` transition, which moves the
+  // (not just the active-order narrow stream — we need to catch the
+  // `awaiting_payment_verification → completed` transition, which moves the
   // job OUT of the active set). On each snapshot we diff status-per-jobId
   // against the local cache and fire a notification for each real change
   // that wasn't self-caused.
@@ -131,7 +131,7 @@ class _OrdersScreenState extends State<OrdersScreen>
   /// Diffs status-per-jobId against the local cache and fires a local
   /// notification for each real transition that wasn't self-caused. The
   /// first snapshot after auth populates the cache but suppresses
-  /// notifications � otherwise opening the app would fire one for every
+  /// notifications — otherwise opening the app would fire one for every
   /// historical state, which is useless noise.
   void _handleNotificationSnapshot(List<Map<String, dynamic>> jobs) {
     final isEn = mounted &&
@@ -146,7 +146,7 @@ class _OrdersScreenState extends State<OrdersScreen>
       if (_notifInitialSnapshotProcessed &&
           prevStatus != null &&
           prevStatus != newStatus) {
-        // Fire-and-forget � notification failures are non-critical and the
+        // Fire-and-forget — notification failures are non-critical and the
         // service swallows them internally.
         NotificationService.notifyJobTransition(
           jobId: jobId,
@@ -250,7 +250,7 @@ class _OrdersScreenState extends State<OrdersScreen>
                           padding: const EdgeInsets.symmetric(
                               horizontal: 16, vertical: 8),
                           child: Text(
-                              (isEn ? 'Recent' : '�ديثة').toUpperCase()),
+                              (isEn ? 'Recent' : 'حديثة').toUpperCase()),
                         ),
                       ),
                       Tab(
@@ -381,14 +381,14 @@ class _OrdersScreenState extends State<OrdersScreen>
     );
   }
 
-  /// Release-006 active-order card � renders the customer's currently-in-
+  /// Release-006 active-order card — renders the customer's currently-in-
   /// flight order at the top of the Ongoing tab, with a status-driven
   /// action area below it. Returns null when there's no active order so
   /// the list's `topWidget` slot stays empty.
   ///
   /// The routing decision (what button or read-only message to show for
   /// each status) lives in the top-level [customerOrderAction] function,
-  /// which is unit-testable � see `test/orders_action_test.dart`.
+  /// which is unit-testable — see `test/orders_action_test.dart`.
   Widget? _buildActiveOrderCard(String uid, bool isEn) {
     final order = _activeOrder;
     if (order == null) return null;
@@ -427,7 +427,7 @@ class _OrdersScreenState extends State<OrdersScreen>
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      isEn ? 'Current Order' : '????? ??????',
+                      isEn ? 'Current Order' : 'الطلب الحالي',
                       style: const TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.bold,
@@ -439,7 +439,7 @@ class _OrdersScreenState extends State<OrdersScreen>
                       techName.isNotEmpty
                           ? (isEn
                               ? 'Technician: $techName'
-                              : '?????: $techName')
+                              : 'الفني: $techName')
                           : statusLabel,
                       style: TextStyle(
                           fontSize: 12, color: Colors.grey.shade700),
@@ -933,7 +933,7 @@ class _OrdersScreenState extends State<OrdersScreen>
         };
       case 'on_the_way':
         return {
-          'label': isEn ? 'On the Way' : '?? ??????',
+          'label': isEn ? 'On the Way' : 'في الطريق',
           'color': const Color(0xFF2563EB),
           'icon': Icons.directions_car,
         };
@@ -957,13 +957,13 @@ class _OrdersScreenState extends State<OrdersScreen>
         };
       case 'awaiting_payment':
         return {
-          'label': isEn ? 'Payment Due' : '??????? ?????',
+          'label': isEn ? 'Payment Due' : 'بانتظار الدفع',
           'color': const Color(0xFFF59E0B),
           'icon': Icons.payments_outlined,
         };
       case 'awaiting_payment_verification':
         return {
-          'label': isEn ? 'Verifying Payment' : '????? ?????',
+          'label': isEn ? 'Verifying Payment' : 'تأكيد الدفع',
           'color': const Color(0xFFF59E0B),
           'icon': Icons.verified_outlined,
         };
@@ -1299,8 +1299,8 @@ class _OrderTimeline extends StatelessWidget {
   }
 }
 
-// -----------------------------------------------------------------------------
-// customerOrderAction � status ? action widget
+// ─────────────────────────────────────────────────────────────────────────────
+// customerOrderAction — status → action widget
 //
 // Public so it's unit-testable without exposing the entire _OrdersScreenState.
 // Returns the action widget to render under the active-order card for a given
@@ -1308,19 +1308,19 @@ class _OrderTimeline extends StatelessWidget {
 // a read-only message; for action states it returns a primary button that
 // navigates to the right customer screen.
 //
-// Release-006 status ? action map:
+// Release-006 status → action map:
 //   requested / active / technician_accepted / on_the_way /
-//     technician_arrived / work_finished ? read-only status message
-//   awaiting_customer_approval           ? "Review receipt" button
-//   awaiting_payment                     ? "Pay technician" button
-//   awaiting_payment_verification        ? read-only "Tech is confirming"
-//   receipt_disputed                     ? read-only "Admin is reviewing"
-//   completed                            ? read-only "Paid X EGP" (edge case �
+//     technician_arrived / work_finished → read-only status message
+//   awaiting_customer_approval           → "Review receipt" button
+//   awaiting_payment                     → "Pay technician" button
+//   awaiting_payment_verification        → read-only "Tech is confirming"
+//   receipt_disputed                     → read-only "Admin is reviewing"
+//   completed                            → read-only "Paid X EGP" (edge case —
 //                                          normally filtered from the active
 //                                          stream, but guarded anyway)
-//   anything else                        ? customer-facing label from
+//   anything else                        → customer-facing label from
 //                                          jobStatusCustomerLabel
-// -----------------------------------------------------------------------------
+// ─────────────────────────────────────────────────────────────────────────────
 
 Widget customerOrderAction(
   BuildContext context,
@@ -1343,7 +1343,7 @@ Widget customerOrderAction(
 
     case 'awaiting_customer_approval':
       return _primaryActionButton(
-        label: isEn ? 'Review receipt' : '???? ????????',
+        label: isEn ? 'Review receipt' : 'راجع الفاتورة',
         icon: Icons.receipt_long,
         onTap: () => Navigator.push(
           context,
@@ -1359,7 +1359,7 @@ Widget customerOrderAction(
 
     case 'awaiting_payment':
       return _primaryActionButton(
-        label: isEn ? 'Pay technician' : '???? ?????',
+        label: isEn ? 'Pay technician' : 'ادفع للفني',
         icon: Icons.payments_outlined,
         onTap: () => Navigator.push(
           context,
@@ -1376,18 +1376,18 @@ Widget customerOrderAction(
     case 'awaiting_payment_verification':
       return _readOnlyActionMessage(isEn
           ? 'Technician is confirming your payment.'
-          : '????? ???? ????? ?????.');
+          : 'الفني يؤكد عملية الدفع.');
 
     case 'receipt_disputed':
       return _readOnlyActionMessage(isEn
-          ? 'Receipt disputed � admin is reviewing.'
-          : '???????? ??? ???? � ??????? ?????.');
+          ? 'Receipt disputed — admin is reviewing.'
+          : 'الفاتورة محل نزاع — الإدارة تراجع.');
 
     case 'completed':
       final amountPaid = (job['amountPaid'] as num?)?.toDouble() ?? 0.0;
       return _readOnlyActionMessage(isEn
-          ? 'Completed � ${amountPaid.toStringAsFixed(0)} EGP paid.'
-          : '?????? � ${amountPaid.toStringAsFixed(0)} ???? ??????.');
+          ? 'Completed — ${amountPaid.toStringAsFixed(0)} EGP paid.'
+          : 'اكتملت — ${amountPaid.toStringAsFixed(0)} جنيه مدفوعة.');
 
     default:
       return _readOnlyActionMessage(
