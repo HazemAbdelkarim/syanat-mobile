@@ -5,6 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../auth_gate.dart';
 import '../firebase_service.dart';
 import '../admin_support_chat_screen.dart';
+import '../job_status.dart' show displayServiceLabel, isInspectJob;
 
 const Color syanatBlue = Color(0xFF3C21C8);
 
@@ -779,9 +780,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     Color statusColor = Colors.orange,
     required VoidCallback onTap,
   }) {
-    final serviceKey = job['serviceKey'] as String? ?? '';
-    final serviceCategory = job['serviceCategory'] as String? ??
-        job['serviceKey'] as String? ?? '';
+    // Inspect-aware: maps serviceCategory='inspect' to "Inspect"/"فحص"
+    // and falls back to serviceKey when serviceCategory is empty, so the
+    // requested-tab tile never echoes the raw 'inspect' key.
+    final serviceCategory = displayServiceLabel(job, isEn);
     final customerName =
         job['customerName'] as String? ?? job['customerId'] as String? ?? '—';
     final description = job['description'] as String? ?? '';
@@ -822,7 +824,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               children: [
                 Expanded(
                   child: Text(
-                    serviceCategory.isNotEmpty ? serviceCategory : serviceKey,
+                    serviceCategory,
                     style: const TextStyle(
                         fontWeight: FontWeight.bold, fontSize: 16),
                     overflow: TextOverflow.ellipsis,
@@ -919,8 +921,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   }
 
   Widget _completedJobTile(Map<String, dynamic> job, bool isEn) {
-    final serviceCategory = job['serviceCategory'] as String? ??
-        job['serviceKey'] as String? ?? '—';
+    final serviceCategory = displayServiceLabel(job, isEn);
     final customerName =
         job['customerName'] as String? ?? job['customerId'] as String? ?? '—';
     final techName = job['assignedTechnicianName'] as String? ?? '—';
@@ -1679,8 +1680,9 @@ class _RequestedJobSheetState extends State<_RequestedJobSheet> {
   Widget build(BuildContext context) {
     final job = widget.job;
     final isEn = widget.isEn;
-    final serviceCategory = job['serviceCategory'] as String? ??
-        job['serviceKey'] as String? ?? '—';
+    final serviceCategory = displayServiceLabel(job, isEn);
+    final inspect = isInspectJob(job);
+    final num? quotedPrice = job['price'] as num?;
     final customerName =
         job['customerName'] as String? ?? job['customerId'] as String? ?? '—';
     final description = job['description'] as String? ?? '';
@@ -1743,8 +1745,22 @@ class _RequestedJobSheetState extends State<_RequestedJobSheet> {
                       ? '$locationLabel — $locationAddress'
                       : locationAddress),
             if (description.isNotEmpty)
-              _infoRow(Icons.description,
-                  isEn ? 'Description' : 'الوصف', description),
+              _infoRow(
+                  Icons.description,
+                  inspect
+                      ? (isEn ? 'Customer Description' : 'وصف العميل')
+                      : (isEn ? 'Description' : 'الوصف'),
+                  description),
+            // For inspect orders show the placeholder price + a clear note
+            // that the receipt grandTotal is the real bill. The note keeps
+            // assigning admins from quoting 200 EGP to customers.
+            if (inspect && quotedPrice != null)
+              _infoRow(
+                  Icons.payments,
+                  isEn ? 'Price' : 'السعر',
+                  isEn
+                      ? '${quotedPrice.toStringAsFixed(0)} EGP (placeholder; final amount in receipt)'
+                      : '${quotedPrice.toStringAsFixed(0)} جنيه (مبدئي؛ المبلغ النهائي في الفاتورة)'),
             _infoRow(
                 Icons.flash_on,
                 isEn ? 'Urgency' : 'الأولوية',

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'firebase_service.dart';
+import 'job_status.dart' show isInspectJob;
 
 const Color _syanatBlue = Color(0xFF3C21C8);
 
@@ -47,10 +48,13 @@ class _TechnicianReceiptScreenState extends State<TechnicianReceiptScreen> {
   void initState() {
     super.initState();
     // Seed the first service row from the job's requested category/key so the
-    // tech doesn't have to retype it.
+    // tech doesn't have to retype it. Inspect jobs are deliberately left
+    // blank — their `serviceCategory: 'inspect'` key isn't a billable line,
+    // and the customer's free-text description (shown on the active-job
+    // screen) is what the tech itemizes from.
     final seed = _LineItem();
     final job = widget.job;
-    if (job != null) {
+    if (job != null && !isInspectJob(job)) {
       final category = (job['serviceCategory'] as String?)?.trim() ?? '';
       final key = (job['serviceKey'] as String?)?.trim() ?? '';
       final subservice = (job['subservice'] as String?)?.trim() ?? '';

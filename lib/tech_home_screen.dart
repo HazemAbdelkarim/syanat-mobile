@@ -6,7 +6,8 @@ import '../firebase_service.dart';
 import 'main.dart' show AppLocale;
 import 'chat_screen.dart';
 import 'glass_card.dart';
-import 'job_status.dart' show JobStatus, isSameDay, jobStatusTechLabel;
+import 'job_status.dart'
+    show JobStatus, displayServiceLabel, isSameDay, jobStatusTechLabel;
 import 'services/notification_service.dart';
 import 'technician_active_job_screen.dart';
 import 'technician_approve_payment_screen.dart';
@@ -1125,9 +1126,11 @@ class _TechNotificationsSheet extends StatelessWidget {
                       final n = notifs[i];
                       final notifId = n['id'] as String? ?? '';
                       final isRead = n['read'] as bool? ?? false;
-                      final serviceCategory =
-                          n['serviceCategory'] as String? ??
-                              n['serviceKey'] as String? ?? '—';
+                      // Inspect-aware: an inspect notification carries
+                      // serviceCategory='inspect'; the helper resolves that
+                      // to the localized "Inspect"/"فحص" label so the tech
+                      // never sees the raw key in the notifications panel.
+                      final serviceCategory = displayServiceLabel(n, isEn);
                       final customerName =
                           n['customerName'] as String? ?? '—';
                       final urgency = n['urgencyType'] as String? ?? '';

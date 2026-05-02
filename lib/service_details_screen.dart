@@ -11,6 +11,7 @@ import 'services_integration.dart';
 import 'models/service.dart';
 import 'main.dart' show AppLocale;
 import 'widgets/egyptian_phone_field.dart';
+import 'job_status.dart' show inspectServiceKey;
 
 const Color syanatBlue = Color(0xFF3C21C8);
 
@@ -109,7 +110,7 @@ class _ServiceDetailsScreenState extends State<ServiceDetailsScreen> {
     return ar.isNotEmpty ? ar : subcategoryEnKey;
   }
 
-  Future<void> _showQuickOrderSheet() async {
+  Future<void> _showInspectSheet() async {
     if (_sheetOpen) return;
 
     final user = FirebaseService.getCurrentUser();
@@ -137,17 +138,21 @@ class _ServiceDetailsScreenState extends State<ServiceDetailsScreen> {
         useSafeArea: true,
         shape: const RoundedRectangleBorder(
             borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+        // Inspect orders are category-agnostic — both serviceKey and
+        // serviceCategory are pinned to the canonical `inspect` marker so
+        // every reader (admin web, tech app, stats) can classify the order
+        // without inspecting the description payload.
         builder: (ctx) => _OrderRequestSheet(
           uid: user.uid,
           customerName: profile?['username'] as String? ??
               profile?['email'] as String? ?? '',
-          serviceKey: widget.serviceKey,
-          serviceCategory: isEn ? widget.labelEn : widget.labelAr,
+          serviceKey: inspectServiceKey,
+          serviceCategory: inspectServiceKey,
           subservice: '',
           savedLocations: locations,
           initialPhone: profile?['phone'] as String? ?? '',
           isEn: isEn,
-          isQuickOrder: true,
+          isInspect: true,
         ),
       );
       if (result != null && mounted) {
@@ -173,7 +178,7 @@ class _ServiceDetailsScreenState extends State<ServiceDetailsScreen> {
 
 
     } catch (e) {
-      debugPrint('Quick order error: $e');
+      debugPrint('Inspect order error: $e');
       if (mounted) {
         final isEn = Localizations.localeOf(context).languageCode == 'en';
         ScaffoldMessenger.of(context).showSnackBar(
@@ -319,14 +324,17 @@ class _ServiceDetailsScreenState extends State<ServiceDetailsScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Quick order button
+                    // Inspect button — category-agnostic order with a free-text
+                    // problem description and a scheduled time. The 200 EGP
+                    // is a placeholder; the actual amount due is the receipt's
+                    // grandTotal once the technician submits it on-site.
                     GlassCard(
                       padding: const EdgeInsets.all(20),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            isEn ? 'Quick Order' : 'طلب سريع',
+                            isEn ? 'Inspect' : 'فحص',
                             style: const TextStyle(
                               fontSize: 22,
                               fontWeight: FontWeight.bold,
@@ -336,8 +344,8 @@ class _ServiceDetailsScreenState extends State<ServiceDetailsScreen> {
                           const SizedBox(height: 12),
                           Text(
                             isEn
-                                ? 'Send a technician right now to check your problem on-site!'
-                                : 'هيتبعتلك فني حالا يشوف المشكلة في بيتك!',
+                                ? "Don't see your service? Describe the problem and pick a time — a technician will come inspect it."
+                                : 'مش لاقي خدمتك؟ اوصف المشكلة واختار وقت — هيجي فني يكشف عليها.',
                             style: const TextStyle(fontSize: 16, color: Colors.black54),
                           ),
                           const SizedBox(height: 20),
@@ -345,7 +353,7 @@ class _ServiceDetailsScreenState extends State<ServiceDetailsScreen> {
                             width: double.infinity,
                             height: 56,
                             child: ElevatedButton.icon(
-                              onPressed: _sheetOpen ? null : _showQuickOrderSheet,
+                              onPressed: _sheetOpen ? null : _showInspectSheet,
                               icon: _sheetOpen
                                   ? const SizedBox(
                                       width: 16,
@@ -355,9 +363,9 @@ class _ServiceDetailsScreenState extends State<ServiceDetailsScreen> {
                                         color: syanatBlue,
                                       ),
                                     )
-                                  : const Icon(Icons.flash_on, color: Colors.white),
+                                  : const Icon(Icons.search, color: Colors.white),
                               label: Text(
-                                isEn ? 'Quick Order - 200 EGP' : 'طلب سريع - ٢٠٠ جنيه',
+                                isEn ? 'Inspect — 200 EGP' : 'فحص — ٢٠٠ جنيه',
                                 style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                               ),
                               style: ElevatedButton.styleFrom(
@@ -585,7 +593,7 @@ class _OrderRequestSheet extends StatefulWidget {
   final List<Map<String, dynamic>> savedLocations;
   final String initialPhone;
   final bool isEn;
-  final bool isQuickOrder;
+  final bool isInspect;
 
   const _OrderRequestSheet({
     required this.uid,
@@ -596,7 +604,7 @@ class _OrderRequestSheet extends StatefulWidget {
     required this.savedLocations,
     required this.initialPhone,
     required this.isEn,
-    this.isQuickOrder = false,
+    this.isInspect = false,
   });
 
   @override
@@ -615,7 +623,10 @@ class _OrderRequestSheetState extends State<_OrderRequestSheet> {
 
   List<Map<String, dynamic>> _locations = [];
   Map<String, dynamic>? _selectedLocation;
-  String _urgencyType = 'urgent'; // 'urgent' | 'scheduled'
+  // Inspect orders are always 'scheduled' (description + scheduledTime). For
+  // normal orders the toggle defaults to 'urgent' and lets the customer
+  // switch to 'scheduled'.
+  String _urgencyType = 'urgent';
   DateTime? _scheduledTime;
   bool _submitting = false;
   bool _submitted = false; // duplicate-submit guard
@@ -630,10 +641,10 @@ class _OrderRequestSheetState extends State<_OrderRequestSheet> {
     _locations = List.from(widget.savedLocations);
     _phoneController.text = normalizeEgyptianLocal(widget.initialPhone);
     if (_locations.isNotEmpty) _selectedLocation = _locations.first;
-    if (widget.isQuickOrder) {
-      _descController.text = widget.isEn
-          ? 'Quick inspection request'
-          : 'طلب كشف سريع';
+    if (widget.isInspect) {
+      // Inspect orders ship as scheduled — pin the urgency immediately so the
+      // submit branch validates against scheduledTime instead of urgentNow.
+      _urgencyType = 'scheduled';
     }
   }
 
@@ -949,9 +960,15 @@ class _OrderRequestSheetState extends State<_OrderRequestSheet> {
     final String? locationError = _selectedLocation == null
         ? _t('Please select a location', 'اختر موقعاً أولاً')
         : null;
+    // Inspect orders pin `_urgencyType = 'scheduled'` in initState, so this
+    // single check covers both the normal scheduled flow and the inspect
+    // flow. Messaging is inspect-aware to match the surrounding copy.
     final String? scheduleError =
         (_urgencyType == 'scheduled' && _scheduledTime == null)
-            ? _t('Please pick a scheduled time', 'اختر الوقت المناسب')
+            ? (widget.isInspect
+                ? _t('Please pick a date and time for the inspection',
+                    'الرجاء اختيار تاريخ ووقت للفحص')
+                : _t('Please pick a scheduled time', 'اختر الوقت المناسب'))
             : null;
 
     final bool formValid = _formKey.currentState?.validate() ?? false;
@@ -1000,9 +1017,13 @@ class _OrderRequestSheetState extends State<_OrderRequestSheet> {
         phoneNumber: phoneE164,
         locationLabel: locationLabel,
         locationAddress: locationAddress,
-        urgencyType: widget.isQuickOrder ? 'urgent' : _urgencyType,
-        scheduledTime: widget.isQuickOrder ? null : _scheduledTime,
-        price: widget.isQuickOrder ? 200.0 : 0.0,
+        // Inspect orders always ship scheduled (urgencyType: 'scheduled')
+        // with a non-null scheduledTime and the 200 EGP placeholder. The
+        // technician's receipt grandTotal becomes the actual amount due
+        // — same flow as normal orders.
+        urgencyType: widget.isInspect ? 'scheduled' : _urgencyType,
+        scheduledTime: _scheduledTime,
+        price: widget.isInspect ? 200.0 : 0.0,
       ).timeout(const Duration(seconds: 15));
 
       // Fire-and-forget: notify available technicians (never blocks submit).
@@ -1012,16 +1033,16 @@ class _OrderRequestSheetState extends State<_OrderRequestSheet> {
         serviceCategory: widget.serviceCategory,
         customerName: widget.customerName,
         locationAddress: locationAddress,
-        urgencyType: _urgencyType,
+        urgencyType: widget.isInspect ? 'scheduled' : _urgencyType,
       ).catchError((_) {});
 
       if (!mounted) return;
       Navigator.pop(
         context,
-        widget.isQuickOrder
+        widget.isInspect
             ? _t(
-                'Quick order confirmed! A technician will be dispatched shortly.',
-                'تم تأكيد الطلب السريع! سيتم إرسال فني قريباً.',
+                'Inspection requested! We will assign a technician shortly.',
+                'تم طلب الفحص! سنقوم بتعيين فني قريباً.',
               )
             : _t(
                 'Request submitted! We will assign a technician shortly.',
@@ -1092,17 +1113,22 @@ class _OrderRequestSheetState extends State<_OrderRequestSheet> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        widget.isQuickOrder
-                            ? _t('Quick Order — 200 EGP', 'طلب سريع — ٢٠٠ جنيه')
+                        widget.isInspect
+                            ? _t('Request Inspection', 'طلب فحص')
                             : _t('Request Service', 'طلب خدمة'),
                         style: const TextStyle(
                             fontSize: 20, fontWeight: FontWeight.bold),
                       ),
                       Text(
-                        widget.serviceCategory +
-                            (widget.subservice.isNotEmpty
-                                ? ' · ${widget.subservice}'
-                                : ''),
+                        widget.isInspect
+                            ? _t(
+                                'Describe the problem · 200 EGP placeholder',
+                                'اوصف المشكلة · ٢٠٠ جنيه مبدئي',
+                              )
+                            : widget.serviceCategory +
+                                (widget.subservice.isNotEmpty
+                                    ? ' · ${widget.subservice}'
+                                    : ''),
                         style: TextStyle(
                             fontSize: 14, color: Colors.grey.shade600),
                       ),
@@ -1256,24 +1282,39 @@ class _OrderRequestSheetState extends State<_OrderRequestSheet> {
             const SizedBox(height: 16),
 
             // ── Description ────────────────────────────────────────────────
-            _sectionLabel(Icons.description,
-                _t('Describe Your Request', 'اوصف طلبك')),
+            _sectionLabel(
+                Icons.description,
+                widget.isInspect
+                    ? _t('Describe the Problem', 'اوصف المشكلة')
+                    : _t('Describe Your Request', 'اوصف طلبك')),
             const SizedBox(height: 8),
             TextFormField(
               controller: _descController,
-              maxLines: 3,
-              maxLength: 300,
+              // Inspect orders are description-driven, so we surface a
+              // taller field (4 lines) and a 500-char cap matching the
+              // server-side validator in `createOrderRequest`. Normal orders
+              // keep the original 3-line / 300-char shape.
+              minLines: widget.isInspect ? 4 : 3,
+              maxLines: widget.isInspect ? 6 : 3,
+              maxLength: widget.isInspect ? 500 : 300,
               validator: (String? v) {
                 if ((v ?? '').trim().isEmpty) {
-                  return _t(
-                      'Please describe your request', 'يرجى وصف طلبك');
+                  return widget.isInspect
+                      ? _t('Please describe the problem',
+                          'يرجى وصف المشكلة')
+                      : _t('Please describe your request', 'يرجى وصف طلبك');
                 }
                 return null;
               },
               decoration: InputDecoration(
-                hintText: _t(
-                    'What needs to be fixed / installed / serviced?',
-                    'ما الذي يحتاج إصلاح / تركيب / صيانة؟'),
+                hintText: widget.isInspect
+                    ? _t(
+                        'Describe the problem you need inspected',
+                        'صف المشكلة التي تحتاج فحصها',
+                      )
+                    : _t(
+                        'What needs to be fixed / installed / serviced?',
+                        'ما الذي يحتاج إصلاح / تركيب / صيانة؟'),
                 filled: true,
                 fillColor: Colors.grey.shade50,
                 border: OutlineInputBorder(
@@ -1295,8 +1336,24 @@ class _OrderRequestSheetState extends State<_OrderRequestSheet> {
             ),
             const SizedBox(height: 16),
 
-            // ── Timing (hidden for quick order — always urgent) ───────────
-            if (!widget.isQuickOrder) ...[
+            // ── Timing (always scheduled for inspect; urgent/scheduled
+            //   toggle for normal orders) ─────────────────────────────────
+            if (widget.isInspect) ...[
+              _sectionLabel(Icons.schedule,
+                  _t('Inspection Time', 'موعد الفحص')),
+              const SizedBox(height: 8),
+              _scheduledTimePickerCard(),
+              if (_scheduleError != null)
+                Padding(
+                  padding: const EdgeInsets.only(left: 4, top: 4),
+                  child: Text(
+                    _scheduleError!,
+                    style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                        fontSize: 12),
+                  ),
+                ),
+            ] else ...[
               _sectionLabel(Icons.schedule, _t('Timing', 'الوقت')),
               const SizedBox(height: 8),
               Row(
@@ -1392,48 +1449,7 @@ class _OrderRequestSheetState extends State<_OrderRequestSheet> {
               ),
               if (_urgencyType == 'scheduled') ...[
                 const SizedBox(height: 10),
-                GestureDetector(
-                  onTap: () async {
-                    await _pickScheduledTime();
-                    if (mounted && _scheduledTime != null) {
-                      setState(() => _scheduleError = null);
-                    }
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: syanatBlue.withOpacity(0.07),
-                      borderRadius: BorderRadius.circular(12),
-                      border:
-                          Border.all(color: syanatBlue.withOpacity(0.4)),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.access_time, color: syanatBlue),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            _scheduledTime == null
-                                ? _t('Tap to pick date & time',
-                                    'اضغط لاختيار الموعد')
-                                : '${_scheduledTime!.day}/${_scheduledTime!.month}/${_scheduledTime!.year}  '
-                                    '${_scheduledTime!.hour.toString().padLeft(2, '0')}:${_scheduledTime!.minute.toString().padLeft(2, '0')}',
-                            style: TextStyle(
-                              color: _scheduledTime == null
-                                  ? Colors.grey
-                                  : syanatBlue,
-                              fontWeight: _scheduledTime != null
-                                  ? FontWeight.w600
-                                  : FontWeight.normal,
-                            ),
-                          ),
-                        ),
-                        const Icon(Icons.edit, color: syanatBlue, size: 16),
-                      ],
-                    ),
-                  ),
-                ),
+                _scheduledTimePickerCard(),
                 if (_scheduleError != null)
                   Padding(
                     padding: const EdgeInsets.only(left: 4, top: 4),
@@ -1468,8 +1484,8 @@ class _OrderRequestSheetState extends State<_OrderRequestSheet> {
                         child: CircularProgressIndicator(
                             strokeWidth: 2.5, color: Colors.white))
                     : Text(
-                        widget.isQuickOrder
-                            ? _t('Confirm Quick Order', 'تأكيد الطلب السريع')
+                        widget.isInspect
+                            ? _t('Confirm Inspection', 'تأكيد الفحص')
                             : _t('Submit Request', 'إرسال الطلب'),
                         style: const TextStyle(
                             fontSize: 17, fontWeight: FontWeight.bold),
@@ -1478,6 +1494,52 @@ class _OrderRequestSheetState extends State<_OrderRequestSheet> {
             ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  /// Tap-target card that opens the date+time picker. Shared between the
+  /// inspect-only timing block (always visible) and the normal-order
+  /// scheduled branch (visible only when `_urgencyType == 'scheduled'`).
+  /// Reads/writes the same `_scheduledTime` state for both flows so the
+  /// existing submit validator covers them uniformly.
+  Widget _scheduledTimePickerCard() {
+    return GestureDetector(
+      onTap: () async {
+        await _pickScheduledTime();
+        if (mounted && _scheduledTime != null) {
+          setState(() => _scheduleError = null);
+        }
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: syanatBlue.withOpacity(0.07),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: syanatBlue.withOpacity(0.4)),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.access_time, color: syanatBlue),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                _scheduledTime == null
+                    ? _t('Tap to pick date & time', 'اضغط لاختيار الموعد')
+                    : '${_scheduledTime!.day}/${_scheduledTime!.month}/${_scheduledTime!.year}  '
+                        '${_scheduledTime!.hour.toString().padLeft(2, '0')}:${_scheduledTime!.minute.toString().padLeft(2, '0')}',
+                style: TextStyle(
+                  color:
+                      _scheduledTime == null ? Colors.grey : syanatBlue,
+                  fontWeight: _scheduledTime != null
+                      ? FontWeight.w600
+                      : FontWeight.normal,
+                ),
+              ),
+            ),
+            const Icon(Icons.edit, color: syanatBlue, size: 16),
+          ],
         ),
       ),
     );

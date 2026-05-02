@@ -1266,10 +1266,18 @@ class FirebaseService {
     // `jobsRequested` now increments via the `onJobCreated` Cloud Function
     // trigger (Spec 003). Only the audit entry is written client-side.
     try {
+      // Inspect orders carry serviceCategory='inspect' (canonical key).
+      // Translate to a human-friendly EN label here so the admin-facing
+      // activity log doesn't echo the raw key. Other categories pass
+      // through their stored label.
+      final String categoryForLog =
+          serviceCategory.toLowerCase() == 'inspect' ||
+                  serviceKey.toLowerCase() == 'inspect'
+              ? 'Inspect'
+              : (serviceCategory.isNotEmpty ? serviceCategory : serviceKey);
       await firestore.collection('activity_log').add({
         'type': 'job_requested',
-        'description':
-            '${serviceCategory.isNotEmpty ? serviceCategory : serviceKey} — $customerName',
+        'description': '$categoryForLog — $customerName',
         'jobId': jobRef.id,
         'createdAt': FieldValue.serverTimestamp(),
       });

@@ -338,10 +338,12 @@ class _TechnicianActiveJobScreenState
   Widget build(BuildContext context) {
     final isEn = Localizations.localeOf(context).languageCode == 'en';
     final status = _status;
-    final serviceCategory =
-        (_currentJob['serviceCategory'] as String?)?.trim();
-    final serviceKey =
-        (_currentJob['serviceKey'] as String?)?.trim() ?? '';
+    // Inspect-aware: maps serviceCategory='inspect' to the localized
+    // "Inspect"/"فحص" label rather than echoing the raw key in the AppBar.
+    final String headerLabel = displayServiceLabel(_currentJob, isEn);
+    final bool inspect = isInspectJob(_currentJob);
+    final String description =
+        (_currentJob['description'] as String?)?.trim() ?? '';
     final address =
         (_currentJob['locationAddress'] as String?)?.trim() ?? '';
 
@@ -352,15 +354,15 @@ class _TechnicianActiveJobScreenState
         appBar: AppBar(
           backgroundColor: _syanatBlue,
           foregroundColor: Colors.white,
-            title: Text(
-              serviceCategory?.isNotEmpty == true
-                  ? serviceCategory!
-                  : serviceKey,
-            ),
+            title: Text(headerLabel),
           ),
           body: ListView(
             padding: const EdgeInsets.all(20),
             children: [
+              if (inspect && description.isNotEmpty) ...[
+                _inspectDescriptionCard(description, isEn),
+                const SizedBox(height: 20),
+              ],
               _addressCard(address, isEn),
               const SizedBox(height: 20),
 
@@ -599,6 +601,61 @@ class _TechnicianActiveJobScreenState
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         ),
+      ),
+    );
+  }
+
+  /// Customer's free-text problem description for an inspect job. Rendered
+  /// at the top of the active-job screen because — unlike a normal order
+  /// where the service category is the meat of the brief — for inspects the
+  /// description IS the brief.
+  Widget _inspectDescriptionCard(String description, bool isEn) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFFBEA),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFF5D679)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: const Color(0x33F5B400),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Icon(Icons.description,
+                color: Color(0xFFB58407), size: 22),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _t(isEn, 'Customer Description', 'وصف العميل'),
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: Colors.black54,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  description,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black87,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

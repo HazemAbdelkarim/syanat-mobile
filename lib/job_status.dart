@@ -224,6 +224,36 @@ num jobDisplayPrice(Map<String, dynamic> job) {
   return 0;
 }
 
+/// Canonical service-key/category value used for the Inspect order type.
+/// Inspect orders are category-agnostic: instead of a real service category,
+/// the customer describes the problem in free text. Both `serviceKey` and
+/// `serviceCategory` are written as this literal so any reader can detect
+/// the order type without inspecting the description payload.
+const String inspectServiceKey = 'inspect';
+
+/// True when the job is an Inspect order. Tolerates either field carrying
+/// the marker so legacy migration paths or partial writes still classify.
+bool isInspectJob(Map<String, dynamic> job) {
+  final cat = (job['serviceCategory'] as String?)?.trim().toLowerCase();
+  if (cat == inspectServiceKey) return true;
+  final key = (job['serviceKey'] as String?)?.trim().toLowerCase();
+  return key == inspectServiceKey;
+}
+
+/// Returns the localized display label for a job's service category, with
+/// the Inspect order type rendered as "Inspect" / "فحص" instead of the raw
+/// `inspect` key. For non-inspect jobs, returns `serviceCategory` (preferred,
+/// already locale-friendly when stored as a label) or `serviceKey` as a
+/// fallback.
+String displayServiceLabel(Map<String, dynamic> job, bool isEn) {
+  if (isInspectJob(job)) return isEn ? 'Inspect' : 'فحص';
+  final cat = (job['serviceCategory'] as String?)?.trim();
+  if (cat != null && cat.isNotEmpty) return cat;
+  final key = (job['serviceKey'] as String?)?.trim();
+  if (key != null && key.isNotEmpty) return key;
+  return isEn ? 'Job' : 'مهمة';
+}
+
 /// Returns `true` when [actor] may transition a job from [from] to [to].
 /// Mirrors `firestore.rules:177-321` (jobs update branches).
 ///

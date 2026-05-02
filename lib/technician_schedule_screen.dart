@@ -1329,11 +1329,9 @@ class _PlacedBlock {
 }
 
 String _blockTitle(Map<String, dynamic> job, bool isEn) {
-  final cat = (job['serviceCategory'] as String?)?.trim();
-  if (cat != null && cat.isNotEmpty) return cat;
-  final key = (job['serviceKey'] as String?)?.trim();
-  if (key != null && key.isNotEmpty) return key;
-  return isEn ? 'Job' : 'مهمة';
+  // Inspect-aware: maps serviceCategory='inspect' to the localized
+  // "Inspect"/"فحص" label so schedule blocks never echo the raw key.
+  return displayServiceLabel(job, isEn);
 }
 
 String _blockSubtitle(Map<String, dynamic> job, bool isEn) {
