@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_projects/services/notification_service.dart';
+import 'package:syanat/services/notification_service.dart';
 
 void main() {
   group('inferTransitionActor — tech-driven', () {

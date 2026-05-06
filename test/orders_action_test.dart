@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_projects/orders_screen.dart' show customerOrderAction;
+import 'package:syanat/orders_screen.dart' show customerOrderAction;
 
 /// Smoke tests for `customerOrderAction` — the status → action-widget helper
 /// used under the active-order card on `orders_screen.dart`. We're only

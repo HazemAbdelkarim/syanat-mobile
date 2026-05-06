@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_projects/job_status.dart';
+import 'package:syanat/job_status.dart';
 
 void main() {
   group('calculateCancellationPenalty', () {

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_projects/technician_receipt_screen.dart';
+import 'package:syanat/technician_receipt_screen.dart';
 
 void main() {
   group('ReceiptAddPartSheet (release 006 — inventory removed)', () {

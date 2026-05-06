@@ -1,11 +1,11 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.example.flutter_projects">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Required location permissions -->
+    <!-- Network -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+
+    <!-- Foreground location (used while app is open) -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
-    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
 
     <application
         android:name="io.flutter.embedding.android.FlutterApplication"
@@ -25,11 +25,6 @@
             <meta-data
                 android:name="io.flutter.embedding.android.NormalTheme"
                 android:resource="@style/NormalTheme" />
-
-            <!-- Your Google Maps API key -->
-            <meta-data
-                android:name="com.google.android.geo.API_KEY"
-                android:value="AIzaSyCIMV8yPrDTviiXpqDeTdP-P6cnCn6em30" />
 
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
