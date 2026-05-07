@@ -300,19 +300,23 @@ class FirebaseService {
   ///      [AccountHasActiveJobsException] if any are found.
   ///   2. Anonymize completed/cancelled/disputed jobs (replace [customerName]
   ///      with `[Deleted user]`, clear [phoneNumber], stamp [customerDeleted]).
-  ///   3. Hard-delete the saved-locations subcollection.
-  ///   4. Hard-delete the `users/{uid}` document.
-  ///   5. Delete the Firebase Auth user. If Auth requires a recent sign-in,
+  ///   3. Delete fan-out notifications carrying this customer's PII to
+  ///      technicians (`notifications` where `customerId == uid`).
+  ///   4. Hard-delete the saved-locations subcollection.
+  ///   5. Hard-delete the `users/{uid}` document.
+  ///   6. Delete the Firebase Auth user. If Auth requires a recent sign-in,
   ///      throws [RequiresRecentLoginException]; the UI signs the user out so
   ///      they can re-authenticate and retry.
   ///
-  /// Steps 1–4 are idempotent — a retry after a step-5 failure re-runs cleanly
-  /// (anonymized jobs stay anonymized, locations are already gone, deleting a
-  /// missing user doc is a Firestore no-op).
+  /// Steps 1–5 are idempotent — a retry after a step-6 failure re-runs cleanly
+  /// (anonymized jobs stay anonymized, notifications already deleted are a
+  /// no-op, locations are already gone, deleting a missing user doc is a
+  /// Firestore no-op).
   ///
-  /// Steps 2 and 4 require Firestore Security Rules updates (see Spec W3
-  /// final report). Without them the customer write fails with
-  /// permission-denied at step 2 or step 4.
+  /// Steps 2, 3, and 5 require Firestore Security Rules updates. Without
+  /// them the customer write fails with permission-denied. The rule
+  /// branches landed in the same Spec W3 commit; the deploy still has to
+  /// happen separately via `firebase deploy --only firestore:rules`.
   static Future<void> deleteAccount() async {
     final user = auth.currentUser;
     if (user == null) {
@@ -357,7 +361,30 @@ class FirebaseService {
     }
     if (jobsBatched > 0) await jobsBatch.commit();
 
-    // (3) Delete saved-locations subcollection (owner has delete rights).
+    // (3) Delete fan-out notifications. The `notifications` collection
+    // mirrors customerName / locationAddress to every available
+    // technician at order time. Scrubbing them removes residual PII.
+    // Notifications written before `customerId` was added to the schema
+    // will not match this query and remain admin-only-deletable — that is
+    // the intended legacy behavior.
+    final notifsSnap = await firestore
+        .collection('notifications')
+        .where('customerId', isEqualTo: uid)
+        .get();
+    WriteBatch notifBatch = firestore.batch();
+    int notifBatched = 0;
+    for (final doc in notifsSnap.docs) {
+      notifBatch.delete(doc.reference);
+      notifBatched++;
+      if (notifBatched >= 450) {
+        await notifBatch.commit();
+        notifBatch = firestore.batch();
+        notifBatched = 0;
+      }
+    }
+    if (notifBatched > 0) await notifBatch.commit();
+
+    // (4) Delete saved-locations subcollection (owner has delete rights).
     final locsSnap = await firestore
         .collection('users')
         .doc(uid)
@@ -376,12 +403,12 @@ class FirebaseService {
     }
     if (locsBatched > 0) await locsBatch.commit();
 
-    // (4) Delete the user profile document. If the doc is already absent
-    // (idempotent retry after a step-5 failure), Firestore treats this as a
-    // no-op success.
+    // (5) Delete the user profile document. If the doc is already absent
+    // (idempotent retry after a step-6 failure), Firestore treats this as
+    // a no-op success.
     await firestore.collection('users').doc(uid).delete();
 
-    // (5) Delete the Firebase Auth user — must come last because subsequent
+    // (6) Delete the Firebase Auth user — must come last because subsequent
     // Firestore writes would no longer carry this user's auth context.
     try {
       await user.delete();
@@ -391,6 +418,12 @@ class FirebaseService {
       }
       rethrow;
     }
+
+    // TODO(BLAZE): Apple Sign-In token revocation requires a Cloud Function
+    // to call https://appleid.apple.com/auth/revoke with a server-generated
+    // client-secret JWT. Apple App Store guideline 5.1.1(v) requires this
+    // for users who registered via Apple Sign-In. Skipped on Spark plan;
+    // will need to be added when Cloud Functions become available.
   }
 
   // ── Saved Locations ──────────────────────────────────────────────────────
@@ -1558,6 +1591,14 @@ class FirebaseService {
   /// Writes notification records to the `notifications` collection for all
   /// available technicians in the given service category.
   /// Fire-and-forget: errors are swallowed so order creation is not blocked.
+  ///
+  /// [customerId] (Spec W3) is the customer's uid; stored on each
+  /// notification so the account-deletion path can scrub PII fanned out
+  /// to technicians. Optional with default `''` for source-compat with
+  /// existing call sites; pass it from any new caller. Empty values are
+  /// written through unchanged — the rule's customer-scoped delete branch
+  /// gates on `customerId == auth.uid`, so empty-string notifications stay
+  /// admin-only-deletable.
   static Future<void> notifyAvailableTechnicians({
     required String jobId,
     required String serviceKey,
@@ -1565,6 +1606,7 @@ class FirebaseService {
     required String customerName,
     required String locationAddress,
     required String urgencyType,
+    String customerId = '',
   }) async {
     try {
       // Idempotency: skip if notifications were already sent for this job.
@@ -1592,6 +1634,7 @@ class FirebaseService {
           'jobId': jobId,
           'serviceKey': serviceKey,
           'serviceCategory': serviceCategory,
+          'customerId': customerId,
           'customerName': customerName,
           'locationAddress': locationAddress,
           'urgencyType': urgencyType,

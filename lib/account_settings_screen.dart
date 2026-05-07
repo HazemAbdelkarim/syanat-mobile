@@ -367,6 +367,10 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
                 'Your order history will be anonymized',
                 'سيتم إخفاء هوية سجل طلباتك',
               )),
+              _bullet(t(
+                'Your authentication account is signed out and removed',
+                'سيتم تسجيل خروجك وحذف حساب المصادقة الخاص بك',
+              )),
               const SizedBox(height: 12),
               Text(
                 t('This cannot be undone.', 'لا يمكن التراجع عن هذا الإجراء.'),
@@ -469,6 +473,11 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
                     onPressed: !canDelete
                         ? null
                         : () async {
+                            // Hard guard against a double-tap race: even
+                            // though `canDelete` is false while inFlight,
+                            // a tap dispatched in the same frame could
+                            // slip through before setLocalState rebuilds.
+                            if (inFlight) return;
                             setLocalState(() => inFlight = true);
                             await _executeDeletion(ctx, isEn);
                           },
@@ -538,21 +547,22 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
         ),
       );
     } on RequiresRecentLoginException {
-      if (!mounted) return;
-      dialogNav.pop();
-      // Sign the user out so they can re-authenticate, then surface a hint.
+      // Don't try to show a snackbar here — auth.signOut() unmounts the
+      // parent scaffold mid-frame and the captured `messenger` would be
+      // showing a snack on a tree that's about to disappear. Use the
+      // existing pendingAuthSnack pattern: AuthGate observes that a
+      // pending snack is set when currentUser becomes null and routes
+      // straight to LoginScreen, which renders the snack on first build
+      // and clears the slot.
+      FirebaseService.pendingAuthSnackEn =
+          'Please sign in again to delete your account.';
+      FirebaseService.pendingAuthSnackAr =
+          'يرجى تسجيل الدخول مرة أخرى لحذف حسابك.';
+      if (mounted && dialogNav.canPop()) {
+        dialogNav.pop();
+      }
       await FirebaseService.auth.signOut();
-      if (!mounted) return;
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text(t(
-            'Please sign in again to delete your account.',
-            'يرجى تسجيل الدخول مرة أخرى لحذف حسابك.',
-          )),
-          backgroundColor: Colors.orange.shade800,
-          duration: const Duration(seconds: 5),
-        ),
-      );
+      // No further action — AuthGate handles the route swap.
     } catch (e) {
       debugPrint('Delete account error: $e');
       if (!mounted) return;
