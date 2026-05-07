@@ -1027,10 +1027,16 @@ class _OrderRequestSheetState extends State<_OrderRequestSheet> {
       ).timeout(const Duration(seconds: 15));
 
       // Fire-and-forget: notify available technicians (never blocks submit).
+      // `customerId` (Spec W3) closes the privacy gap H-1 — it links each
+      // fanned-out notification to the customer who placed the order so
+      // deleteAccount() can scrub them. Without it, customerName +
+      // locationAddress would persist on technician notifications after
+      // the customer deletes their account.
       FirebaseService.notifyAvailableTechnicians(
         jobId: jobId,
         serviceKey: widget.serviceKey,
         serviceCategory: widget.serviceCategory,
+        customerId: widget.uid,
         customerName: widget.customerName,
         locationAddress: locationAddress,
         urgencyType: widget.isInspect ? 'scheduled' : _urgencyType,
