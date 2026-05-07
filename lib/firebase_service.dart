@@ -65,6 +65,24 @@ class ImageDecodeException implements Exception {
   String toString() => 'ImageDecodeException';
 }
 
+/// Thrown by `deleteAccount` when the caller has one or more jobs in a
+/// non-terminal status. Account deletion is blocked until those jobs are
+/// completed or cancelled. [activeCount] is how many active jobs were found.
+class AccountHasActiveJobsException implements Exception {
+  final int activeCount;
+  AccountHasActiveJobsException(this.activeCount);
+  @override
+  String toString() => 'AccountHasActiveJobsException(active=$activeCount)';
+}
+
+/// Thrown by `deleteAccount` when Firebase Auth refuses the final
+/// `user.delete()` because the user's last sign-in is too old. The UI should
+/// sign the user out, prompt them to sign in again, and let them retry.
+class RequiresRecentLoginException implements Exception {
+  @override
+  String toString() => 'RequiresRecentLoginException';
+}
+
 class FirebaseService {
   static FirebaseAuth auth = FirebaseAuth.instance;
   static FirebaseFirestore firestore = FirebaseFirestore.instance;
@@ -274,6 +292,105 @@ class FirebaseService {
   /// Updates specific fields on the user profile document.
   static Future<void> updateProfile(String uid, Map<String, dynamic> fields) async {
     await firestore.collection('users').doc(uid).update(fields);
+  }
+
+  /// Permanently deletes the signed-in customer's account, removing or
+  /// anonymizing all client-reachable data:
+  ///   1. Verify no active (non-terminal) jobs — throws
+  ///      [AccountHasActiveJobsException] if any are found.
+  ///   2. Anonymize completed/cancelled/disputed jobs (replace [customerName]
+  ///      with `[Deleted user]`, clear [phoneNumber], stamp [customerDeleted]).
+  ///   3. Hard-delete the saved-locations subcollection.
+  ///   4. Hard-delete the `users/{uid}` document.
+  ///   5. Delete the Firebase Auth user. If Auth requires a recent sign-in,
+  ///      throws [RequiresRecentLoginException]; the UI signs the user out so
+  ///      they can re-authenticate and retry.
+  ///
+  /// Steps 1–4 are idempotent — a retry after a step-5 failure re-runs cleanly
+  /// (anonymized jobs stay anonymized, locations are already gone, deleting a
+  /// missing user doc is a Firestore no-op).
+  ///
+  /// Steps 2 and 4 require Firestore Security Rules updates (see Spec W3
+  /// final report). Without them the customer write fails with
+  /// permission-denied at step 2 or step 4.
+  static Future<void> deleteAccount() async {
+    final user = auth.currentUser;
+    if (user == null) {
+      throw StateError('No authenticated user to delete');
+    }
+    final uid = user.uid;
+
+    // Terminal job statuses safe to leave behind (anonymized).
+    const terminal = ['completed', 'cancelled', 'receipt_disputed'];
+
+    // (1) Block deletion when any non-terminal job exists for this customer.
+    final activeJobsSnap = await firestore
+        .collection('jobs')
+        .where('customerId', isEqualTo: uid)
+        .where('status', whereNotIn: terminal)
+        .get();
+    if (activeJobsSnap.docs.isNotEmpty) {
+      throw AccountHasActiveJobsException(activeJobsSnap.docs.length);
+    }
+
+    // (2) Anonymize the user's terminal jobs in batches of <=450 writes.
+    final allJobsSnap = await firestore
+        .collection('jobs')
+        .where('customerId', isEqualTo: uid)
+        .get();
+    WriteBatch jobsBatch = firestore.batch();
+    int jobsBatched = 0;
+    for (final doc in allJobsSnap.docs) {
+      jobsBatch.update(doc.reference, {
+        'customerName': '[Deleted user]',
+        'phoneNumber': '',
+        'customerDeleted': true,
+        'customerDeletedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      jobsBatched++;
+      if (jobsBatched >= 450) {
+        await jobsBatch.commit();
+        jobsBatch = firestore.batch();
+        jobsBatched = 0;
+      }
+    }
+    if (jobsBatched > 0) await jobsBatch.commit();
+
+    // (3) Delete saved-locations subcollection (owner has delete rights).
+    final locsSnap = await firestore
+        .collection('users')
+        .doc(uid)
+        .collection('locations')
+        .get();
+    WriteBatch locsBatch = firestore.batch();
+    int locsBatched = 0;
+    for (final doc in locsSnap.docs) {
+      locsBatch.delete(doc.reference);
+      locsBatched++;
+      if (locsBatched >= 450) {
+        await locsBatch.commit();
+        locsBatch = firestore.batch();
+        locsBatched = 0;
+      }
+    }
+    if (locsBatched > 0) await locsBatch.commit();
+
+    // (4) Delete the user profile document. If the doc is already absent
+    // (idempotent retry after a step-5 failure), Firestore treats this as a
+    // no-op success.
+    await firestore.collection('users').doc(uid).delete();
+
+    // (5) Delete the Firebase Auth user — must come last because subsequent
+    // Firestore writes would no longer carry this user's auth context.
+    try {
+      await user.delete();
+    } on FirebaseAuthException catch (e) {
+      if (e.code == 'requires-recent-login') {
+        throw RequiresRecentLoginException();
+      }
+      rethrow;
+    }
   }
 
   // ── Saved Locations ──────────────────────────────────────────────────────

@@ -51,8 +51,8 @@ class FaqScreen extends StatelessWidget {
     {
       'q_en': 'How do I delete my account?',
       'q_ar': 'كيف أحذف حسابي؟',
-      'a_en': 'You can request account deletion from the Account section in the app. Tap "Delete Account" and follow the confirmation steps. All your personal data will be permanently removed within 30 days of your request. This action cannot be undone.',
-      'a_ar': 'يمكنك طلب حذف الحساب من قسم الحساب داخل التطبيق. اضغط على "حذف الحساب" واتبع خطوات التأكيد. سيتم حذف جميع بياناتك الشخصية نهائياً خلال 30 يوماً من طلبك. لا يمكن التراجع عن هذا الإجراء.',
+      'a_en': 'You can permanently delete your account from Account Settings → Danger zone → Delete account. Your profile, saved locations, and personal data are removed immediately. Your past order history is anonymized but kept for the technicians who completed your jobs. Account deletion is blocked while you have an active order — please complete or cancel any open orders first. This action cannot be undone.',
+      'a_ar': 'يمكنك حذف حسابك نهائياً من إعدادات الحساب ← منطقة الخطر ← حذف الحساب. ستتم إزالة ملفك الشخصي ومواقعك المحفوظة وبياناتك الشخصية فوراً. سيتم إخفاء هوية سجل طلباتك السابقة مع الاحتفاظ بها للفنيين الذين أنجزوا طلباتك. لا يمكن حذف الحساب أثناء وجود طلب نشط — يُرجى إكمال أو إلغاء أي طلبات مفتوحة أولاً. لا يمكن التراجع عن هذا الإجراء.',
     },
     {
       'q_en': 'How do I reset my password?',

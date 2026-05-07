@@ -1,5 +1,6 @@
 ﻿import 'package:flutter/material.dart';
 import 'firebase_service.dart';
+import 'login_screen.dart';
 import 'widgets/egyptian_phone_field.dart';
 
 const Color _syanatBlue = Color(0xFF3C21C8);
@@ -240,6 +241,355 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
                     isEn ? 'Save Changes' : 'Ø­ÙØ¸ Ø§Ù„ØªØºÙŠÙŠØ±Ø§Øª',
                     style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                   ),
+          ),
+          const SizedBox(height: 40),
+          _dangerZone(isEn, t),
+          const SizedBox(height: 24),
+        ],
+      ),
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Danger zone: in-app account deletion (Apple/Google store requirement).
+  // Visually de-emphasized: red text on transparent background, separated
+  // from the main settings by a divider and "Danger zone" header.
+  // ─────────────────────────────────────────────────────────────────────────
+  Widget _dangerZone(bool isEn, String Function(String, String) t) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Divider(color: Colors.grey.shade300, height: 1),
+        const SizedBox(height: 20),
+        Text(
+          t('Danger zone', 'منطقة الخطر'),
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: Colors.red.shade600,
+            letterSpacing: 0.4,
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextButton(
+          onPressed: _saving ? null : _onDeleteAccountPressed,
+          style: TextButton.styleFrom(
+            foregroundColor: Colors.red.shade700,
+            backgroundColor: Colors.transparent,
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            alignment: Alignment.centerLeft,
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.delete_outline, size: 20, color: Colors.red.shade700),
+              const SizedBox(width: 8),
+              Text(
+                t('Delete account', 'حذف الحساب'),
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          t(
+            'Permanently remove your account and all your data. This cannot be undone.',
+            'حذف حسابك وجميع بياناتك بشكل دائم. لا يمكن التراجع عن هذا.',
+          ),
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.grey.shade600,
+            height: 1.4,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _onDeleteAccountPressed() async {
+    final isEn = Localizations.localeOf(context).languageCode == 'en';
+    final proceed = await _showFirstConfirmDialog(isEn);
+    if (proceed != true || !mounted) return;
+    await _showFinalDeleteDialog(isEn);
+  }
+
+  // First dialog — explain what gets deleted; user taps Continue to proceed.
+  Future<bool?> _showFirstConfirmDialog(bool isEn) {
+    String t(String en, String ar) => isEn ? en : ar;
+    return showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => Directionality(
+        textDirection: isEn ? TextDirection.ltr : TextDirection.rtl,
+        child: AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: Row(
+            children: [
+              Icon(Icons.warning_amber_rounded,
+                  color: Colors.red.shade600, size: 28),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  t('Delete account?', 'حذف الحساب؟'),
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                t(
+                  'This action permanently deletes:',
+                  'سيؤدي هذا الإجراء إلى الحذف الدائم لـ:',
+                ),
+                style: const TextStyle(fontSize: 14),
+              ),
+              const SizedBox(height: 10),
+              _bullet(t(
+                'Your profile information (name, email, phone)',
+                'معلومات ملفك الشخصي (الاسم، البريد الإلكتروني، الهاتف)',
+              )),
+              _bullet(t(
+                'Your saved locations',
+                'مواقعك المحفوظة',
+              )),
+              _bullet(t(
+                'Your order history will be anonymized',
+                'سيتم إخفاء هوية سجل طلباتك',
+              )),
+              const SizedBox(height: 12),
+              Text(
+                t('This cannot be undone.', 'لا يمكن التراجع عن هذا الإجراء.'),
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.red.shade700,
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: Text(t('Cancel', 'إلغاء')),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.red.shade700,
+              ),
+              child: Text(
+                t('Continue', 'متابعة'),
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Second dialog — final gate. User must type DELETE (or حذف) to enable
+  // the destructive button. Calls FirebaseService.deleteAccount() inline
+  // and routes to LoginScreen on success.
+  Future<void> _showFinalDeleteDialog(bool isEn) async {
+    String t(String en, String ar) => isEn ? en : ar;
+    final controller = TextEditingController();
+    bool inFlight = false;
+
+    bool inputMatches(String value) {
+      final v = value.trim().toUpperCase();
+      return v == 'DELETE' || v == 'حذف';
+    }
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setLocalState) {
+            final canDelete = inputMatches(controller.text) && !inFlight;
+            return Directionality(
+              textDirection: isEn ? TextDirection.ltr : TextDirection.rtl,
+              child: AlertDialog(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                title: Text(
+                  t('Confirm deletion', 'تأكيد الحذف'),
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      t(
+                        'Type DELETE to confirm (or حذف).',
+                        'اكتب DELETE للتأكيد (أو حذف).',
+                      ),
+                      style: const TextStyle(fontSize: 14),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: controller,
+                      autofocus: true,
+                      enabled: !inFlight,
+                      autocorrect: false,
+                      enableSuggestions: false,
+                      textCapitalization: TextCapitalization.none,
+                      decoration: InputDecoration(
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        hintText: 'DELETE',
+                      ),
+                      onChanged: (_) => setLocalState(() {}),
+                    ),
+                  ],
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: inFlight
+                        ? null
+                        : () => Navigator.of(ctx).pop(),
+                    child: Text(t('Cancel', 'إلغاء')),
+                  ),
+                  TextButton(
+                    onPressed: !canDelete
+                        ? null
+                        : () async {
+                            setLocalState(() => inFlight = true);
+                            await _executeDeletion(ctx, isEn);
+                          },
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.red.shade700,
+                    ),
+                    child: inFlight
+                        ? const SizedBox(
+                            height: 18,
+                            width: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.red,
+                            ),
+                          )
+                        : Text(
+                            t('Delete account', 'حذف الحساب'),
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    controller.dispose();
+  }
+
+  Future<void> _executeDeletion(BuildContext dialogCtx, bool isEn) async {
+    String t(String en, String ar) => isEn ? en : ar;
+    // Capture navigators and messenger BEFORE the await so we don't have to
+    // touch BuildContexts after the async gap.
+    final dialogNav = Navigator.of(dialogCtx);
+    final pageNav = Navigator.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await FirebaseService.deleteAccount();
+      if (!mounted) return;
+      dialogNav.pop(); // close final dialog
+      // Match the existing logout pattern (more_screen.dart): clear stack
+      // and land on LoginScreen. AuthGate has already observed currentUser
+      // == null so no further routing is needed.
+      pageNav.pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+        (route) => false,
+      );
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(t('Account deleted', 'تم حذف الحساب')),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } on AccountHasActiveJobsException catch (e) {
+      if (!mounted) return;
+      dialogNav.pop();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(t(
+            'Cannot delete account: you have ${e.activeCount} active order(s). Complete or cancel them first.',
+            'لا يمكن حذف الحساب: لديك ${e.activeCount} طلب(ات) نشطة. يُرجى إكمالها أو إلغاؤها أولاً.',
+          )),
+          backgroundColor: Colors.orange.shade800,
+          duration: const Duration(seconds: 5),
+        ),
+      );
+    } on RequiresRecentLoginException {
+      if (!mounted) return;
+      dialogNav.pop();
+      // Sign the user out so they can re-authenticate, then surface a hint.
+      await FirebaseService.auth.signOut();
+      if (!mounted) return;
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(t(
+            'Please sign in again to delete your account.',
+            'يرجى تسجيل الدخول مرة أخرى لحذف حسابك.',
+          )),
+          backgroundColor: Colors.orange.shade800,
+          duration: const Duration(seconds: 5),
+        ),
+      );
+    } catch (e) {
+      debugPrint('Delete account error: $e');
+      if (!mounted) return;
+      dialogNav.pop();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(t(
+            'Could not delete account. Please try again.',
+            'تعذر حذف الحساب. يُرجى المحاولة مرة أخرى.',
+          )),
+          backgroundColor: Colors.red.shade700,
+          action: SnackBarAction(
+            label: t('Retry', 'إعادة المحاولة'),
+            textColor: Colors.white,
+            onPressed: _onDeleteAccountPressed,
+          ),
+        ),
+      );
+    }
+  }
+
+  Widget _bullet(String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Padding(
+            padding: EdgeInsets.only(top: 6),
+            child: Icon(Icons.circle, size: 6),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(fontSize: 13, height: 1.4),
+            ),
           ),
         ],
       ),
