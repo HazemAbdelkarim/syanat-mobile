@@ -1,3 +1,7 @@
+import 'dart:ui';
+
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
+import 'package:flutter/foundation.dart' show kReleaseMode;
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'auth_gate.dart';
@@ -29,6 +33,26 @@ class AppLocale extends InheritedNotifier<ValueNotifier<Locale>> {
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await FirebaseService.initialize();
+  // Crashlytics — must be wired AFTER Firebase.initializeApp() (handled inside
+  // FirebaseService.initialize()) and BEFORE runApp() so the handlers are in
+  // place before any frames build. Disabled in debug to keep the dashboard
+  // free of dev-loop noise; enabled in profile/release.
+  //
+  // iOS handoff: the Mac partner needs to (a) `pod install` after pulling and
+  // (b) confirm Crashlytics appears in Firebase Console after the first
+  // forced crash on a release build. No iOS-side code changes are required —
+  // the FlutterFire plugin self-registers via GeneratedPluginRegistrant.
+  if (kReleaseMode) {
+    FlutterError.onError =
+        FirebaseCrashlytics.instance.recordFlutterFatalError;
+    PlatformDispatcher.instance.onError = (error, stack) {
+      FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+      return true;
+    };
+  } else {
+    await FirebaseCrashlytics.instance
+        .setCrashlyticsCollectionEnabled(false);
+  }
   // Notifications are non-critical — `initialize()` swallows failures
   // internally so a notification-plugin issue never blocks app start.
   await NotificationService.initialize();
