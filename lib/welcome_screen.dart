@@ -101,10 +101,10 @@ class WelcomeScreen extends StatelessWidget {
                         ],
                       ),
                     ),
-                    // Logo mark — top-leading, glass tile.
+                    // Logo mark — top-leading, glass tile (10:3 lockup).
                     const Padding(
                       padding: EdgeInsetsDirectional.only(start: 28),
-                      child: _LogoMark(size: 68),
+                      child: _LogoMark(height: 64),
                     ),
                     // Bottom-anchored headline + copy.
                     Expanded(
@@ -239,21 +239,21 @@ class WelcomeScreen extends StatelessWidget {
   }
 }
 
-// Glass logo tile (matches SyanatLogoMark with onDark=true). Wraps the brand
-// asset so users still see the recognizable logo, while the surround matches
-// the design.
+// Glass logo tile wrapping the V1 mark + wordmark lockup (10:3 aspect).
+// Sized by `height`; width is derived from the lockup's aspect ratio.
 class _LogoMark extends StatelessWidget {
-  final double size;
-  const _LogoMark({this.size = 68});
+  final double height;
+  const _LogoMark({this.height = 64});
 
   @override
   Widget build(BuildContext context) {
+    final double width = height * (1600 / 480);
     return Container(
-      width: size,
-      height: size,
+      width: width,
+      height: height,
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.14),
-        borderRadius: BorderRadius.circular(size * 0.28),
+        borderRadius: BorderRadius.circular(height * 0.28),
         border: Border.all(color: Colors.white.withOpacity(0.25)),
         boxShadow: const [
           BoxShadow(
@@ -264,10 +264,13 @@ class _LogoMark extends StatelessWidget {
         ],
       ),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(size * 0.22),
+        borderRadius: BorderRadius.circular(height * 0.22),
         child: Padding(
-          padding: EdgeInsets.all(size * 0.12),
-          child: Image.asset('assets/logo.jpeg', fit: BoxFit.cover),
+          padding: EdgeInsets.all(height * 0.12),
+          child: Image.asset(
+            'assets/branding/lockup.png',
+            fit: BoxFit.contain,
+          ),
         ),
       ),
     );
