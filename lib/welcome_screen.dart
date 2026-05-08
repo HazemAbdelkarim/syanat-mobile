@@ -101,50 +101,57 @@ class WelcomeScreen extends StatelessWidget {
                         ],
                       ),
                     ),
-                    // Logo mark — top-leading, glass tile (10:3 lockup).
-                    const Padding(
-                      padding: EdgeInsetsDirectional.only(start: 28),
-                      child: _LogoMark(height: 64),
-                    ),
-                    // Bottom-anchored headline + copy.
+                    // Glass-tile lockup centered in the available middle space,
+                    // with the hero headline + copy anchored to its bottom edge.
                     Expanded(
                       child: Padding(
                         padding: const EdgeInsets.fromLTRB(28, 0, 28, 20),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                        child: Stack(
                           children: [
-                            Text(
-                              _t(
-                                isEn,
-                                'Home fixes,\na tap away.',
-                                'إصلاحات منزلك،\nبضغطة واحدة.',
-                              ),
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 44,
-                                fontWeight: FontWeight.w800,
-                                height: 1.03,
-                                letterSpacing: -1.2,
-                              ),
+                            const Align(
+                              alignment: Alignment.center,
+                              child: _LogoMark(height: 84),
                             ),
-                            const SizedBox(height: 16),
-                            ConstrainedBox(
-                              constraints: const BoxConstraints(maxWidth: 320),
-                              child: Text(
-                                _t(
-                                  isEn,
-                                  'Book vetted technicians for AC, plumbing, '
-                                  'electrical and more — right from your phone.',
-                                  'احجز فنيين موثوقين للتكييف والسباكة '
-                                  'والكهرباء والمزيد — مباشرةً من هاتفك.',
-                                ),
-                                style: TextStyle(
-                                  color: Colors.white.withOpacity(0.82),
-                                  fontSize: 17,
-                                  height: 1.45,
-                                  letterSpacing: -0.2,
-                                ),
+                            Align(
+                              alignment: AlignmentDirectional.bottomStart,
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    _t(
+                                      isEn,
+                                      'Home fixes,\na tap away.',
+                                      'إصلاحات منزلك،\nبضغطة واحدة.',
+                                    ),
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 44,
+                                      fontWeight: FontWeight.w800,
+                                      height: 1.03,
+                                      letterSpacing: -1.2,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 16),
+                                  ConstrainedBox(
+                                    constraints: const BoxConstraints(maxWidth: 320),
+                                    child: Text(
+                                      _t(
+                                        isEn,
+                                        'Book vetted technicians for AC, plumbing, '
+                                        'electrical and more — right from your phone.',
+                                        'احجز فنيين موثوقين للتكييف والسباكة '
+                                        'والكهرباء والمزيد — مباشرةً من هاتفك.',
+                                      ),
+                                      style: TextStyle(
+                                        color: Colors.white.withOpacity(0.82),
+                                        fontSize: 17,
+                                        height: 1.45,
+                                        letterSpacing: -0.2,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                           ],

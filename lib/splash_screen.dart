@@ -61,9 +61,9 @@ class _SplashScreenState extends State<SplashScreen>
               return Transform.scale(
                 scale: _scaleAnimation.value,
                 child: Image.asset(
-                  'assets/branding/lockup.png',
-                  width: 280,
-                  height: 84,
+                  'assets/branding/icon_full.png',
+                  width: 160,
+                  height: 160,
                   fit: BoxFit.contain,
                 ),
               );
