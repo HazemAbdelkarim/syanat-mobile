@@ -63,6 +63,8 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  flutter_launcher_icons: ^0.13.1
+  flutter_native_splash: ^2.4.1
 
 
 
@@ -79,6 +81,34 @@ dev_dependencies:
   # rules and activating additional ones.
   flutter_lints: ^4.0.0
 
+flutter_launcher_icons:
+  android: "ic_launcher"
+  ios: true
+  image_path: "assets/branding/icon_full.png"
+  adaptive_icon_background: "#3C21C8"
+  adaptive_icon_foreground: "assets/branding/icon_foreground.png"
+  min_sdk_android: 21
+  remove_alpha_ios: true
+  web:
+    generate: false
+  windows:
+    generate: false
+  macos:
+    generate: false
+
+flutter_native_splash:
+  color: "#3C21C8"
+  image: "assets/branding/icon_full.png"
+  android_12:
+    color: "#3C21C8"
+    image: "assets/branding/icon_full.png"
+  android: true
+  ios: true
+  web: false
+  fullscreen: true
+  android_gravity: center
+  ios_content_mode: center
+
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
 
@@ -86,15 +116,8 @@ dev_dependencies:
 flutter:
 
   assets:
-    - assets/logo.jpeg
-    - assets/syanat_banner.png
-    - assets/syanat_banner.jpeg
-    - assets/syanat_banner_ar.png
     - assets/Icons/
-    - assets/slider/
-
-    # - assets/videos/
-    # - assets/fonts/
+    - assets/branding/
 
 
 
@@ -108,12 +131,6 @@ flutter:
 
   # To add assets to your application, add an assets section, like th
 
-
-
-fonts:
-  - family: Cairo
-    fonts:
-      - asset: assets/fonts/Cairo-Regular.ttf
 
 
   # An
