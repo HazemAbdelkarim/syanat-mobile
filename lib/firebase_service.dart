@@ -94,6 +94,22 @@ class FirebaseService {
   static String? pendingAuthSnackEn;
   static String? pendingAuthSnackAr;
 
+  /// Set to `true` while `OnboardingFlow._submitAndShowSuccess` is mid-flight,
+  /// i.e. between `createUserWithEmailAndPassword` (which makes the user
+  /// "signed in" from Firebase Auth's perspective) and the `createUser`
+  /// Firestore write that lands the `users/{uid}` profile document.
+  ///
+  /// AuthGate honors this flag: while true, it suppresses the
+  /// "profile incomplete → force sign-out + LoginScreen snackbar" path
+  /// (case 7) and stays on Splash. Without this guard, AuthGate would race
+  /// the in-flight Firestore write and sign the user out partway through
+  /// legitimate onboarding.
+  ///
+  /// MUST be reset in a `finally` block so a thrown exception can never
+  /// leave the flag stuck `true`, which would mask future profile-incomplete
+  /// detections for the rest of the process lifetime.
+  static bool signupInProgress = false;
+
   /// Egyptian mobile accepted formats:
   ///   * E.164:              `+201XXXXXXXXX`  (13 chars)
   ///   * Legacy local-only:  `01XXXXXXXXX`    (11 chars) — kept for data

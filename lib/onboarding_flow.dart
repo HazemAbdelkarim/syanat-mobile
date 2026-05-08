@@ -208,6 +208,15 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
       _error = null;
     });
 
+    // Mark signup as in-flight so AuthGate's profile-incomplete detection
+    // doesn't race the Firestore write below. The flag covers both the
+    // email/password path (Auth user created mid-await on line 224 below)
+    // AND the social-prefill path (Auth user already exists, but the
+    // users/{uid} doc is briefly absent on first profile completion).
+    // Reset in `finally` so a thrown exception cannot leave the flag
+    // stuck `true` for the rest of the process lifetime.
+    FirebaseService.signupInProgress = true;
+
     User? created;
     try {
       final String username = _nameController.text.trim();
@@ -269,6 +278,8 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
           'تعذر إنشاء الحساب. يرجى المحاولة مرة أخرى.',
         );
       });
+    } finally {
+      FirebaseService.signupInProgress = false;
     }
   }
 

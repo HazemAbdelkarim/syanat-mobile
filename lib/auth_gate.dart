@@ -160,6 +160,25 @@ class AuthGate extends StatelessWidget {
             // guard: subsequent rebuilds skip this branch's side effects
             // because the message is already set.
             if (!complete) {
+              // Signup race guard: while OnboardingFlow is mid-flight
+              // (between createUserWithEmailAndPassword and the
+              // createUser Firestore write), the users/{uid} document is
+              // legitimately missing. Without this short-circuit AuthGate
+              // would force-sign-out the user and abort onboarding. The
+              // flag is set/reset by OnboardingFlow with try/finally so it
+              // cannot stay `true` past a thrown exception. Re-check
+              // `complete` after the flag flips back to false — the doc
+              // emission that follows the createUser write will route
+              // home via case 8/9/10.
+              if (FirebaseService.signupInProgress) {
+                if (kDebugMode) {
+                  debugPrint(
+                    '[AuthGate] ${user.uid} profile incomplete but '
+                    'signupInProgress=true → SplashScreen (no signOut)',
+                  );
+                }
+                return const SplashScreen();
+              }
               if (FirebaseService.pendingAuthSnackEn == null) {
                 FirebaseService.pendingAuthSnackEn =
                     'Please sign in again to complete your account setup';
