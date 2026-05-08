@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'firebase_service.dart';
 import 'login_screen.dart';
 import 'widgets/egyptian_phone_field.dart';
@@ -107,7 +107,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(isEn ? 'Saved successfully' : 'ØªÙ… Ø§Ù„Ø­ÙØ¸ Ø¨Ù†Ø¬Ø§Ø­'),
+          content: Text(isEn ? 'Saved successfully' : 'تم الحفظ بنجاح'),
           backgroundColor: Colors.green,
         ),
       );
@@ -115,7 +115,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
       debugPrint('Settings save error: $e');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(isEn ? 'Something went wrong. Please try again.' : 'Ø­Ø¯Ø« Ø®Ø·Ø£. ÙŠØ±Ø¬Ù‰ Ø§Ù„Ù…Ø­Ø§ÙˆÙ„Ø© Ù…Ø±Ø© Ø£Ø®Ø±Ù‰.')),
+        SnackBar(content: Text(isEn ? 'Something went wrong. Please try again.' : 'حدث خطأ. يرجى المحاولة مرة أخرى.')),
       );
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -144,7 +144,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
               ),
             ),
           title: Text(
-            t('Account Settings', 'Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª Ø§Ù„Ø­Ø³Ø§Ø¨'),
+            t('Account Settings', 'إعدادات الحساب'),
             style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
           ),
           iconTheme: const IconThemeData(color: Colors.white),
@@ -161,7 +161,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
     if (_error == 'not_logged_in') {
       return Center(
         child: Text(
-          t('Please log in first', 'ÙŠØ±Ø¬Ù‰ ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø¯Ø®ÙˆÙ„ Ø£ÙˆÙ„Ø§Ù‹'),
+          t('Please log in first', 'يرجى تسجيل الدخول أولاً'),
           style: TextStyle(color: Colors.grey.shade500, fontSize: 16),
         ),
       );
@@ -174,7 +174,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
             Icon(Icons.error_outline, size: 56, color: Colors.red.shade300),
             const SizedBox(height: 12),
             Text(
-              t('Failed to load profile', 'ÙØ´Ù„ ÙÙŠ ØªØ­Ù…ÙŠÙ„ Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª'),
+              t('Failed to load profile', 'فشل في تحميل البيانات'),
               style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
           ],
@@ -189,28 +189,28 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
         children: [
           _fieldCard(
             icon: Icons.person_outline,
-            label: t('First Name', 'Ø§Ù„Ø§Ø³Ù… Ø§Ù„Ø£ÙˆÙ„'),
+            label: t('First Name', 'الاسم الأول'),
             controller: _firstNameCtrl,
             readOnly: true,
           ),
           const SizedBox(height: 12),
           _fieldCard(
             icon: Icons.person_outline,
-            label: t('Last Name', 'Ø§Ø³Ù… Ø§Ù„Ø¹Ø§Ø¦Ù„Ø©'),
+            label: t('Last Name', 'اسم العائلة'),
             controller: _lastNameCtrl,
             readOnly: true,
           ),
           const SizedBox(height: 12),
           _fieldCard(
             icon: Icons.email_outlined,
-            label: t('Email', 'Ø§Ù„Ø¨Ø±ÙŠØ¯ Ø§Ù„Ø¥Ù„ÙƒØªØ±ÙˆÙ†ÙŠ'),
+            label: t('Email', 'البريد الإلكتروني'),
             controller: _emailCtrl,
             readOnly: true,
           ),
           const SizedBox(height: 12),
           _fieldCard(
             icon: Icons.phone_outlined,
-            label: t('Phone Number', 'Ø±Ù‚Ù… Ø§Ù„Ù‡Ø§ØªÙ'),
+            label: t('Phone Number', 'رقم الهاتف'),
             controller: _phoneCtrl,
             readOnly: false,
             keyboardType: TextInputType.phone,
@@ -238,7 +238,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
                     ),
                   )
                 : Text(
-                    isEn ? 'Save Changes' : 'Ø­ÙØ¸ Ø§Ù„ØªØºÙŠÙŠØ±Ø§Øª',
+                    isEn ? 'Save Changes' : 'حفظ التغييرات',
                     style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                   ),
           ),
@@ -698,7 +698,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  t('Sex', 'Ø§Ù„Ø¬Ù†Ø³'),
+                  t('Sex', 'الجنس'),
                   style: TextStyle(
                     fontSize: 12,
                     color: Colors.grey.shade500,
@@ -709,13 +709,13 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
                 Row(
                   children: [
                     _sexChip(
-                      label: t('Male', 'Ø°ÙƒØ±'),
+                      label: t('Male', 'ذكر'),
                       value: 'male',
                       selected: _sex.toLowerCase() == 'male',
                     ),
                     const SizedBox(width: 10),
                     _sexChip(
-                      label: t('Female', 'Ø£Ù†Ø«Ù‰'),
+                      label: t('Female', 'أنثى'),
                       value: 'female',
                       selected: _sex.toLowerCase() == 'female',
                     ),
