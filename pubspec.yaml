@@ -118,6 +118,7 @@ flutter:
   assets:
     - assets/Icons/
     - assets/branding/
+    - assets/placeholder.png
 
 
 

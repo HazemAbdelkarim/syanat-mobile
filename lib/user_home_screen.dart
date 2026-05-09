@@ -462,10 +462,20 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
         Expanded(
           child: SingleChildScrollView(
             // Reduced bottom padding to zero to close empty space above nav
-            padding: const EdgeInsets.only(top: 20, bottom: 0),
+            padding: const EdgeInsets.only(top: 0, bottom: 0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // Banner image — assets/placeholder.png MUST exist; no errorBuilder fallback.
+                SizedBox(
+                  height: 140,
+                  width: double.infinity,
+                  child: Image.asset(
+                    'assets/placeholder.png',
+                    fit: BoxFit.cover,
+                  ),
+                ),
+                const SizedBox(height: 16),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
                   child: Text(
