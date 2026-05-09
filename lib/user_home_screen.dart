@@ -468,17 +468,31 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
               children: [
                 // Banner image — assets/placeholder.png MUST exist; no errorBuilder fallback.
                 // AspectRatio matches the source's 3:1 design so it renders without crop/stretch on any device width.
-                SizedBox(
-                  width: double.infinity,
-                  child: AspectRatio(
-                    aspectRatio: 3 / 1,
-                    child: Image.asset(
-                      'assets/placeholder.png',
-                      fit: BoxFit.cover,
+                // Card chrome (radius 18, shadow 0.04/10/Offset(0,4), horizontal inset 20) matches the service grid tiles.
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(18),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.04),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: AspectRatio(
+                      aspectRatio: 3 / 1,
+                      child: Image.asset(
+                        'assets/placeholder.png',
+                        fit: BoxFit.cover,
+                      ),
                     ),
                   ),
                 ),
-                const SizedBox(height: 24),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
                   child: Text(
