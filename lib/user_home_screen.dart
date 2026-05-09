@@ -467,15 +467,18 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 // Banner image — assets/placeholder.png MUST exist; no errorBuilder fallback.
+                // AspectRatio matches the source's 3:1 design so it renders without crop/stretch on any device width.
                 SizedBox(
-                  height: 140,
                   width: double.infinity,
-                  child: Image.asset(
-                    'assets/placeholder.png',
-                    fit: BoxFit.cover,
+                  child: AspectRatio(
+                    aspectRatio: 3 / 1,
+                    child: Image.asset(
+                      'assets/placeholder.png',
+                      fit: BoxFit.cover,
+                    ),
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 24),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
                   child: Text(
@@ -488,7 +491,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 14),
+                const SizedBox(height: 8),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
                   child: Builder(
