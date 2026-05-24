@@ -2,9 +2,6 @@
 *.class
 *.log
 *.lock
-# F-003: admin web is a deployed application — its lockfile must be committed
-# so CI and local builds resolve identical dependency graphs.
-!.claude/AdminWebApp/pubspec.lock
 *.pyc
 *.swp
 .DS_Store
@@ -36,8 +33,6 @@ migrate_working_dir/
 .pub-cache/
 .pub/
 pubspec.lock
-# F-003: admin web deployed app must commit its lockfile.
-!.claude/AdminWebApp/pubspec.lock
 
 # Build outputs
 /build/
@@ -63,11 +58,18 @@ syana-ea75a-firebase-adminsdk-fbsvc-711e39baf6.json
 serviceAccountKey.json
 **/serviceAccountKey*.json
 
-# Cloud Functions (spec 002)
-functions/node_modules/
-functions/lib/
-functions/.env
-functions/.runtimeconfig.json
+# Cloud Functions moved to separate repo (syanat-admin) on 2026-05-24.
+# Ignore the whole directory so stray builds don't get re-added.
+functions/
+
+# Scratch/working files at repo root
+*.zip
+*.zip.zip
+card_bottom.txt
+job_card.txt
+orders.txt
+fix_*.ps1
+edit_*.ps1
 
 # Secrets / env (Principle VIII)
 .env
