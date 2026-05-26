@@ -852,6 +852,41 @@ class _OrderRequestSheetState extends State<_OrderRequestSheet> {
     }
   }
 
+  /// Retrofit a pin onto a pre-feature saved location selected in the order
+  /// sheet. Tapping the inline "Add pin" affordance lands here. Order placement
+  /// is not blocked — this is a nudge, not a gate (see project_maps_feature
+  /// memory: pin retrofit is opt-in).
+  Future<void> _retrofitPin(String locationId) async {
+    final picked = await Navigator.of(context).push<LatLng>(
+      MaterialPageRoute(builder: (_) => const MapPickerScreen()),
+    );
+    if (picked == null || !mounted) return;
+    try {
+      await FirebaseService.updateSavedLocationPin(
+          widget.uid, locationId, picked.latitude, picked.longitude);
+      final updated = await FirebaseService.getSavedLocations(widget.uid);
+      if (!mounted) return;
+      setState(() {
+        _locations = updated;
+        final selectedId = _selectedLocation?['id'] as String?;
+        if (selectedId != null) {
+          _selectedLocation = _locations.firstWhere(
+            (l) => l['id'] == selectedId,
+            orElse: () => _selectedLocation!,
+          );
+        }
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(_t(
+          'Could not save pin. Please try again.',
+          'تعذر حفظ الموقع. يرجى المحاولة مرة أخرى.',
+        )),
+      ));
+    }
+  }
+
   Future<void> _addNewLocationInner() async {
     _newLocLabelCtrl.clear();
     _newLocStreetCtrl.clear();
@@ -1267,6 +1302,8 @@ class _OrderRequestSheetState extends State<_OrderRequestSheet> {
                 final locId = loc['id'] as String? ?? '';
                 final label = loc['label'] as String? ?? '';
                 final address = loc['address'] as String? ?? '';
+                final bool hasPin =
+                    loc['lat'] != null && loc['lng'] != null;
                 final isSelected =
                     _selectedLocation?['id'] == locId;
 
@@ -1317,6 +1354,37 @@ class _OrderRequestSheetState extends State<_OrderRequestSheet> {
                                   style: const TextStyle(
                                       fontSize: 13,
                                       color: Colors.black54)),
+                              if (!hasPin) ...[
+                                const SizedBox(height: 6),
+                                InkWell(
+                                  onTap: () => _retrofitPin(locId),
+                                  borderRadius: BorderRadius.circular(6),
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                        vertical: 2),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(Icons.add_location_alt_outlined,
+                                            size: 14,
+                                            color: Colors.orange.shade800),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          _t(
+                                            'Add pin for better routing',
+                                            'أضف موقعاً للوصول بدقة',
+                                          ),
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w600,
+                                            color: Colors.orange.shade800,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ],
                           ),
                         ),
