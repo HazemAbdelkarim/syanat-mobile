@@ -3,11 +3,11 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
-import 'admin_redirect_screen.dart';
 import 'firebase_service.dart';
 import 'main.dart' show AppLocale;
 import 'role_selection_screen.dart';
 import 'tech_home_screen.dart';
+import 'unauthorized_screen.dart';
 import 'user_home_screen.dart';
 
 const Color syanatBlue = Color(0xFF3C21C8);
@@ -66,12 +66,12 @@ class _LoginScreenState extends State<LoginScreen> {
   void _routeByRole(String role) {
     if (!mounted) return;
     Widget dest;
-    if (role == 'admin') {
-      dest = const AdminRedirectScreen();
+    if (role == 'customer') {
+      dest = const UserHomeScreen();
     } else if (role == 'technician') {
       dest = const TechHomeScreen();
     } else {
-      dest = const UserHomeScreen();
+      dest = const UnauthorizedScreen();
     }
     Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => dest));
   }

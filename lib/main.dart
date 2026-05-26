@@ -1,7 +1,7 @@
 import 'dart:ui';
 
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
-import 'package:flutter/foundation.dart' show kReleaseMode;
+import 'package:flutter/foundation.dart' show kIsWeb, kReleaseMode;
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'auth_gate.dart';
@@ -42,16 +42,19 @@ Future<void> main() async {
   // (b) confirm Crashlytics appears in Firebase Console after the first
   // forced crash on a release build. No iOS-side code changes are required —
   // the FlutterFire plugin self-registers via GeneratedPluginRegistrant.
-  if (kReleaseMode) {
-    FlutterError.onError =
-        FirebaseCrashlytics.instance.recordFlutterFatalError;
-    PlatformDispatcher.instance.onError = (error, stack) {
-      FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
-      return true;
-    };
-  } else {
-    await FirebaseCrashlytics.instance
-        .setCrashlyticsCollectionEnabled(false);
+  // Crashlytics has no web implementation — skip entirely on web.
+  if (!kIsWeb) {
+    if (kReleaseMode) {
+      FlutterError.onError =
+          FirebaseCrashlytics.instance.recordFlutterFatalError;
+      PlatformDispatcher.instance.onError = (error, stack) {
+        FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+        return true;
+      };
+    } else {
+      await FirebaseCrashlytics.instance
+          .setCrashlyticsCollectionEnabled(false);
+    }
   }
   // Notifications are non-critical — `initialize()` swallows failures
   // internally so a notification-plugin issue never blocks app start.

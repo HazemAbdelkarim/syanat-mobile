@@ -474,6 +474,8 @@ class FirebaseService {
       final building = (data['building'] as String? ?? '').trim();
       final notes = (data['notes'] as String? ?? '').trim();
       final address = (data['address'] as String? ?? '').trim();
+      final double? lat = (data['lat'] as num?)?.toDouble();
+      final double? lng = (data['lng'] as num?)?.toDouble();
 
       return {
         'id': d.id,
@@ -490,11 +492,17 @@ class FirebaseService {
                 building: building,
                 notes: notes,
               ),
+        'lat': lat,
+        'lng': lng,
       };
     }).toList();
   }
 
   /// Adds a new saved location and returns its document ID.
+  ///
+  /// `lat`/`lng` are optional but recommended — when present they flow onto
+  /// the job document at order-create time so technicians and admins can
+  /// open the exact pin in Google Maps.
   static Future<String> addSavedLocation(String uid, Map<String, dynamic> data) async {
     final payload = Map<String, dynamic>.from(data);
     final label = (payload['label'] as String? ?? '').trim();
@@ -503,10 +511,21 @@ class FirebaseService {
     final building = (payload['building'] as String? ?? '').trim();
     final notes = (payload['notes'] as String? ?? '').trim();
     final address = (payload['address'] as String? ?? '').trim();
+    final double? lat = (payload['lat'] as num?)?.toDouble();
+    final double? lng = (payload['lng'] as num?)?.toDouble();
 
     if (label.length > 50 || street.length > 100 || city.length > 50 ||
         building.length > 100 || notes.length > 200) {
       throw ArgumentError('Location field exceeds maximum length');
+    }
+    // NaN check first — every comparison with NaN is false, so a NaN value
+    // would silently bypass the range check below. `x.isNaN` is the safest
+    // form and works for both `int` and `double`.
+    if (lat != null && (lat.isNaN || lat < -90 || lat > 90)) {
+      throw ArgumentError('lat out of range or NaN');
+    }
+    if (lng != null && (lng.isNaN || lng < -180 || lng > 180)) {
+      throw ArgumentError('lng out of range or NaN');
     }
 
     payload['street'] = street;
@@ -521,6 +540,8 @@ class FirebaseService {
             building: building,
             notes: notes,
           );
+    if (lat != null) payload['lat'] = lat;
+    if (lng != null) payload['lng'] = lng;
     payload['createdAt'] = FieldValue.serverTimestamp();
     final ref = await firestore
         .collection('users')
@@ -528,6 +549,27 @@ class FirebaseService {
         .collection('locations')
         .add(payload);
     return ref.id;
+  }
+
+  /// Retrofits a `lat`/`lng` pin onto an existing saved location.
+  ///
+  /// Used to migrate pre-feature saved-locations that have only address text
+  /// (see project_maps_feature memory). Does NOT propagate the new pin to
+  /// in-flight jobs — coords on `jobs/*` are write-once at create time.
+  static Future<void> updateSavedLocationPin(
+      String uid, String locationId, double lat, double lng) async {
+    if (lat.isNaN || lat < -90 || lat > 90) {
+      throw ArgumentError('lat out of range or NaN');
+    }
+    if (lng.isNaN || lng < -180 || lng > 180) {
+      throw ArgumentError('lng out of range or NaN');
+    }
+    await firestore
+        .collection('users')
+        .doc(uid)
+        .collection('locations')
+        .doc(locationId)
+        .update({'lat': lat, 'lng': lng});
   }
 
   /// Sets the active location for a user by storing the location ID on the user doc.
@@ -903,30 +945,6 @@ class FirebaseService {
     return docRef.id;
   }
 
-  /// Streams all support chats ordered by most recent activity (admin use).
-  static Stream<List<Map<String, dynamic>>> streamSupportChats() {
-    return firestore
-        .collection('support_chats')
-        .orderBy('lastMessageAt', descending: true)
-        .limit(50)
-        .snapshots()
-        .map((snap) => snap.docs.map((d) {
-              final data = Map<String, dynamic>.from(d.data());
-              data['id'] = d.id;
-              return data;
-            }).toList());
-  }
-
-  /// Streams the count of open support chats with unread messages (admin badge).
-  static Stream<int> streamUnreadSupportCount() {
-    return firestore
-        .collection('support_chats')
-        .where('unreadByAdmin', isEqualTo: true)
-        .where('status', isEqualTo: 'open')
-        .snapshots()
-        .map((snap) => snap.docs.length);
-  }
-
   /// Sends a message in a support chat and bumps [lastMessageAt].
   /// Set [setUnreadForAdmin] = true when the user sends (not admin).
   static Future<void> sendSupportMessage({
@@ -958,22 +976,6 @@ class FirebaseService {
     batch.update(
         firestore.collection('support_chats').doc(chatId), chatUpdate);
     await batch.commit();
-  }
-
-  /// Marks a support chat as closed (called by admin).
-  static Future<void> closeSupportChat(String chatId) async {
-    await firestore.collection('support_chats').doc(chatId).update({
-      'status': 'closed',
-      'closedAt': FieldValue.serverTimestamp(),
-    });
-  }
-
-  /// Clears the unread flag when admin opens a support chat.
-  static Future<void> markSupportChatReadByAdmin(String chatId) async {
-    await firestore
-        .collection('support_chats')
-        .doc(chatId)
-        .update({'unreadByAdmin': false});
   }
 
   // ----------------------
@@ -1185,28 +1187,6 @@ class FirebaseService {
     });
   }
 
-  /// Admin: update payment status to CONFIRMED or REJECTED.
-  static Future<void> updatePaymentStatus(
-      String paymentId, String status) async {
-    await firestore.collection('payments').doc(paymentId).update({
-      'status': status,
-    });
-  }
-
-  /// Streams all payments (admin view).
-  static Stream<List<Map<String, dynamic>>> streamAllPayments() {
-    return firestore
-        .collection('payments')
-        .orderBy('createdAt', descending: true)
-        .limit(100)
-        .snapshots()
-        .map((snap) => snap.docs.map((d) {
-              final data = Map<String, dynamic>.from(d.data());
-              data['id'] = d.id;
-              return data;
-            }).toList());
-  }
-
   /// Streams payments for a specific user.
   static Stream<List<Map<String, dynamic>>> streamUserPayments(String userId) {
     return firestore
@@ -1302,6 +1282,8 @@ class FirebaseService {
     required String phoneNumber,
     required String locationLabel,
     required String locationAddress,
+    double? locationLat,
+    double? locationLng,
     required String urgencyType, // 'urgent' | 'scheduled'
     DateTime? scheduledTime,
     double price = 0.0,
@@ -1324,6 +1306,16 @@ class FirebaseService {
     if (locationAddress.length > 500) {
       throw ArgumentError(
           'Location address must be 500 characters or less (got ${locationAddress.length}).');
+    }
+    if (locationLat != null &&
+        (locationLat.isNaN || locationLat < -90 || locationLat > 90)) {
+      throw ArgumentError(
+          'locationLat out of range or NaN (got $locationLat).');
+    }
+    if (locationLng != null &&
+        (locationLng.isNaN || locationLng < -180 || locationLng > 180)) {
+      throw ArgumentError(
+          'locationLng out of range or NaN (got $locationLng).');
     }
 
     // ── Pre-flight: read the user doc so we can distinguish failure modes
@@ -1381,6 +1373,8 @@ class FirebaseService {
       'phoneNumber': phoneE164,
       'locationLabel': locationLabel,
       'locationAddress': locationAddress,
+      if (locationLat != null) 'locationLat': locationLat,
+      if (locationLng != null) 'locationLng': locationLng,
       'urgencyType': urgencyType,
       if (scheduledTime != null)
         'scheduledTime': Timestamp.fromDate(scheduledTime),
@@ -1452,36 +1446,6 @@ class FirebaseService {
     return jobRef.id;
   }
 
-  /// Admin assigns a technician to a requested job → status becomes 'accepted'.
-  static Future<void> assignJob({
-    required String jobId,
-    required String technicianId,
-    required String technicianName,
-  }) async {
-    await firestore.runTransaction((tx) async {
-      final ref = firestore.collection('jobs').doc(jobId);
-      final snap = await tx.get(ref);
-      if (!snap.exists) {
-        throw Exception('Job not found');
-      }
-
-      final data = snap.data()!;
-      if (data['status'] != 'requested') {
-        throw Exception('Job is no longer available for assignment');
-      }
-
-      tx.update(ref, {
-        'assignedTechnicianId': technicianId,
-        'technicianId': technicianId, // kept for existing stream queries
-        'assignedTechnicianName': technicianName,
-        'status': 'active',
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-    });
-    // Counter movement is now handled by the `onJobStatusChanged` Cloud
-    // Function trigger (Spec 003).
-  }
-
   /// Plural active-jobs stream — returns ALL non-terminal jobs assigned to
   /// the technician. Replaces the singular `streamTechnicianActiveJob` used
   /// in earlier releases when a tech could only have one active job at a
@@ -1525,64 +1489,8 @@ class FirebaseService {
             }).toList());
   }
 
-  // adminCloseJob was removed in release 006.
-  //
-  // The method was dead: zero callers in the mobile app, and the deployed
-  // firestore.rules only allow admin → `completed` from `receipt_disputed`
-  // (via `adminResolveDispute`). Any other from-state hit permission-denied.
-  // The authoritative admin close-job path is the Cloud Function
-  // `adminCloseJob` (see `functions/src/admin/close-job.ts`, exported from
-  // `functions/src/index.ts`). Admin-dashboard code should call it via the
-  // `cloud_functions` SDK rather than writing the status field directly.
-
   // ─────────────────────────────────────────────────────────────────────────
-  // ADMIN JOB STREAMS (by status)
-  // ─────────────────────────────────────────────────────────────────────────
-
-  /// Streams all jobs with a given single status (e.g., 'requested', 'completed').
-  static Stream<List<Map<String, dynamic>>> streamJobsByStatus(String status) {
-    return firestore
-        .collection('jobs')
-        .where('status', isEqualTo: status)
-        .orderBy('createdAt', descending: true)
-        .limit(50)
-        .snapshots()
-        .map((snap) => snap.docs.map((d) {
-              final data = Map<String, dynamic>.from(d.data() as Map);
-              data['id'] = d.id;
-              return data;
-            }).toList());
-  }
-
-  /// Streams active (non-terminal) jobs for the admin dashboard. Release-006
-  /// added on_the_way / awaiting_payment / awaiting_payment_verification;
-  /// the whereIn list holds 9 values, under Firestore's 10 cap.
-  static Stream<List<Map<String, dynamic>>> streamActiveJobsAdmin() {
-    return firestore
-        .collection('jobs')
-        .where('status', whereIn: [
-          'active',
-          'technician_accepted',
-          'on_the_way',
-          'technician_arrived',
-          'work_finished',
-          'awaiting_customer_approval',
-          'awaiting_payment',
-          'awaiting_payment_verification',
-          'receipt_disputed',
-        ])
-        .orderBy('createdAt', descending: true)
-        .limit(50)
-        .snapshots()
-        .map((snap) => snap.docs.map((d) {
-              final data = Map<String, dynamic>.from(d.data() as Map);
-              data['id'] = d.id;
-              return data;
-            }).toList());
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // TECHNICIAN FILTERING (for admin assignment)
+  // TECHNICIAN AVAILABILITY (notification fan-out)
   // ─────────────────────────────────────────────────────────────────────────
 
   /// Returns available technicians for a specific service key (same category).
@@ -1711,26 +1619,6 @@ class FirebaseService {
         .collection('notifications')
         .doc(notifId)
         .update({'read': true});
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // RECENT USERS (admin dashboard — latest signups)
-  // ─────────────────────────────────────────────────────────────────────────
-
-  /// Fetches the [limit] most recently created user documents, newest first.
-  /// One-time read — no open subscription. Callers trigger refresh explicitly.
-  static Future<List<Map<String, dynamic>>> fetchRecentUsers(
-      {int limit = 3}) async {
-    final snap = await firestore
-        .collection('users')
-        .orderBy('createdAt', descending: true)
-        .limit(limit)
-        .get();
-    return snap.docs.map((d) {
-      final data = Map<String, dynamic>.from(d.data());
-      data['id'] = d.id;
-      return data;
-    }).toList();
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -2247,74 +2135,6 @@ class FirebaseService {
     } catch (_) {}
   }
 
-  /// Admin resolves a disputed receipt.
-  /// [resolution] must be one of:
-  ///   'reopen'   — send the receipt back for customer approval
-  ///   'complete' — admin closes the job as completed
-  ///   'cancel'   — admin cancels the job
-  static Future<void> adminResolveDispute({
-    required String jobId,
-    required String resolution,
-    double? overrideAmount,
-  }) async {
-    if (!{'reopen', 'complete', 'cancel'}.contains(resolution)) {
-      throw ArgumentError('Invalid resolution: $resolution');
-    }
-
-    await firestore.runTransaction((tx) async {
-      final ref = firestore.collection('jobs').doc(jobId);
-      final snap = await tx.get(ref);
-      if (!snap.exists) throw Exception('Job not found');
-      final data = snap.data()!;
-      if (data['status'] != 'receipt_disputed') {
-        throw Exception('Job is not in disputed state');
-      }
-
-      switch (resolution) {
-        case 'reopen':
-          tx.update(ref, {
-            'status': 'awaiting_customer_approval',
-            'receiptRejected': false,
-            'disputeResolvedAt': FieldValue.serverTimestamp(),
-            'updatedAt': FieldValue.serverTimestamp(),
-          });
-          break;
-        case 'complete':
-          final receipt = data['receipt'] as Map<String, dynamic>?;
-          final amount = overrideAmount ??
-              (receipt?['grandTotal'] as num?)?.toDouble() ??
-              0.0;
-          tx.update(ref, {
-            'status': 'completed',
-            'amountPaid': amount,
-            'price': amount,
-            'disputeResolvedAt': FieldValue.serverTimestamp(),
-            'adminClosedAt': FieldValue.serverTimestamp(),
-            'updatedAt': FieldValue.serverTimestamp(),
-          });
-          // Stats counters + revenue: `onJobStatusChanged` trigger (Spec 003).
-          break;
-        case 'cancel':
-          tx.update(ref, {
-            'status': 'cancelled',
-            'disputeResolvedAt': FieldValue.serverTimestamp(),
-            'updatedAt': FieldValue.serverTimestamp(),
-          });
-          // Stats counters: `onJobStatusChanged` trigger (Spec 003).
-          break;
-      }
-    });
-
-    try {
-      await firestore.collection('activity_log').add({
-        'type': 'dispute_resolved',
-        'description': 'Dispute resolved: $resolution',
-        'jobId': jobId,
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-    } catch (_) {}
-  }
-
   /// Streams the job awaiting customer receipt approval for a given customer.
   /// Narrow stream — covers only `awaiting_customer_approval`. Kept for the
   /// "review receipt" card UI. For a full non-terminal customer-job stream,
@@ -2372,75 +2192,6 @@ class FirebaseService {
       final doc = snap.docs.first;
       return {'id': doc.id, ...Map<String, dynamic>.from(doc.data())};
     });
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // RECENT ACTIVITY FEED (admin-only reads, append-only writes)
-  // ─────────────────────────────────────────────────────────────────────────
-
-  /// Fetches the [limit] most recent activity events ordered newest-first.
-  /// One-time read — no open subscription. Callers trigger refresh explicitly.
-  static Future<List<Map<String, dynamic>>> fetchRecentActivity(
-      {int limit = 10}) async {
-    final snap = await firestore
-        .collection('activity_log')
-        .orderBy('createdAt', descending: true)
-        .limit(limit)
-        .get();
-    return snap.docs.map((d) {
-      final data = Map<String, dynamic>.from(d.data());
-      data['id'] = d.id;
-      return data;
-    }).toList();
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // STATS INITIALIZATION (admin-only)
-  // ─────────────────────────────────────────────────────────────────────────
-
-  /// Seeds `stats/global` from live aggregation queries.
-  /// Call once during project setup or whenever the document is missing/incomplete.
-  /// Requires admin permissions.
-  ///
-  /// NOTE (Spec 003): this bootstrap is preserved intentionally. Incremental
-  /// counter writes now flow through the server-side Cloud Functions in
-  /// `functions/src/stats/`. This method's eventual home is the admin web app
-  /// under `.claude/AdminWebApp/`; that migration is out of scope for Spec 003.
-  static Future<void> initializeStatsGlobal() async {
-    final results = await Future.wait([
-      firestore.collection('users').count().get(),
-      firestore.collection('users').where('role', isEqualTo: 'customer').count().get(),
-      firestore.collection('users').where('role', isEqualTo: 'technician').count().get(),
-      firestore.collection('jobs').where('status', isEqualTo: 'requested').count().get(),
-      // Release-006: must include on_the_way, awaiting_payment, and
-      // awaiting_payment_verification so a bootstrap re-run (new admin
-      // onboarding, rebuilding after an incident, migrating projects)
-      // seeds `jobsOngoing` correctly. Matches STATUS_TO_BUCKET in
-      // functions/src/stats/lib/status-map.ts — keep both in lockstep.
-      // 9 values, under Firestore's 10-value whereIn cap.
-      firestore.collection('jobs').where('status', whereIn: [
-        'active', 'technician_accepted', 'on_the_way', 'technician_arrived',
-        'work_finished', 'awaiting_customer_approval',
-        'awaiting_payment', 'awaiting_payment_verification',
-        'receipt_disputed',
-      ]).count().get(),
-      firestore.collection('jobs').where('status', isEqualTo: 'completed').count().get(),
-      firestore.collection('jobs').where('status', isEqualTo: 'cancelled').count().get(),
-      firestore.collection('support_chats').where('status', isEqualTo: 'open').count().get(),
-    ]);
-
-    await firestore.doc('stats/global').set({
-      'totalUsers': (results[0]).count ?? 0,
-      'customers': (results[1]).count ?? 0,
-      'technicians': (results[2]).count ?? 0,
-      'jobsRequested': (results[3]).count ?? 0,
-      'jobsOngoing': (results[4]).count ?? 0,
-      'jobsCompleted': (results[5]).count ?? 0,
-      'jobsCancelled': (results[6]).count ?? 0,
-      'activeChats': (results[7]).count ?? 0,
-      'totalEarnings': 0.0, // Cannot be derived from count(); admin sets manually.
-    });
-    debugPrint('[initializeStatsGlobal] stats/global seeded from live counts.');
   }
 
   /// One-time migration: converts legacy job statuses to canonical names.

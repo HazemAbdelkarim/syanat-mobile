@@ -12,9 +12,9 @@
 //   6. Signed in, profile doc missing-from-cache   → Splash (wait for server)
 //   7. Signed in, profile incomplete               → force sign-out + queue
 //                                                     LoginScreen snackbar
-//   8. Signed in, profile complete + admin role    → AdminRedirectScreen
+//   8. Signed in, profile complete + customer      → UserHomeScreen
 //   9. Signed in, profile complete + technician    → TechHomeScreen
-//  10. Signed in, profile complete + customer      → UserHomeScreen
+//  10. Signed in, profile complete + admin/other   → UnauthorizedScreen
 //
 // The legacy "Finish setting up your account" landing page (CompleteProfileScreen)
 // was removed in 006-mobile-admin-cleanup. The previous design routed every
@@ -34,11 +34,11 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 
-import 'admin_redirect_screen.dart';
 import 'firebase_service.dart';
 import 'login_screen.dart';
 import 'splash_screen.dart';
 import 'tech_home_screen.dart';
+import 'unauthorized_screen.dart';
 import 'user_home_screen.dart';
 import 'welcome_screen.dart';
 
@@ -206,9 +206,9 @@ class AuthGate extends StatelessWidget {
                 '[AuthGate] ${user.uid} profile complete, role=$role → home',
               );
             }
-            if (role == 'admin') return const AdminRedirectScreen();
+            if (role == 'customer') return const UserHomeScreen();
             if (role == 'technician') return const TechHomeScreen();
-            return const UserHomeScreen();
+            return const UnauthorizedScreen();
           },
         );
       },
