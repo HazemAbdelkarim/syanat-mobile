@@ -25,11 +25,13 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:latlong2/latlong.dart' show LatLng;
 
 import 'firebase_service.dart';
 import 'tech_home_screen.dart';
 import 'user_home_screen.dart';
 import 'widgets/egyptian_phone_field.dart';
+import 'widgets/map_picker_screen.dart';
 
 // ─── Design tokens (mirror app-onboarding/project/lib/signup-screens.jsx) ───
 const Color _sBlue = Color(0xFF3C21C8);
@@ -92,6 +94,7 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
 
   String _service = ''; // technician only
   bool _hasLocation = false;
+  LatLng? _pickedLatLng;
 
   // ── Submission state ─────────────────────────────────────────────────────
   bool _busy = false;
@@ -127,9 +130,10 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
   }
 
   int get _totalDots {
-    int dots = _isSocial ? 3 : 5; // phone+otp+profile+location+success
-    if (_isTech) dots += 1;
-    return dots;
+    // Customers: phone+otp+profile+location+success (or profile+location+success if social).
+    // Technicians: phone+otp+profile+service+success (or profile+service+success if social) —
+    // technicians do NOT pin during onboarding (see project_maps_feature memory).
+    return _isSocial ? 3 : 5;
   }
 
   @override
@@ -192,7 +196,9 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
         setState(() => _step = _isTech ? _Step.service : _Step.location);
         return;
       case _Step.service:
-        setState(() => _step = _Step.location);
+        // Technicians skip the location step — submit directly. The submit
+        // call is wired at the _ServiceScreen onContinue site (see build()),
+        // not here, because it needs the current locale.
         return;
       case _Step.location:
       case _Step.success:
@@ -244,17 +250,46 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
         uid = user.uid;
       }
 
+      // Technicians don't pin during onboarding. Customers may have skipped
+      // the pin step ("Skip for now") — in that case we leave location/city
+      // empty rather than lying with hardcoded Cairo defaults. The order
+      // flow will prompt for a precise pin on first use.
+      final GeoPoint? pickedPoint = _pickedLatLng != null
+          ? GeoPoint(_pickedLatLng!.latitude, _pickedLatLng!.longitude)
+          : null;
+
       await FirebaseService.createUser(
         uid: uid,
         email: email,
         username: username,
         role: widget.role,
         phone: phone,
-        city: _demoLocationLabel,
+        city: '',
         service: _isTech ? _service : '',
         language: lang,
-        location: const GeoPoint(_demoLat, _demoLng),
+        location: pickedPoint,
       );
+
+      // Customers get a default saved location seeded from the onboarding
+      // pin so they can place an order immediately without re-pinning.
+      // Skipped when the user took the manual-skip path (no pin) — they'll
+      // be prompted to add one from the order flow.
+      if (!_isTech && _pickedLatLng != null) {
+        try {
+          final id = await FirebaseService.addSavedLocation(uid, {
+            'label': isEn ? 'Home' : 'المنزل',
+            'lat': _pickedLatLng!.latitude,
+            'lng': _pickedLatLng!.longitude,
+            // No address text — the user pinned a coordinate but never typed
+            // street/city. They can add detail later from Saved Locations.
+          });
+          await FirebaseService.setActiveLocation(uid, id);
+        } catch (e) {
+          // Non-fatal: account is created; user can add a location later.
+          // Logged so QA/Crashlytics can spot rule failures during rollout.
+          debugPrint('[onboarding] seed saved-location failed: $e');
+        }
+      }
 
       if (!mounted) return;
       setState(() {
@@ -396,7 +431,9 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
                     return;
                   }
                   setState(() => _error = null);
-                  _advanceFrom(_Step.service);
+                  // Technicians skip the customer-only pin step and submit
+                  // straight from here (see project_maps_feature memory).
+                  _submitAndShowSuccess(isEn);
                 },
               ),
             _Step.location => _LocationScreen(
@@ -408,11 +445,24 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
                 error: _error,
                 onBack: _goBack,
                 onUseMyLocation: () async {
-                  setState(() => _hasLocation = true);
+                  final result =
+                      await Navigator.of(context).push<LatLng>(
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          MapPickerScreen(initial: _pickedLatLng),
+                    ),
+                  );
+                  if (result == null || !mounted) return;
+                  setState(() {
+                    _pickedLatLng = result;
+                    _hasLocation = true;
+                  });
                   await _submitAndShowSuccess(isEn);
                 },
                 onManual: () {
-                  // Demo: same hard-coded coords either way.
+                  // Skip path: account proceeds with the default Cairo coord
+                  // and no seeded saved-location. User pins their real spot
+                  // the first time they place an order.
                   setState(() => _hasLocation = true);
                   _submitAndShowSuccess(isEn);
                 },
@@ -2109,7 +2159,7 @@ class _LocationScreen extends StatelessWidget {
                     ],
                     const SizedBox(height: 18),
                     _GradButton(
-                      label: _t('Use my location', 'استخدم موقعي'),
+                      label: _t('Pin on map', 'حدد على الخريطة'),
                       onTap: onUseMyLocation,
                       busy: busy,
                     ),
@@ -2120,7 +2170,7 @@ class _LocationScreen extends StatelessWidget {
                       child: TextButton(
                         onPressed: busy ? null : onManual,
                         child: Text(
-                          _t('Enter address manually', 'أدخل العنوان يدوياً'),
+                          _t('Skip for now', 'تخطّ الآن'),
                           style: const TextStyle(
                             color: _sMuted,
                             fontSize: 15,

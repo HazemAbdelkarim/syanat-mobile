@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'firebase_service.dart';
 import 'job_status.dart';
@@ -346,6 +347,10 @@ class _TechnicianActiveJobScreenState
         (_currentJob['description'] as String?)?.trim() ?? '';
     final address =
         (_currentJob['locationAddress'] as String?)?.trim() ?? '';
+    final double? locationLat =
+        (_currentJob['locationLat'] as num?)?.toDouble();
+    final double? locationLng =
+        (_currentJob['locationLng'] as num?)?.toDouble();
 
     return Directionality(
       textDirection: isEn ? TextDirection.ltr : TextDirection.rtl,
@@ -363,7 +368,7 @@ class _TechnicianActiveJobScreenState
                 _inspectDescriptionCard(description, isEn),
                 const SizedBox(height: 20),
               ],
-              _addressCard(address, isEn),
+              _addressCard(address, locationLat, locationLng, isEn),
               const SizedBox(height: 20),
 
               // ── Cancel button (active or post-accept) ───────────────
@@ -660,11 +665,10 @@ class _TechnicianActiveJobScreenState
     );
   }
 
-  Widget _addressCard(String address, bool isEn) {
-    // Mirrors design-system/JobAcceptance.jsx > AddressCard. The trailing
-    // "Maps" button is intentionally absent: url_launcher is not in
-    // pubspec.yaml, and a button that does nothing is worse than no
-    // button. Re-add the affordance once a launcher dependency lands.
+  Widget _addressCard(
+      String address, double? lat, double? lng, bool isEn) {
+    final bool hasCoords = lat != null && lng != null;
+    final bool canOpenMaps = hasCoords || address.isNotEmpty;
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
       decoration: BoxDecoration(
@@ -678,48 +682,96 @@ class _TechnicianActiveJobScreenState
               offset: Offset(0, 4)),
         ],
       ),
-      child: Row(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              color: const Color(0x1A3C21C8),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: const Icon(Icons.location_on, color: _syanatBlue, size: 22),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  _t(isEn, 'Service Address', 'عنوان الخدمة'),
-                  style: const TextStyle(
-                    fontSize: 13,
-                    color: Colors.black54,
-                  ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: const Color(0x1A3C21C8),
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  address.isEmpty
-                      ? _t(isEn, 'Address unavailable', 'العنوان غير متاح')
-                      : address,
+                child: const Icon(Icons.location_on,
+                    color: _syanatBlue, size: 22),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _t(isEn, 'Service Address', 'عنوان الخدمة'),
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: Colors.black54,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      address.isEmpty
+                          ? _t(isEn, 'Address unavailable',
+                              'العنوان غير متاح')
+                          : address,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black87,
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          if (canOpenMaps) ...[
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () => _openMaps(address, lat, lng, isEn),
+                icon: const Icon(Icons.map_outlined,
+                    color: _syanatBlue, size: 18),
+                label: Text(
+                  _t(isEn, 'Open in Google Maps',
+                      'افتح في خرائط جوجل'),
                   style: const TextStyle(
-                    fontSize: 15,
+                    color: _syanatBlue,
                     fontWeight: FontWeight.w600,
-                    color: Colors.black87,
-                    height: 1.4,
                   ),
                 ),
-              ],
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: _syanatBlue),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                ),
+              ),
             ),
-          ),
+          ],
         ],
       ),
     );
+  }
+
+  Future<void> _openMaps(
+      String address, double? lat, double? lng, bool isEn) async {
+    final Uri target = (lat != null && lng != null)
+        ? Uri.parse('https://www.google.com/maps?q=$lat,$lng')
+        : Uri.parse(
+            'https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(address)}');
+    final ok = await launchUrl(target, mode: LaunchMode.externalApplication);
+    if (!ok && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(_t(isEn, 'Could not open Google Maps.',
+            'تعذر فتح خرائط جوجل.')),
+      ));
+    }
   }
 
   Widget _fillReceiptCard(bool isEn) {

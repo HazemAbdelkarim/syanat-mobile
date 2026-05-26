@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:latlong2/latlong.dart';
 import 'firebase_service.dart';
+import 'widgets/map_picker_screen.dart';
+import 'widgets/pin_on_map_tile.dart';
 
 const Color _syanatBlue = Color(0xFF3C21C8);
 
@@ -52,7 +55,7 @@ class _SavedLocationsScreenState extends State<SavedLocationsScreen> {
     if (_uid == null) return;
 
     final isEn = Localizations.localeOf(context).languageCode == 'en';
-    final result = await showModalBottomSheet<Map<String, String>>(
+    final result = await showModalBottomSheet<Map<String, dynamic>>(
       context: context,
       isScrollControlled: true,
       isDismissible: true,
@@ -63,7 +66,7 @@ class _SavedLocationsScreenState extends State<SavedLocationsScreen> {
       ),
       builder: (_) => const _AddLocationSheet(),
     );
-    if (result == null) return;
+    if (!mounted || result == null) return;
 
     setState(() => _loading = true);
     try {
@@ -74,6 +77,8 @@ class _SavedLocationsScreenState extends State<SavedLocationsScreen> {
         'building': result['building'],
         'notes': result['notes'],
         'address': result['address'],
+        if (result['lat'] != null) 'lat': result['lat'],
+        if (result['lng'] != null) 'lng': result['lng'],
       });
 
       if (_locations.isEmpty) {
@@ -87,6 +92,65 @@ class _SavedLocationsScreenState extends State<SavedLocationsScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(isEn ? 'Could not save location. Please try again.' : 'تعذر حفظ الموقع. يرجى المحاولة مرة أخرى.')),
       );
+      setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _addPinToLegacy(String locationId, LatLng? initial) async {
+    if (_uid == null) return;
+    final isEn = Localizations.localeOf(context).languageCode == 'en';
+
+    final picked = await Navigator.of(context).push<LatLng>(
+      MaterialPageRoute(
+        builder: (_) => MapPickerScreen(initial: initial),
+      ),
+    );
+    if (!mounted || picked == null) return;
+
+    // Warn the user that the new pin won't reach orders that have already
+    // been dispatched. By design (see project_maps_feature memory):
+    // coordinates on jobs/* are write-once at create time.
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => Directionality(
+        textDirection: isEn ? TextDirection.ltr : TextDirection.rtl,
+        child: AlertDialog(
+          title: Text(isEn ? 'Save new pin?' : 'حفظ الموقع الجديد؟'),
+          content: Text(isEn
+              ? 'This will only affect future orders. Orders already placed will keep the old location.'
+              : 'سيؤثر هذا على الطلبات المستقبلية فقط. الطلبات التي تم إرسالها بالفعل ستحتفظ بالموقع القديم.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text(isEn ? 'Cancel' : 'إلغاء'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _syanatBlue,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: Text(isEn ? 'Save pin' : 'حفظ الموقع'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || confirm != true) return;
+
+    setState(() => _loading = true);
+    try {
+      await FirebaseService.updateSavedLocationPin(
+          _uid!, locationId, picked.latitude, picked.longitude);
+      await _load();
+    } catch (e) {
+      debugPrint('Update pin error: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(isEn
+            ? 'Could not save pin. Please try again.'
+            : 'تعذر حفظ الموقع. يرجى المحاولة مرة أخرى.'),
+      ));
       setState(() => _loading = false);
     }
   }
@@ -222,6 +286,9 @@ class _SavedLocationsScreenState extends State<SavedLocationsScreen> {
         final id = loc['id'] as String;
         final label = (loc['label'] as String?) ?? '';
         final address = (loc['address'] as String?) ?? '';
+        final double? lat = (loc['lat'] as num?)?.toDouble();
+        final double? lng = (loc['lng'] as num?)?.toDouble();
+        final bool hasPin = lat != null && lng != null;
         final isActive = id == _activeLocationId;
 
         return Container(
@@ -261,17 +328,53 @@ class _SavedLocationsScreenState extends State<SavedLocationsScreen> {
                 color: isActive ? _syanatBlue : Colors.black87,
               ),
             ),
-            subtitle: address.isNotEmpty
-                ? Padding(
-                    padding: const EdgeInsets.only(top: 4),
-                    child: Text(
+            subtitle: Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (address.isNotEmpty)
+                    Text(
                       address,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                      style: TextStyle(
+                          fontSize: 12, color: Colors.grey.shade600),
                     ),
-                  )
-                : null,
+                  if (!hasPin) ...[
+                    const SizedBox(height: 6),
+                    InkWell(
+                      onTap: () => _addPinToLegacy(id, null),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFF4D6),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: const Color(0xFFE5B100)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.warning_amber_rounded,
+                                size: 14, color: Color(0xFFB07A00)),
+                            const SizedBox(width: 4),
+                            Text(
+                              t('Add precise pin', 'إضافة موقع دقيق'),
+                              style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFFB07A00),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -325,6 +428,7 @@ class _AddLocationSheetState extends State<_AddLocationSheet> {
   final _cityCtrl = TextEditingController();
   final _buildingCtrl = TextEditingController();
   final _notesCtrl = TextEditingController();
+  LatLng? _pinned;
 
   @override
   void dispose() {
@@ -334,6 +438,16 @@ class _AddLocationSheetState extends State<_AddLocationSheet> {
     _buildingCtrl.dispose();
     _notesCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickOnMap() async {
+    final result = await Navigator.of(context).push<LatLng>(
+      MaterialPageRoute(
+        builder: (_) => MapPickerScreen(initial: _pinned),
+      ),
+    );
+    if (result == null || !mounted) return;
+    setState(() => _pinned = result);
   }
 
   String _buildAddressString({
@@ -455,6 +569,12 @@ class _AddLocationSheetState extends State<_AddLocationSheet> {
                   ],
                 ),
                 const SizedBox(height: 20),
+                PinOnMapTile(
+                  isEn: isEn,
+                  pinned: _pinned,
+                  onTap: _pickOnMap,
+                ),
+                const SizedBox(height: 12),
                 _fieldCard(
                   icon: Icons.place_outlined,
                   label: isEn ? 'Label (e.g. Home, Office)' : 'الاسم (مثال: المنزل، المكتب)',
@@ -518,6 +638,18 @@ class _AddLocationSheetState extends State<_AddLocationSheet> {
                           );
                           return;
                         }
+                        if (_pinned == null) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                isEn
+                                    ? 'Please pin the exact spot on the map.'
+                                    : 'يرجى تحديد الموقع بدقة على الخريطة.',
+                              ),
+                            ),
+                          );
+                          return;
+                        }
 
                         final address = _buildAddressString(
                           street: street,
@@ -526,13 +658,15 @@ class _AddLocationSheetState extends State<_AddLocationSheet> {
                           notes: notes,
                         );
 
-                        Navigator.pop(context, {
+                        Navigator.pop(context, <String, dynamic>{
                           'label': label,
                           'street': street,
                           'city': city,
                           'building': building,
                           'notes': notes,
                           'address': address,
+                          'lat': _pinned!.latitude,
+                          'lng': _pinned!.longitude,
                         });
                       },
                       style: ElevatedButton.styleFrom(
@@ -554,3 +688,4 @@ class _AddLocationSheetState extends State<_AddLocationSheet> {
     );
   }
 }
+

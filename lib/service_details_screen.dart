@@ -5,12 +5,15 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart' show kDebugMode, debugPrint;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:latlong2/latlong.dart';
 import '../glass_card.dart';
 import '../firebase_service.dart';
 import 'services_integration.dart';
 import 'models/service.dart';
 import 'main.dart' show AppLocale;
 import 'widgets/egyptian_phone_field.dart';
+import 'widgets/map_picker_screen.dart';
+import 'widgets/pin_on_map_tile.dart';
 import 'job_status.dart' show inspectServiceKey;
 
 const Color syanatBlue = Color(0xFF3C21C8);
@@ -620,6 +623,8 @@ class _OrderRequestSheetState extends State<_OrderRequestSheet> {
   final _newLocCityCtrl = TextEditingController();
   final _newLocBuildingCtrl = TextEditingController();
   final _newLocNotesCtrl = TextEditingController();
+  LatLng? _newLocPinned;
+  bool _addingLocation = false;
 
   List<Map<String, dynamic>> _locations = [];
   Map<String, dynamic>? _selectedLocation;
@@ -835,17 +840,32 @@ class _OrderRequestSheetState extends State<_OrderRequestSheet> {
   }
 
   Future<void> _addNewLocation() async {
+    // Re-entrancy guard: parent-state `_newLocPinned` would be clobbered if
+    // a rapid double-tap opened the dialog twice. The check + flag pattern
+    // is sufficient because all entry points run on the same UI isolate.
+    if (_addingLocation) return;
+    _addingLocation = true;
+    try {
+      await _addNewLocationInner();
+    } finally {
+      _addingLocation = false;
+    }
+  }
+
+  Future<void> _addNewLocationInner() async {
     _newLocLabelCtrl.clear();
     _newLocStreetCtrl.clear();
     _newLocCityCtrl.clear();
     _newLocBuildingCtrl.clear();
     _newLocNotesCtrl.clear();
+    _newLocPinned = null;
 
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => Directionality(
         textDirection: widget.isEn ? TextDirection.ltr : TextDirection.rtl,
-        child: AlertDialog(
+        child: StatefulBuilder(
+          builder: (ctx, setDialogState) => AlertDialog(
           scrollable: true,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           title: Text(_t('Add Location', '\u0625\u0636\u0627\u0641\u0629 \u0645\u0648\u0642\u0639')),
@@ -854,6 +874,22 @@ class _OrderRequestSheetState extends State<_OrderRequestSheet> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                PinOnMapTile(
+                  isEn: widget.isEn,
+                  pinned: _newLocPinned,
+                  compact: true,
+                  onTap: () async {
+                    final result = await Navigator.of(ctx).push<LatLng>(
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            MapPickerScreen(initial: _newLocPinned),
+                      ),
+                    );
+                    if (result == null) return;
+                    setDialogState(() => _newLocPinned = result);
+                  },
+                ),
+                const SizedBox(height: 12),
                 _locationFieldCard(
                   icon: Icons.place_outlined,
                   label: _t('Label (e.g. Home)', '\u0627\u0644\u062a\u0633\u0645\u064a\u0629 (\u0645\u062b\u0627\u0644: \u0627\u0644\u0645\u0646\u0632\u0644)'),
@@ -901,6 +937,7 @@ class _OrderRequestSheetState extends State<_OrderRequestSheet> {
             ),
           ],
         ),
+        ),
       ),
     );
 
@@ -923,6 +960,17 @@ class _OrderRequestSheetState extends State<_OrderRequestSheet> {
       );
       return;
     }
+    if (_newLocPinned == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_t(
+            'Please pin the exact spot on the map.',
+            'يرجى تحديد الموقع بدقة على الخريطة.',
+          )),
+        ),
+      );
+      return;
+    }
 
     final address = _buildAddressString(
       street: street,
@@ -939,6 +987,8 @@ class _OrderRequestSheetState extends State<_OrderRequestSheet> {
         'building': building,
         'notes': notes,
         'address': address,
+        'lat': _newLocPinned!.latitude,
+        'lng': _newLocPinned!.longitude,
       });
       final updated = await FirebaseService.getSavedLocations(widget.uid);
       if (!mounted) return;
@@ -1006,6 +1056,10 @@ class _OrderRequestSheetState extends State<_OrderRequestSheet> {
           _selectedLocation!['label'] as String? ?? '';
       final locationAddress =
           _selectedLocation!['address'] as String? ?? '';
+      final double? locationLat =
+          (_selectedLocation!['lat'] as num?)?.toDouble();
+      final double? locationLng =
+          (_selectedLocation!['lng'] as num?)?.toDouble();
 
       final jobId = await FirebaseService.createOrderRequest(
         customerId: widget.uid,
@@ -1017,6 +1071,8 @@ class _OrderRequestSheetState extends State<_OrderRequestSheet> {
         phoneNumber: phoneE164,
         locationLabel: locationLabel,
         locationAddress: locationAddress,
+        locationLat: locationLat,
+        locationLng: locationLng,
         // Inspect orders always ship scheduled (urgencyType: 'scheduled')
         // with a non-null scheduledTime and the 200 EGP placeholder. The
         // technician's receipt grandTotal becomes the actual amount due
