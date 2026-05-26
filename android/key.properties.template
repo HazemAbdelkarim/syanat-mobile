@@ -1,0 +1,19 @@
+# key.properties.template — fresh-clone reference for android/key.properties.
+#
+# Copy this file to android/key.properties (NOT into git — the real file is
+# gitignored), then fill in the real values. Each developer/CI environment
+# maintains its own private key.properties.
+#
+# Required values:
+#   storeFile         absolute path to the .jks keystore (forward slashes;
+#                     backslashes in properties files are escape sequences)
+#   keyAlias          the alias passed to `keytool -alias` at generation time
+#   storePassword     keystore password (NEVER paste in chat, source control,
+#                     or shared documents)
+#   keyPassword       key password — typically same as storePassword if you
+#                     pressed Enter at the second keytool prompt at -genkey
+
+storeFile=C:/path/to/your/keystore.jks
+keyAlias=your-alias
+storePassword=YOUR_KEYSTORE_PASSWORD_HERE
+keyPassword=YOUR_KEY_PASSWORD_HERE
