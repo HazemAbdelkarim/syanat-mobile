@@ -60,5 +60,11 @@
 		<true/>
 		<key>UIViewControllerBasedStatusBarAppearance</key>
 		<false/>
+		<key>NSLocationWhenInUseUsageDescription</key>
+		<string>Syanat uses your location so you can pin the exact spot where the technician should arrive.</string>
+		<key>NSCameraUsageDescription</key>
+		<string>Syanat needs camera access so technicians can take a profile photo and capture receipts.</string>
+		<key>NSPhotoLibraryUsageDescription</key>
+		<string>Syanat needs photo library access so you can attach a payment receipt or profile photo from your library.</string>
 	</dict>
 </plist>

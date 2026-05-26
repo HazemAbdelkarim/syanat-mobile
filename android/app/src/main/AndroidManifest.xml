@@ -7,6 +7,21 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
 
+    <!-- Local notifications (job status updates). POST_NOTIFICATIONS is
+         required on Android 13+ before the SDK can show any notification. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+
+    <!-- Camera for technician profile photo capture. -->
+    <uses-permission android:name="android.permission.CAMERA"/>
+
+    <!-- Gallery access for payment receipt / profile photo. Split by SDK
+         level: READ_MEDIA_IMAGES on Android 13+ (granular media), legacy
+         READ_EXTERNAL_STORAGE bounded to ≤ Android 12. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32"/>
+
     <application
         android:name="${applicationName}"
         android:label="Syanat"
