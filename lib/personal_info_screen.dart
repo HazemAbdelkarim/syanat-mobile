@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'firebase_service.dart';
 import 'widgets/egyptian_phone_field.dart';
 
-const Color _syanatBlue = Color(0xFF3C21C8);
+const Color _syanatBlue = Color(0xFF6C3FA0);
 
 class PersonalInfoScreen extends StatefulWidget {
   const PersonalInfoScreen({super.key});
@@ -57,15 +57,18 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
     return Directionality(
       textDirection: isEn ? TextDirection.ltr : TextDirection.rtl,
       child: Scaffold(
-        backgroundColor: const Color(0xFFF5F5F5),
+        backgroundColor: const Color(0xFFF7F6FA),
         appBar: AppBar(
-          backgroundColor: _syanatBlue,
+          backgroundColor: Colors.white,
+          surfaceTintColor: Colors.white,
           elevation: 0,
+          scrolledUnderElevation: 0,
           title: Text(
             t('Personal Information', 'المعلومات الشخصية'),
-            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+            style: const TextStyle(
+                color: Color(0xFF211D40), fontWeight: FontWeight.bold),
           ),
-          iconTheme: const IconThemeData(color: Colors.white),
+          iconTheme: const IconThemeData(color: Color(0xFF211D40)),
         ),
         body: _buildBody(isEn, t),
       ),
@@ -139,7 +142,7 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               gradient: const LinearGradient(
-                colors: [_syanatBlue, Color(0xFF6C4FF7)],
+                colors: [_syanatBlue, Color(0xFF8A5CD0)],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
@@ -232,7 +235,8 @@ class _InfoCard extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFEDEAF3)),
         boxShadow: [
           BoxShadow(
             color: const Color(0x0F000000),
@@ -246,7 +250,7 @@ class _InfoCard extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(9),
             decoration: BoxDecoration(
-              color: const Color(0x143C21C8),
+              color: const Color(0x146C3FA0),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(icon, color: _syanatBlue, size: 22),

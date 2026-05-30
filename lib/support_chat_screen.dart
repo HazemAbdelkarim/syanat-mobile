@@ -3,7 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'firebase_service.dart';
 
-const Color _syanatBlue = Color(0xFF3C21C8);
+const Color _syanatBlue = Color(0xFF6C3FA0);
 
 class SupportChatScreen extends StatefulWidget {
   const SupportChatScreen({super.key});
@@ -130,21 +130,24 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
       textDirection: _isEn ? TextDirection.ltr : TextDirection.rtl,
       child: Scaffold(
         appBar: AppBar(
-          backgroundColor: _syanatBlue,
-          iconTheme: const IconThemeData(color: Colors.white),
+          backgroundColor: Colors.white,
+          surfaceTintColor: Colors.white,
+          elevation: 0,
+          scrolledUnderElevation: 0,
+          iconTheme: const IconThemeData(color: Color(0xFF211D40)),
           title: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
                 _t('Need Help?', 'تحتاج مساعدة؟'),
                 style: const TextStyle(
-                    color: Colors.white,
+                    color: Color(0xFF211D40),
                     fontWeight: FontWeight.bold,
                     fontSize: 16),
               ),
               Text(
                 _t('Syanat Support', 'دعم صيانات'),
-                style: const TextStyle(color: Colors.white70, fontSize: 12),
+                style: const TextStyle(color: Color(0xFF8B8699), fontSize: 12),
               ),
             ],
           ),

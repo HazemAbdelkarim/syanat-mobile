@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-const Color _syanatBlue = Color(0xFF3C21C8);
+const Color _syanatBlue = Color(0xFF6C3FA0);
 
 class FaqScreen extends StatelessWidget {
   const FaqScreen({super.key});
@@ -76,15 +76,18 @@ class FaqScreen extends StatelessWidget {
     return Directionality(
       textDirection: isEn ? TextDirection.ltr : TextDirection.rtl,
       child: Scaffold(
-        backgroundColor: const Color(0xFFF5F5F5),
+        backgroundColor: const Color(0xFFF7F6FA),
         appBar: AppBar(
-          backgroundColor: _syanatBlue,
+          backgroundColor: Colors.white,
+          surfaceTintColor: Colors.white,
           elevation: 0,
+          scrolledUnderElevation: 0,
           title: Text(
             t('FAQ', 'الأسئلة الشائعة'),
-            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+            style: const TextStyle(
+                color: Color(0xFF211D40), fontWeight: FontWeight.bold),
           ),
-          iconTheme: const IconThemeData(color: Colors.white),
+          iconTheme: const IconThemeData(color: Color(0xFF211D40)),
         ),
         body: ListView.builder(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),

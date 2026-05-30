@@ -7,9 +7,9 @@ import 'login_screen.dart';
 import 'main.dart' show AppLocale;
 import 'onboarding_flow.dart';
 
-const Color _sBlue = Color(0xFF3C21C8);
-const Color _sBlueTop = Color(0xFF3832FF);
-const Color _sBlueLight = Color(0xFF615DFF);
+const Color _sBlue = Color(0xFF6C3FA0);
+const Color _sBlueTop = Color(0xFF8A5CC9);
+const Color _sBlueLight = Color(0xFF7A4DB8);
 const Color _sInk = Color(0xFF0B0A1F);
 const Color _sMuted = Color(0xFF5B5973);
 const Color _sFieldBg = Color(0xFFF4F2FA);
@@ -249,7 +249,7 @@ class _RoleCard extends StatelessWidget {
             boxShadow: selected
                 ? const [
                     BoxShadow(
-                      color: Color(0x243C21C8),
+                      color: Color(0x246C3FA0),
                       blurRadius: 18,
                       offset: Offset(0, 8),
                     ),
@@ -358,7 +358,7 @@ class _GradButton extends StatelessWidget {
               ? null
               : const [
                   BoxShadow(
-                    color: Color(0x593C21C8),
+                    color: Color(0x596C3FA0),
                     blurRadius: 24,
                     offset: Offset(0, 10),
                   ),

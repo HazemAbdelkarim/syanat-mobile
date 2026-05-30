@@ -10,24 +10,18 @@ import 'firebase_service.dart';
 import 'job_status.dart' show jobDisplayPrice, jobStatusCustomerLabel;
 import 'services/notification_service.dart';
 
-const Color _syanatBlue = Color(0xFF3C21C8);
-
-// ─── Premium Theme Colors ───
-const Color kPrimary = Color(0xFF6C3CE1);
-const Color kPrimaryDark = Color(0xFF5228B5);
-const Color kSurfaceBg = Color(0xFFF6F7F9);
+// ─── Theme colors — aligned with the home screen (brand purple) ───
+const Color _syanatBlue = Color(0xFF6C3FA0); // kept name; now the brand purple
+const Color kPrimary = Color(0xFF6C3FA0);
+const Color kPrimaryDark = Color(0xFF211D40);
+const Color kLavender = Color(0xFFEADDF9);
+const Color kLavenderSoft = Color(0xFFF3EEFB);
+const Color kSurfaceBg = Color(0xFFF7F6FA);
 const Color kCardBg = Color(0xFFFFFFFF);
-const Color kTextPrimary = Color(0xFF1A1A2E);
+const Color kCardBorder = Color(0xFFEDEAF3);
+const Color kTextPrimary = Color(0xFF211D40);
 const Color kTextSecondary = Color(0xFF6B7280);
-const Color kTextMuted = Color(0xFF8B8FA3);
-const Color kSuccessBg = Color(0xFFECFDF5);
-const Color kSuccessText = Color(0xFF10B981);
-const Color kDangerBg = Color(0xFFFEF2F2);
-const Color kDangerText = Color(0xFFEF4444);
-const Color kOngoingBg = Color(0xFFF3EEFF);
-const Color kOngoingText = Color(0xFF6C3CE1);
-const Color kDivider = Color(0x0F000000);
-const Color kNavInactive = Color(0xFF9CA3AF);
+const Color kTextMuted = Color(0xFF8B8699);
 
 // ---------------------------------------------------------------------------
 // Status helpers
@@ -173,97 +167,61 @@ class _OrdersScreenState extends State<OrdersScreen>
     return Directionality(
       textDirection: isEn ? TextDirection.ltr : TextDirection.rtl,
       child: Scaffold(
-        backgroundColor: const Color(0xFFF5F5F5),
+        backgroundColor: kSurfaceBg,
         body: Column(
           children: [
-            Container(
-              width: double.infinity,
-              height: MediaQuery.of(context).size.height * 0.20,
-              padding: EdgeInsets.fromLTRB(
-                  20, MediaQuery.of(context).padding.top + 8, 20, 0),
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    Color(0xFF7C4DFF),
-                    Color(0xFF6C3CE1),
-                    Color(0xFF5228B5)
+            SafeArea(
+              bottom: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 14, 20, 14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      isEn ? 'My Orders' : 'طلباتي',
+                      style: const TextStyle(
+                        color: kPrimaryDark,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 26,
+                        letterSpacing: -0.5,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: kCardBorder),
+                      ),
+                      padding: const EdgeInsets.all(4),
+                      child: TabBar(
+                        controller: _tabController,
+                        indicator: BoxDecoration(
+                          color: kPrimary,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        indicatorSize: TabBarIndicatorSize.tab,
+                        dividerColor: Colors.transparent,
+                        splashBorderRadius: BorderRadius.circular(10),
+                        labelColor: Colors.white,
+                        unselectedLabelColor: kTextMuted,
+                        labelStyle: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13.5,
+                        ),
+                        unselectedLabelStyle: const TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13.5,
+                        ),
+                        tabs: [
+                          Tab(text: isEn ? 'Ongoing' : 'جارية'),
+                          Tab(text: isEn ? 'Recent' : 'حديثة'),
+                          Tab(text: isEn ? 'Cancelled' : 'ملغية'),
+                        ],
+                      ),
+                    ),
                   ],
                 ),
-                borderRadius: BorderRadius.only(
-                  bottomLeft: Radius.circular(28),
-                  bottomRight: Radius.circular(28),
-                ),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Container(
-                      alignment: AlignmentDirectional.centerStart,
-                      child: Text(
-                        isEn ? 'My Orders' : 'طلباتي',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 26,
-                          letterSpacing: -0.3,
-                        ),
-                      ),
-                    ),
-                  ),
-                  TabBar(
-                    controller: _tabController,
-                    isScrollable: true,
-                    tabAlignment: TabAlignment.center,
-                    labelPadding: const EdgeInsets.symmetric(horizontal: 4),
-                    indicatorSize: TabBarIndicatorSize.label,
-                    indicator: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    labelColor: Colors.white,
-                    unselectedLabelColor: Colors.white.withOpacity(0.6),
-                    labelStyle: const TextStyle(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 14,
-                      letterSpacing: 0.5,
-                    ),
-                    unselectedLabelStyle: const TextStyle(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 14,
-                      letterSpacing: 0.5,
-                    ),
-                    dividerColor: Colors.transparent,
-                    tabs: [
-                      Tab(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 8),
-                          child: Text(
-                              (isEn ? 'Ongoing' : 'جارية').toUpperCase()),
-                        ),
-                      ),
-                      Tab(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 8),
-                          child: Text(
-                              (isEn ? 'Recent' : 'حديثة').toUpperCase()),
-                        ),
-                      ),
-                      Tab(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 8),
-                          child: Text((isEn ? 'Cancelled' : 'ملغية')
-                              .toUpperCase()),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
               ),
             ),
             Expanded(
@@ -401,7 +359,7 @@ class _OrdersScreenState extends State<OrdersScreen>
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFFF3F0FF),
+        color: kLavenderSoft,
         borderRadius: BorderRadius.circular(16),
         border: const Border(
           left: BorderSide(color: _syanatBlue, width: 4),
@@ -556,6 +514,7 @@ class _OrdersScreenState extends State<OrdersScreen>
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(20), // Premium softer radius
+            border: Border.all(color: kCardBorder),
             boxShadow: const [
               BoxShadow(
                 color: Color(0x0A000000), // even softer shadow
@@ -1241,11 +1200,11 @@ class _OrderTimeline extends StatelessWidget {
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: isCompleted
-                        ? const Color(0xFF3C21C8)
+                        ? const Color(0xFF6C3FA0)
                         : Colors.grey.shade200,
                     border: isActive
                         ? Border.all(
-                            color: const Color(0xFF3C21C8).withOpacity(0.3),
+                            color: const Color(0xFF6C3FA0).withOpacity(0.3),
                             width: 4)
                         : null,
                   ),
@@ -1263,7 +1222,7 @@ class _OrderTimeline extends StatelessWidget {
                   child: Container(
                     height: 2,
                     color: isCompleted
-                        ? const Color(0xFF3C21C8)
+                        ? const Color(0xFF6C3FA0)
                         : Colors.grey.shade200,
                   ),
                 );
@@ -1284,7 +1243,7 @@ class _OrderTimeline extends StatelessWidget {
                       fontSize: 10,
                       fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
                       color: isCompleted
-                          ? const Color(0xFF3C21C8)
+                          ? const Color(0xFF6C3FA0)
                           : Colors.grey.shade400,
                     ),
                     textAlign: TextAlign.center,
@@ -1401,7 +1360,7 @@ Widget _readOnlyActionMessage(String message) {
     decoration: BoxDecoration(
       color: Colors.white,
       borderRadius: BorderRadius.circular(10),
-      border: Border.all(color: const Color(0x1F3C21C8)),
+      border: Border.all(color: const Color(0x1F6C3FA0)),
     ),
     child: Row(
       children: [

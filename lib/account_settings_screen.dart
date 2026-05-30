@@ -3,7 +3,7 @@ import 'firebase_service.dart';
 import 'login_screen.dart';
 import 'widgets/egyptian_phone_field.dart';
 
-const Color _syanatBlue = Color(0xFF3C21C8);
+const Color _syanatBlue = Color(0xFF6C3FA0);
 
 class AccountSettingsScreen extends StatefulWidget {
   const AccountSettingsScreen({super.key});
@@ -130,24 +130,18 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
     return Directionality(
       textDirection: isEn ? TextDirection.ltr : TextDirection.rtl,
       child: Scaffold(
-        backgroundColor: const Color(0xFFF5F5F5),
+        backgroundColor: const Color(0xFFF7F6FA),
         appBar: AppBar(
-          backgroundColor: Colors.transparent,
-            elevation: 0,
-            flexibleSpace: Container(
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [Color(0xFF7C4DFF), Color(0xFF6C3CE1), Color(0xFF5228B5)],
-                ),
-              ),
-            ),
+          backgroundColor: Colors.white,
+          surfaceTintColor: Colors.white,
+          elevation: 0,
+          scrolledUnderElevation: 0,
           title: Text(
             t('Account Settings', 'إعدادات الحساب'),
-            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+            style: const TextStyle(
+                color: Color(0xFF211D40), fontWeight: FontWeight.bold),
           ),
-          iconTheme: const IconThemeData(color: Colors.white),
+          iconTheme: const IconThemeData(color: Color(0xFF211D40)),
         ),
         body: _buildBody(isEn, t),
       ),
@@ -617,7 +611,8 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFEDEAF3)),
         boxShadow: [
           BoxShadow(
             color: const Color(0x0F000000),
@@ -631,7 +626,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
           Container(
             padding: const EdgeInsets.all(9),
             decoration: BoxDecoration(
-              color: const Color(0x143C21C8),
+              color: const Color(0x146C3FA0),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(icon, color: _syanatBlue, size: 22),
@@ -673,7 +668,8 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFEDEAF3)),
         boxShadow: [
           BoxShadow(
             color: const Color(0x0F000000),
@@ -687,7 +683,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
           Container(
             padding: const EdgeInsets.all(9),
             decoration: BoxDecoration(
-              color: const Color(0x143C21C8),
+              color: const Color(0x146C3FA0),
               borderRadius: BorderRadius.circular(10),
             ),
             child: const Icon(Icons.wc_outlined, color: _syanatBlue, size: 22),

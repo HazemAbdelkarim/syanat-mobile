@@ -4,16 +4,15 @@
 //   • "Create account"            → RoleSelectionScreen (signup flow)
 //   • "I already have an account" → LoginScreen
 //
-// Design source: app-onboarding/project/lib/signup-screens.jsx → ScreenWelcome.
+// Material 3 design system (see app_theme.dart): white surface, brand purple
+// as the single accent, FilledButton primary + OutlinedButton secondary.
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
+import 'app_theme.dart';
 import 'login_screen.dart';
 import 'main.dart' show AppLocale;
 import 'role_selection_screen.dart';
-
-const Color _sBlue = Color(0xFF3C21C8);
-const Color _sBlueTop = Color(0xFF3832FF);
-const Color _sBlueLight = Color(0xFF615DFF);
 
 class WelcomeScreen extends StatelessWidget {
   const WelcomeScreen({super.key});
@@ -47,273 +46,136 @@ class WelcomeScreen extends StatelessWidget {
 
     return Directionality(
       textDirection: isEn ? TextDirection.ltr : TextDirection.rtl,
-      child: Scaffold(
-        body: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              stops: [0.0, 0.55, 1.0],
-              colors: [_sBlueTop, _sBlue, _sBlueLight],
-            ),
-          ),
-          child: Stack(
-            children: [
-              // Decorative orbs (match GradOrbs from the design).
-              Positioned(
-                top: -80,
-                right: -60,
-                child: _orb(260, const Color(0x38FFFFFF)),
-              ),
-              Positioned(
-                top: 120,
-                left: -120,
-                child: _orb(320, _sBlueLight.withOpacity(0.55)),
-              ),
-              Positioned(
-                bottom: -100,
-                right: -80,
-                child: _orb(300, _sBlueTop.withOpacity(0.45)),
-              ),
-              SafeArea(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Top bar — language toggle on the trailing edge.
-                    Padding(
-                      padding: const EdgeInsetsDirectional.only(
-                        start: 8,
-                        end: 8,
-                        top: 4,
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const SizedBox(width: 40),
-                          IconButton(
-                            tooltip: _t(isEn, 'Language', 'اللغة'),
-                            onPressed: () => _switchLanguage(context),
-                            icon: const Icon(
-                              Icons.language,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ],
-                      ),
+      child: AnnotatedRegion<SystemUiOverlayStyle>(
+        value: SystemUiOverlayStyle.dark.copyWith(
+          statusBarColor: Colors.transparent,
+        ),
+        child: Scaffold(
+          backgroundColor: Colors.white,
+          body: SafeArea(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Top bar — language toggle on the trailing edge.
+                Padding(
+                  padding: const EdgeInsetsDirectional.only(
+                    start: Gap.sm,
+                    end: Gap.sm,
+                    top: Gap.xs,
+                  ),
+                  child: Align(
+                    alignment: AlignmentDirectional.centerEnd,
+                    child: IconButton(
+                      tooltip: _t(isEn, 'Language', 'اللغة'),
+                      onPressed: () => _switchLanguage(context),
+                      icon: const Icon(Icons.language, color: brandPurple),
                     ),
-                    // Glass-tile lockup centered in the available middle space,
-                    // with the hero headline + copy anchored to its bottom edge.
-                    Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(28, 0, 28, 20),
-                        child: Stack(
-                          children: [
-                            const Align(
-                              alignment: Alignment.center,
-                              child: _LogoMark(height: 84),
-                            ),
-                            Align(
-                              alignment: AlignmentDirectional.bottomStart,
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    _t(
-                                      isEn,
-                                      'Home fixes,\na tap away.',
-                                      'إصلاحات منزلك،\nبضغطة واحدة.',
-                                    ),
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 44,
-                                      fontWeight: FontWeight.w800,
-                                      height: 1.03,
-                                      letterSpacing: -1.2,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 16),
-                                  ConstrainedBox(
-                                    constraints: const BoxConstraints(maxWidth: 320),
-                                    child: Text(
-                                      _t(
-                                        isEn,
-                                        'Book vetted technicians for AC, plumbing, '
-                                        'electrical and more — right from your phone.',
-                                        'احجز فنيين موثوقين للتكييف والسباكة '
-                                        'والكهرباء والمزيد — مباشرةً من هاتفك.',
-                                      ),
-                                      style: TextStyle(
-                                        color: Colors.white.withOpacity(0.82),
-                                        fontSize: 17,
-                                        height: 1.45,
-                                        letterSpacing: -0.2,
-                                      ),
-                                    ),
-                                  ),
-                                ],
+                  ),
+                ),
+                // Logo centered in the available middle space, with the hero
+                // headline + copy anchored to its bottom edge.
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                        Gap.lg + 4, 0, Gap.lg + 4, Gap.lg),
+                    child: Stack(
+                      children: [
+                        const Align(
+                          alignment: Alignment.center,
+                          child: SyanatLogo(height: 64),
+                        ),
+                        Align(
+                          alignment: AlignmentDirectional.bottomStart,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _t(
+                                  isEn,
+                                  'Home fixes,\na tap away.',
+                                  'إصلاحات منزلك،\nبضغطة واحدة.',
+                                ),
+                                style: const TextStyle(
+                                  color: brandInk,
+                                  fontSize: 44,
+                                  fontWeight: FontWeight.w800,
+                                  height: 1.03,
+                                  letterSpacing: -1.2,
+                                ),
                               ),
-                            ),
-                          ],
+                              const SizedBox(height: Gap.md),
+                              ConstrainedBox(
+                                constraints:
+                                    const BoxConstraints(maxWidth: 320),
+                                child: Text(
+                                  _t(
+                                    isEn,
+                                    'Book vetted technicians for AC, plumbing, '
+                                    'electrical and more — right from your phone.',
+                                    'احجز فنيين موثوقين للتكييف والسباكة '
+                                    'والكهرباء والمزيد — مباشرةً من هاتفك.',
+                                  ),
+                                  style: const TextStyle(
+                                    color: brandMuted,
+                                    fontSize: 17,
+                                    height: 1.45,
+                                    letterSpacing: -0.2,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                // CTAs + terms.
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                      Gap.lg, 0, Gap.lg, Gap.sm + 4),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      FilledButton(
+                        onPressed: () => _goCreateAccount(context),
+                        child: Text(_t(isEn, 'Create account', 'إنشاء حساب')),
+                      ),
+                      const SizedBox(height: Gap.sm + 4),
+                      OutlinedButton(
+                        onPressed: () => _goLogin(context),
+                        child: Text(
+                          _t(
+                            isEn,
+                            'I already have an account',
+                            'لدي حساب بالفعل',
+                          ),
                         ),
                       ),
-                    ),
-                    // CTAs + terms.
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(24, 0, 24, 12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          // Primary: white pill on gradient.
-                          SizedBox(
-                            height: 54,
-                            child: ElevatedButton(
-                              onPressed: () => _goCreateAccount(context),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.white,
-                                foregroundColor: _sBlue,
-                                elevation: 0,
-                                shadowColor: const Color(0x2E000000),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(16),
-                                ),
-                              ),
-                              child: Text(
-                                _t(isEn, 'Create account', 'إنشاء حساب'),
-                                style: const TextStyle(
-                                  fontSize: 17,
-                                  fontWeight: FontWeight.w700,
-                                  letterSpacing: -0.2,
-                                ),
-                              ),
-                            ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(
+                            Gap.sm + 2, Gap.md, Gap.sm + 2, Gap.xs),
+                        child: Text(
+                          _t(
+                            isEn,
+                            'By continuing you agree to our Terms and '
+                            'Privacy Policy.',
+                            'بمتابعتك فإنك توافق على الشروط وسياسة '
+                            'الخصوصية.',
                           ),
-                          const SizedBox(height: 10),
-                          // Secondary: glass pill.
-                          _GlassButton(
-                            label: _t(
-                              isEn,
-                              'I already have an account',
-                              'لدي حساب بالفعل',
-                            ),
-                            onTap: () => _goLogin(context),
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: brandMuted,
+                            fontSize: 12,
+                            height: 1.5,
                           ),
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(10, 12, 10, 4),
-                            child: Text(
-                              _t(
-                                isEn,
-                                'By continuing you agree to our Terms and '
-                                'Privacy Policy.',
-                                'بمتابعتك فإنك توافق على الشروط وسياسة '
-                                'الخصوصية.',
-                              ),
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                color: Colors.white.withOpacity(0.7),
-                                fontSize: 12,
-                                height: 1.5,
-                              ),
-                            ),
-                          ),
-                        ],
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _orb(double size, Color color) {
-    return IgnorePointer(
-      child: Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          gradient: RadialGradient(
-            colors: [color, color.withOpacity(0)],
-            stops: const [0.0, 0.7],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// Glass logo tile wrapping the V1 mark + wordmark lockup (10:3 aspect).
-// Sized by `height`; width is derived from the lockup's aspect ratio.
-class _LogoMark extends StatelessWidget {
-  final double height;
-  const _LogoMark({this.height = 64});
-
-  @override
-  Widget build(BuildContext context) {
-    final double width = height * (1600 / 480);
-    return Container(
-      width: width,
-      height: height,
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.14),
-        borderRadius: BorderRadius.circular(height * 0.28),
-        border: Border.all(color: Colors.white.withOpacity(0.25)),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x40000000),
-            blurRadius: 30,
-            offset: Offset(0, 10),
-          ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(height * 0.22),
-        child: Padding(
-          padding: EdgeInsets.all(height * 0.12),
-          child: Image.asset(
-            'assets/branding/lockup.png',
-            fit: BoxFit.contain,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _GlassButton extends StatelessWidget {
-  final String label;
-  final VoidCallback onTap;
-  const _GlassButton({required this.label, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      height: 54,
-      child: Material(
-        color: Colors.white.withOpacity(0.14),
-        borderRadius: BorderRadius.circular(16),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(16),
-          child: Ink(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.white.withOpacity(0.30)),
-            ),
-            child: Center(
-              child: Text(
-                label,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 17,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: -0.2,
-                ),
-              ),
+              ],
             ),
           ),
         ),

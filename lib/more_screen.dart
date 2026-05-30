@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'main.dart' show AppLocale;
 import 'login_screen.dart';
@@ -8,7 +8,14 @@ import 'saved_locations_screen.dart';
 import 'faq_screen.dart';
 import 'support_chat_screen.dart';
 
-const Color _syanatBlue = Color(0xFF3C21C8);
+// ─── Theme colors — aligned with the home & orders screens (brand purple) ───
+const Color kPrimary = Color(0xFF6C3FA0);
+const Color kPrimaryDark = Color(0xFF211D40);
+const Color kLavender = Color(0xFFEADDF9);
+const Color kLavenderSoft = Color(0xFFF3EEFB);
+const Color kSurfaceBg = Color(0xFFF7F6FA);
+const Color kCardBorder = Color(0xFFEDEAF3);
+const Color kTextMuted = Color(0xFF8B8699);
 
 class MoreScreen extends StatelessWidget {
   const MoreScreen({super.key});
@@ -21,39 +28,36 @@ class MoreScreen extends StatelessWidget {
     return Directionality(
       textDirection: isEn ? TextDirection.ltr : TextDirection.rtl,
       child: Scaffold(
-        backgroundColor: const Color(0xFFF4F5F7),
+        backgroundColor: kSurfaceBg,
         body: Column(
           children: [
-            Container(
-              width: double.infinity,
-              height: MediaQuery.of(context).size.height * 0.18,
-              padding: EdgeInsets.fromLTRB(
-                  20, MediaQuery.of(context).padding.top + 16, 20, 16),
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0xFF7C4DFF), Color(0xFF6C3CE1), Color(0xFF5228B5)]),
-                  borderRadius: BorderRadius.only(
-                  bottomLeft: Radius.circular(28),
-                  bottomRight: Radius.circular(28),
-                ),
-              ),
-              child: Align(
-                alignment: AlignmentDirectional.centerStart,
-                child: Text(
-                  t('Account', 'الحساب'),
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 1.2,
+            // Clean header — matches the home & orders surfaces (no gradient).
+            SafeArea(
+              bottom: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 14, 20, 6),
+                child: Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  child: Text(
+                    t('Account', 'الحساب'),
+                    style: const TextStyle(
+                      color: kPrimaryDark,
+                      fontSize: 26,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.5,
+                    ),
                   ),
                 ),
               ),
             ),
             Expanded(
               child: ListView(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
                 physics: const BouncingScrollPhysics(),
                 children: [
+                  _ProfileCard(isEn: isEn),
+                  const SizedBox(height: 24),
+
                   // Group 1: General Account Settings
                   _MenuGroup(
                     children: [
@@ -62,7 +66,8 @@ class MoreScreen extends StatelessWidget {
                         label: t('Personal information', 'المعلومات الشخصية'),
                         onTap: () => Navigator.push(
                           context,
-                          MaterialPageRoute(builder: (_) => const PersonalInfoScreen()),
+                          MaterialPageRoute(
+                              builder: (_) => const PersonalInfoScreen()),
                         ),
                       ),
                       const _GroupDivider(),
@@ -71,7 +76,8 @@ class MoreScreen extends StatelessWidget {
                         label: t('Account settings', 'إعدادات الحساب'),
                         onTap: () => Navigator.push(
                           context,
-                          MaterialPageRoute(builder: (_) => const AccountSettingsScreen()),
+                          MaterialPageRoute(
+                              builder: (_) => const AccountSettingsScreen()),
                         ),
                       ),
                       const _GroupDivider(),
@@ -80,13 +86,16 @@ class MoreScreen extends StatelessWidget {
                         label: t('Saved locations', 'المواقع المحفوظة'),
                         onTap: () => Navigator.push(
                           context,
-                          MaterialPageRoute(builder: (_) => const SavedLocationsScreen()),
+                          MaterialPageRoute(
+                              builder: (_) => const SavedLocationsScreen()),
                         ),
                       ),
                       const _GroupDivider(),
                       _GroupedTile(
                         icon: Icons.language,
                         label: t('Language', 'اللغة'),
+                        trailingText: isEn ? 'EN' : 'ع',
+                        hideChevron: true,
                         onTap: () {
                           final newLocale =
                               isEn ? const Locale('ar') : const Locale('en');
@@ -99,18 +108,17 @@ class MoreScreen extends StatelessWidget {
 
                   // Group 2: Support & Privacy
                   Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    padding: const EdgeInsetsDirectional.only(start: 8, bottom: 12),
                     child: Text(
                       t('Support & Privacy', 'الدعم والخصوصية'),
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.grey.shade600,
-                        letterSpacing: 0.5,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: kTextMuted,
+                        letterSpacing: 0.3,
                       ),
                     ),
                   ),
-                  const SizedBox(height: 12),
                   _MenuGroup(
                     children: [
                       _GroupedTile(
@@ -143,7 +151,7 @@ class MoreScreen extends StatelessWidget {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 32),
+                  const SizedBox(height: 24),
 
                   // Logout Group
                   _MenuGroup(
@@ -151,8 +159,9 @@ class MoreScreen extends StatelessWidget {
                       _GroupedTile(
                         icon: Icons.logout,
                         label: t('Logout', 'تسجيل الخروج'),
-                        iconColor: Colors.red.shade600,
-                        textColor: Colors.red.shade700,
+                        iconColor: const Color(0xFFDC2626),
+                        textColor: const Color(0xFFDC2626),
+                        chipColor: const Color(0xFFFDECEC),
                         hideChevron: true,
                         onTap: () => _logout(context),
                       ),
@@ -179,6 +188,119 @@ class MoreScreen extends StatelessWidget {
   }
 }
 
+/// Profile summary at the top of the Account tab — avatar (initials), the
+/// signed-in name/email from FirebaseAuth, and a chevron into the editable
+/// Personal information screen.
+class _ProfileCard extends StatelessWidget {
+  final bool isEn;
+  const _ProfileCard({required this.isEn});
+
+  String _initials(String? name, String? email) {
+    final source = (name != null && name.trim().isNotEmpty)
+        ? name.trim()
+        : (email ?? '').trim();
+    if (source.isEmpty) return '·';
+    final parts = source.split(RegExp(r'\s+'));
+    if (parts.length >= 2 && parts[0].isNotEmpty && parts[1].isNotEmpty) {
+      return (parts[0][0] + parts[1][0]).toUpperCase();
+    }
+    return source[0].toUpperCase();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final user = FirebaseAuth.instance.currentUser;
+    final name = (user?.displayName ?? '').trim();
+    final email = (user?.email ?? '').trim();
+    final title = name.isNotEmpty
+        ? name
+        : (isEn ? 'Your account' : 'حسابك');
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: kCardBorder),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x08000000),
+            blurRadius: 15,
+            offset: Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(18),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(18),
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const PersonalInfoScreen()),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Container(
+                  width: 56,
+                  height: 56,
+                  alignment: Alignment.center,
+                  decoration: const BoxDecoration(
+                    color: kLavender,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Text(
+                    _initials(name, email),
+                    style: const TextStyle(
+                      color: kPrimary,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        title,
+                        style: const TextStyle(
+                          color: kPrimaryDark,
+                          fontSize: 17,
+                          fontWeight: FontWeight.w700,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      if (email.isNotEmpty) ...[
+                        const SizedBox(height: 3),
+                        Text(
+                          email,
+                          style: const TextStyle(
+                            color: kTextMuted,
+                            fontSize: 13,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                const Icon(Icons.chevron_right,
+                    color: Color(0xFFC9C4D6), size: 22),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _MenuGroup extends StatelessWidget {
   final List<Widget> children;
 
@@ -189,7 +311,8 @@ class _MenuGroup extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: kCardBorder),
         boxShadow: const [
           BoxShadow(
             color: Color(0x08000000), // very soft premium shadow
@@ -199,7 +322,7 @@ class _MenuGroup extends StatelessWidget {
         ],
       ),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(18),
         child: Column(
           children: children,
         ),
@@ -210,14 +333,14 @@ class _MenuGroup extends StatelessWidget {
 
 class _GroupDivider extends StatelessWidget {
   const _GroupDivider();
-  
+
   @override
   Widget build(BuildContext context) {
-    return Divider(
+    return const Divider(
       height: 1,
       thickness: 1,
-      color: Colors.grey.shade100,
-      indent: 60,
+      color: Color(0xFFF1EEF7),
+      indent: 68,
     );
   }
 }
@@ -228,6 +351,8 @@ class _GroupedTile extends StatelessWidget {
   final VoidCallback onTap;
   final Color? iconColor;
   final Color? textColor;
+  final Color? chipColor;
+  final String? trailingText;
   final bool hideChevron;
 
   const _GroupedTile({
@@ -236,6 +361,8 @@ class _GroupedTile extends StatelessWidget {
     required this.onTap,
     this.iconColor,
     this.textColor,
+    this.chipColor,
+    this.trailingText,
     this.hideChevron = false,
   });
 
@@ -246,23 +373,50 @@ class _GroupedTile extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           child: Row(
             children: [
-              Icon(icon, color: iconColor ?? _syanatBlue, size: 24),
-              const SizedBox(width: 16),
+              Container(
+                width: 38,
+                height: 38,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: chipColor ?? kLavenderSoft,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: iconColor ?? kPrimary, size: 21),
+              ),
+              const SizedBox(width: 14),
               Expanded(
                 child: Text(
                   label,
                   style: TextStyle(
                     fontWeight: FontWeight.w600,
-                    fontSize: 16,
-                    color: textColor ?? Colors.black87,
+                    fontSize: 15.5,
+                    color: textColor ?? kPrimaryDark,
                   ),
                 ),
               ),
+              if (trailingText != null)
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: kLavenderSoft,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    trailingText!,
+                    style: const TextStyle(
+                      color: kPrimary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
               if (!hideChevron)
-                Icon(Icons.chevron_right, color: Colors.grey.shade300, size: 22),
+                const Icon(Icons.chevron_right,
+                    color: Color(0xFFC9C4D6), size: 22),
             ],
           ),
         ),
@@ -270,4 +424,3 @@ class _GroupedTile extends StatelessWidget {
     );
   }
 }
-

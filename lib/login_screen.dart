@@ -2,15 +2,15 @@ import 'dart:io' show Platform;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
+import 'app_theme.dart';
 import 'firebase_service.dart';
 import 'main.dart' show AppLocale;
 import 'role_selection_screen.dart';
 import 'tech_home_screen.dart';
 import 'unauthorized_screen.dart';
 import 'user_home_screen.dart';
-
-const Color syanatBlue = Color(0xFF3C21C8);
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -25,6 +25,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   bool _loading = false;
   bool _socialLoading = false;
+  bool _hidePassword = true;
   String? _loginError;
 
   @override
@@ -91,7 +92,8 @@ class _LoginScreenState extends State<LoginScreen> {
 
       if (!emailRegex.hasMatch(email)) {
         setState(() {
-          _loginError = _t(isEn, 'Enter a valid email address.', 'أدخل بريداً إلكترونياً صحيحاً.');
+          _loginError = _t(isEn, 'Enter a valid email address.',
+              'أدخل بريداً إلكترونياً صحيحاً.');
         });
         return;
       }
@@ -127,7 +129,8 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  Future<void> _handleSocialSignIn(Future<UserCredential?> Function() signInFn) async {
+  Future<void> _handleSocialSignIn(
+      Future<UserCredential?> Function() signInFn) async {
     if (_loading || _socialLoading) return;
     setState(() {
       _socialLoading = true;
@@ -174,197 +177,185 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     final isEn = Localizations.localeOf(context).languageCode == 'en';
+    final bool showApple = (!kIsWeb && Platform.isIOS) || kIsWeb;
+    final bool busy = _loading || _socialLoading;
 
     return Directionality(
       textDirection: isEn ? TextDirection.ltr : TextDirection.rtl,
-      child: Scaffold(
-        backgroundColor: syanatBlue,
-        body: SafeArea(
-          child: LayoutBuilder(
-            builder: (context, constraints) => SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                child: Column(
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        IconButton(
+      child: AnnotatedRegion<SystemUiOverlayStyle>(
+        value: SystemUiOverlayStyle.dark.copyWith(
+          statusBarColor: Colors.transparent,
+        ),
+        child: Scaffold(
+          backgroundColor: Colors.white,
+          body: SafeArea(
+            child: LayoutBuilder(
+              builder: (context, constraints) => SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(Gap.lg, 0, Gap.lg, Gap.lg),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Align(
+                        alignment: AlignmentDirectional.centerEnd,
+                        child: IconButton(
+                          tooltip: _t(isEn, 'Language', 'اللغة'),
                           onPressed: _switchLanguage,
-                          icon: const Icon(Icons.language, color: Colors.white),
+                          icon: const Icon(Icons.language, color: brandPurple),
                         ),
+                      ),
+                      const SizedBox(height: Gap.lg),
+                      const Center(child: SyanatLogo(height: 52)),
+                      const SizedBox(height: Gap.xl),
+                      Text(
+                        _t(isEn, 'Welcome back', 'مرحباً بعودتك'),
+                        style: const TextStyle(
+                          fontSize: 28,
+                          fontWeight: FontWeight.w800,
+                          color: brandInk,
+                          letterSpacing: -0.6,
+                        ),
+                      ),
+                      const SizedBox(height: Gap.sm),
+                      Text(
+                        _t(
+                          isEn,
+                          'Sign in to continue to your account.',
+                          'سجّل الدخول للمتابعة إلى حسابك.',
+                        ),
+                        style: const TextStyle(
+                          fontSize: 15,
+                          color: brandMuted,
+                          height: 1.4,
+                        ),
+                      ),
+                      const SizedBox(height: Gap.lg),
+                      TextField(
+                        controller: _emailController,
+                        keyboardType: TextInputType.emailAddress,
+                        textInputAction: TextInputAction.next,
+                        onChanged: (_) {
+                          if (_loginError != null) {
+                            setState(() => _loginError = null);
+                          }
+                        },
+                        decoration: _fieldDecoration(
+                          label: _t(isEn, 'Email', 'البريد الإلكتروني'),
+                          icon: Icons.alternate_email,
+                        ),
+                      ),
+                      const SizedBox(height: Gap.md),
+                      TextField(
+                        controller: _passwordController,
+                        obscureText: _hidePassword,
+                        onChanged: (_) {
+                          if (_loginError != null) {
+                            setState(() => _loginError = null);
+                          }
+                        },
+                        decoration: _fieldDecoration(
+                          label: _t(isEn, 'Password', 'كلمة المرور'),
+                          icon: Icons.lock_outline,
+                          suffix: IconButton(
+                            onPressed: () => setState(
+                                () => _hidePassword = !_hidePassword),
+                            icon: Icon(
+                              _hidePassword
+                                  ? Icons.visibility_outlined
+                                  : Icons.visibility_off_outlined,
+                              color: brandMuted,
+                            ),
+                          ),
+                        ),
+                      ),
+                      if (_loginError != null) ...[
+                        const SizedBox(height: Gap.md),
+                        _ErrorBox(message: _loginError!),
                       ],
-                    ),
-                    const SizedBox(height: 4),
-                    Center(
-                      child: Image.asset(
-                        'assets/branding/icon_full.png',
-                        width: 130,
-                        height: 130,
-                        fit: BoxFit.contain,
+                      const SizedBox(height: Gap.lg),
+                      FilledButton(
+                        onPressed: _loading ? null : _login,
+                        child: _loading
+                            ? const SizedBox(
+                                width: 22,
+                                height: 22,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2.2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : Text(_t(isEn, 'Login', 'دخول')),
                       ),
-                    ),
-                    const SizedBox(height: 8),
-                    Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Container(
-                        padding: const EdgeInsets.all(24),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(24),
-                          boxShadow: const [
-                            BoxShadow(
-                              color: Color(0x0F000000),
-                              blurRadius: 8,
-                              offset: Offset(0, 3),
-                            ),
-                          ],
-                        ),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              _t(isEn, 'Login', 'تسجيل الدخول'),
+                      const SizedBox(height: Gap.lg),
+                      Row(
+                        children: [
+                          const Expanded(child: Divider(color: brandHairline)),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: Gap.md),
+                            child: Text(
+                              _t(isEn, 'or', 'أو'),
                               style: const TextStyle(
-                                fontSize: 26,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.black,
-                              ),
+                                  color: brandMuted, fontSize: 13),
                             ),
-                            const SizedBox(height: 20),
-                            _buildTextField(
-                              controller: _emailController,
-                              label: _t(isEn, 'Email', 'البريد الإلكتروني'),
-                              icon: Icons.email_outlined,
-                              keyboardType: TextInputType.emailAddress,
-                              onChanged: (_) {
-                                if (_loginError != null) setState(() => _loginError = null);
-                              },
-                            ),
-                            const SizedBox(height: 14),
-                            _buildTextField(
-                              controller: _passwordController,
-                              label: _t(isEn, 'Password', 'كلمة المرور'),
-                              icon: Icons.lock_outline,
-                              obscure: true,
-                              onChanged: (_) {
-                                if (_loginError != null) setState(() => _loginError = null);
-                              },
-                            ),
-                            if (_loginError != null) ...[
-                              const SizedBox(height: 12),
-                              _errorBox(_loginError!),
-                            ],
-                            const SizedBox(height: 20),
-                            SizedBox(
-                              width: double.infinity,
-                              height: 52,
-                              child: ElevatedButton(
-                                onPressed: _loading ? null : _login,
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: syanatBlue,
-                                  foregroundColor: Colors.white,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(14),
-                                  ),
-                                ),
-                                child: _loading
-                                    ? const SizedBox(
-                                        width: 22,
-                                        height: 22,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2.2,
-                                          color: Colors.white,
-                                        ),
-                                      )
-                                    : Text(
-                                        _t(isEn, 'Login', 'دخول'),
-                                        style: const TextStyle(
-                                          fontSize: 18,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                              ),
-                            ),
-                            const SizedBox(height: 20),
-                            Row(
-                              children: [
-                                Expanded(child: Divider(color: Colors.grey.shade300)),
-                                Padding(
-                                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                                  child: Text(
-                                    _t(isEn, 'or', 'أو'),
-                                    style: TextStyle(color: Colors.grey.shade500, fontSize: 13),
-                                  ),
-                                ),
-                                Expanded(child: Divider(color: Colors.grey.shade300)),
-                              ],
-                            ),
-                            const SizedBox(height: 14),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: _socialIconButton(
-                                    enabled: !_socialLoading && !_loading,
-                                    onTap: () => _handleSocialSignIn(FirebaseService.signInWithGoogle),
-                                    child: _socialLoading
-                                        ? const SizedBox(
-                                            width: 20,
-                                            height: 20,
-                                            child: CircularProgressIndicator(strokeWidth: 2, color: syanatBlue),
-                                          )
-                                        : SizedBox(width: 28, height: 28, child: FittedBox(child: _googleIcon())),
-                                  ),
-                                ),
-                                if (!kIsWeb && Platform.isIOS || kIsWeb) ...[
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: _socialIconButton(
-                                      enabled: !_socialLoading && !_loading,
-                                      onTap: () => _handleSocialSignIn(FirebaseService.signInWithApple),
-                                      child: _socialLoading
-                                          ? const SizedBox(
-                                              width: 20,
-                                              height: 20,
-                                              child: CircularProgressIndicator(strokeWidth: 2, color: syanatBlue),
-                                            )
-                                          : const Icon(Icons.apple, size: 30, color: Colors.black87),
-                                    ),
-                                  ),
-                                ],
-                              ],
-                            ),
-                            const SizedBox(height: 10),
-                            TextButton(
-                              onPressed: (_loading || _socialLoading)
+                          ),
+                          const Expanded(child: Divider(color: brandHairline)),
+                        ],
+                      ),
+                      const SizedBox(height: Gap.md),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _SocialButton(
+                              label: 'Google',
+                              icon: const _GoogleIcon(),
+                              busy: _socialLoading,
+                              onTap: busy
                                   ? null
-                                  : () {
-                                      Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (_) => const RoleSelectionScreen(),
-                                        ),
-                                      );
-                                    },
-                              child: Text(
-                                _t(
-                                  isEn,
-                                  "Don't have an account? Create one",
-                                  'ليس لديك حساب؟ أنشئ واحداً',
-                                ),
-                                style: const TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w600,
-                                  color: syanatBlue,
-                                ),
+                                  : () => _handleSocialSignIn(
+                                      FirebaseService.signInWithGoogle),
+                            ),
+                          ),
+                          if (showApple) ...[
+                            const SizedBox(width: Gap.sm + 4),
+                            Expanded(
+                              child: _SocialButton(
+                                label: 'Apple',
+                                icon: const Icon(Icons.apple,
+                                    color: brandInk, size: 22),
+                                busy: _socialLoading,
+                                onTap: busy
+                                    ? null
+                                    : () => _handleSocialSignIn(
+                                        FirebaseService.signInWithApple),
                               ),
                             ),
                           ],
+                        ],
+                      ),
+                      const SizedBox(height: Gap.sm),
+                      TextButton(
+                        onPressed: busy
+                            ? null
+                            : () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => const RoleSelectionScreen(),
+                                  ),
+                                );
+                              },
+                        child: Text(
+                          _t(
+                            isEn,
+                            "Don't have an account? Create one",
+                            'ليس لديك حساب؟ أنشئ واحداً',
+                          ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -374,45 +365,100 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  Widget _socialIconButton({
-    required Widget child,
-    required VoidCallback onTap,
-    required bool enabled,
+  InputDecoration _fieldDecoration({
+    required String label,
+    required IconData icon,
+    Widget? suffix,
   }) {
-    return Material(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(16),
-      child: InkWell(
-        onTap: enabled ? onTap : null,
-        borderRadius: BorderRadius.circular(16),
-        child: Ink(
-          height: 56,
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: Colors.grey.shade300, width: 1.5),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x0F000000),
-                blurRadius: 8,
-                offset: Offset(0, 3),
-              ),
-            ],
-          ),
-          child: Center(child: child),
-        ),
+    return InputDecoration(
+      labelText: label,
+      prefixIcon: Icon(icon, color: brandMuted),
+      suffixIcon: suffix,
+      filled: true,
+      fillColor: brandFieldFill,
+      labelStyle: const TextStyle(color: brandMuted),
+      floatingLabelStyle: const TextStyle(color: brandPurple),
+      contentPadding:
+          const EdgeInsets.symmetric(horizontal: Gap.md, vertical: Gap.md),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: brandHairline),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: brandHairline),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: brandPurple, width: 2),
       ),
     );
   }
+}
 
-  Widget _googleIcon() {
+class _SocialButton extends StatelessWidget {
+  final String label;
+  final Widget icon;
+  final VoidCallback? onTap;
+  final bool busy;
+  const _SocialButton({
+    required this.label,
+    required this.icon,
+    required this.onTap,
+    required this.busy,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 54,
+      child: OutlinedButton(
+        onPressed: onTap,
+        style: OutlinedButton.styleFrom(
+          foregroundColor: brandInk,
+          side: const BorderSide(color: brandHairline, width: 1.5),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        ),
+        child: busy
+            ? const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                    strokeWidth: 2, color: brandPurple),
+              )
+            : Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  SizedBox(width: 22, height: 22, child: Center(child: icon)),
+                  const SizedBox(width: Gap.sm),
+                  Text(
+                    label,
+                    style: const TextStyle(
+                      color: brandInk,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+      ),
+    );
+  }
+}
+
+class _GoogleIcon extends StatelessWidget {
+  const _GoogleIcon();
+
+  @override
+  Widget build(BuildContext context) {
     return Container(
       width: 20,
       height: 20,
       alignment: Alignment.center,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        border: Border.all(color: Colors.grey.shade300),
+        border: Border.all(color: brandHairline),
       ),
       child: const Text(
         'G',
@@ -424,50 +470,26 @@ class _LoginScreenState extends State<LoginScreen> {
       ),
     );
   }
+}
 
-  Widget _buildTextField({
-    required TextEditingController controller,
-    required String label,
-    required IconData icon,
-    bool obscure = false,
-    TextInputType keyboardType = TextInputType.text,
-    ValueChanged<String>? onChanged,
-  }) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.grey.shade100,
-        borderRadius: BorderRadius.circular(15),
-        border: Border.all(color: Colors.grey.shade300),
-      ),
-      child: TextField(
-        controller: controller,
-        obscureText: obscure,
-        keyboardType: keyboardType,
-        onChanged: onChanged,
-        decoration: InputDecoration(
-          labelText: label,
-          labelStyle: const TextStyle(fontSize: 13, color: Colors.black54),
-          prefixIcon: Icon(icon, color: Colors.black54),
-          border: InputBorder.none,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-        ),
-      ),
-    );
-  }
+class _ErrorBox extends StatelessWidget {
+  final String message;
+  const _ErrorBox({required this.message});
 
-  Widget _errorBox(String message) {
+  @override
+  Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: Gap.md, vertical: Gap.sm),
       decoration: BoxDecoration(
         color: const Color(0xFFFFEBEB),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.red.shade300),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.red.shade200),
       ),
       child: Row(
         children: [
-          const Icon(Icons.error_outline, color: Colors.red, size: 16),
-          const SizedBox(width: 8),
+          const Icon(Icons.error_outline, color: Colors.red, size: 18),
+          const SizedBox(width: Gap.sm),
           Expanded(
             child: Text(
               message,

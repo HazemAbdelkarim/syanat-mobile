@@ -4,7 +4,7 @@ import 'firebase_service.dart';
 import 'widgets/map_picker_screen.dart';
 import 'widgets/pin_on_map_tile.dart';
 
-const Color _syanatBlue = Color(0xFF3C21C8);
+const Color _syanatBlue = Color(0xFF6C3FA0);
 
 class SavedLocationsScreen extends StatefulWidget {
   const SavedLocationsScreen({super.key});
@@ -223,15 +223,18 @@ class _SavedLocationsScreenState extends State<SavedLocationsScreen> {
     return Directionality(
       textDirection: isEn ? TextDirection.ltr : TextDirection.rtl,
       child: Scaffold(
-        backgroundColor: const Color(0xFFF5F5F5),
+        backgroundColor: const Color(0xFFF7F6FA),
         appBar: AppBar(
-          backgroundColor: _syanatBlue,
+          backgroundColor: Colors.white,
+          surfaceTintColor: Colors.white,
           elevation: 0,
+          scrolledUnderElevation: 0,
           title: Text(
             t('Saved Locations', 'المواقع المحفوظة'),
-            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+            style: const TextStyle(
+                color: Color(0xFF211D40), fontWeight: FontWeight.bold),
           ),
-          iconTheme: const IconThemeData(color: Colors.white),
+          iconTheme: const IconThemeData(color: Color(0xFF211D40)),
         ),
         floatingActionButton: FloatingActionButton(
           backgroundColor: _syanatBlue,
@@ -488,7 +491,7 @@ class _AddLocationSheetState extends State<_AddLocationSheet> {
           Container(
             padding: const EdgeInsets.all(9),
             decoration: BoxDecoration(
-              color: const Color(0x143C21C8),
+              color: const Color(0x146C3FA0),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(icon, color: _syanatBlue, size: 22),

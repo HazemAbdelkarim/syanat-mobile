@@ -34,9 +34,9 @@ import 'widgets/egyptian_phone_field.dart';
 import 'widgets/map_picker_screen.dart';
 
 // ─── Design tokens (mirror app-onboarding/project/lib/signup-screens.jsx) ───
-const Color _sBlue = Color(0xFF3C21C8);
-const Color _sBlueTop = Color(0xFF3832FF);
-const Color _sBlueLight = Color(0xFF615DFF);
+const Color _sBlue = Color(0xFF6C3FA0);
+const Color _sBlueTop = Color(0xFF8A5CC9);
+const Color _sBlueLight = Color(0xFF7A4DB8);
 const Color _sInk = Color(0xFF0B0A1F);
 const Color _sMuted = Color(0xFF5B5973);
 const Color _sFieldBg = Color(0xFFF4F2FA);
@@ -671,7 +671,7 @@ class _GradButton extends StatelessWidget {
           borderRadius: BorderRadius.circular(16),
           boxShadow: const [
             BoxShadow(
-              color: Color(0x593C21C8),
+              color: Color(0x596C3FA0),
               blurRadius: 24,
               offset: Offset(0, 10),
             ),
@@ -727,7 +727,7 @@ class _Medallion extends StatelessWidget {
             decoration: const BoxDecoration(
               shape: BoxShape.circle,
               gradient: RadialGradient(
-                colors: [Color(0x2E3C21C8), Color(0x003C21C8)],
+                colors: [Color(0x2E6C3FA0), Color(0x006C3FA0)],
                 stops: [0.0, 0.7],
               ),
             ),
@@ -740,7 +740,7 @@ class _Medallion extends StatelessWidget {
               gradient: _gradBtn,
               boxShadow: const [
                 BoxShadow(
-                  color: Color(0x593C21C8),
+                  color: Color(0x596C3FA0),
                   blurRadius: 36,
                   offset: Offset(0, 16),
                 ),
@@ -1008,7 +1008,7 @@ class _PhoneRowState extends State<_PhoneRow> {
               border: Border.all(color: _sBlue, width: 2),
               boxShadow: const [
                 BoxShadow(
-                  color: Color(0x243C21C8),
+                  color: Color(0x246C3FA0),
                   blurRadius: 28,
                   offset: Offset(0, 10),
                 ),
@@ -1369,7 +1369,7 @@ class _OtpRow extends StatelessWidget {
                     boxShadow: [
                       if (active)
                         const BoxShadow(
-                          color: Color(0x2E3C21C8),
+                          color: Color(0x2E6C3FA0),
                           blurRadius: 24,
                           offset: Offset(0, 10),
                         )
@@ -1713,7 +1713,7 @@ class _ProfileScreenState extends State<_ProfileScreen> {
               gradient: _gradBtn,
               boxShadow: const [
                 BoxShadow(
-                  color: Color(0x4C3C21C8),
+                  color: Color(0x4C6C3FA0),
                   blurRadius: 24,
                   offset: Offset(0, 10),
                 ),
@@ -1993,7 +1993,7 @@ class _ServiceTile extends StatelessWidget {
             boxShadow: selected
                 ? const [
                     BoxShadow(
-                      color: Color(0x243C21C8),
+                      color: Color(0x246C3FA0),
                       blurRadius: 18,
                       offset: Offset(0, 8),
                     ),
@@ -2290,7 +2290,7 @@ class _FauxMap extends StatelessWidget {
                   decoration: const BoxDecoration(
                     shape: BoxShape.circle,
                     gradient: RadialGradient(
-                      colors: [Color(0x2E3C21C8), Color(0x003C21C8)],
+                      colors: [Color(0x2E6C3FA0), Color(0x006C3FA0)],
                       stops: [0.0, 0.7],
                     ),
                   ),
@@ -2322,7 +2322,7 @@ class _Pin extends StatelessWidget {
           ),
           boxShadow: [
             BoxShadow(
-              color: Color(0x663C21C8),
+              color: Color(0x666C3FA0),
               blurRadius: 24,
               offset: Offset(0, 10),
             ),

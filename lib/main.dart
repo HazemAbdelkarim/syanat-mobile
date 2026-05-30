@@ -4,6 +4,7 @@ import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/foundation.dart' show kIsWeb, kReleaseMode;
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'app_theme.dart';
 import 'auth_gate.dart';
 import 'firebase_service.dart';
 import 'services/notification_service.dart';
@@ -96,6 +97,7 @@ class _MyAppState extends State<MyApp> {
       child: MaterialApp(
         title: 'Syanat',
         debugShowCheckedModeBanner: false,
+        theme: buildSyanatTheme(),
 
         // Multi-language support (English / Arabic)
         locale: _localeNotifier.value,
