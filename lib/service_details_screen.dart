@@ -15,8 +15,12 @@ import 'widgets/egyptian_phone_field.dart';
 import 'widgets/map_picker_screen.dart';
 import 'widgets/pin_on_map_tile.dart';
 import 'job_status.dart' show inspectServiceKey;
+import 'cutoff_policy.dart';
 
 const Color syanatBlue = Color(0xFF3C21C8);
+
+/// Outcome of the same-day 4 PM Cairo soft-nudge dialog.
+enum _CutoffAction { scheduleTomorrow, continueAnyway, cancel }
 
 class ServiceDetailsScreen extends StatefulWidget {
   final String serviceKey;
@@ -839,6 +843,80 @@ class _OrderRequestSheetState extends State<_OrderRequestSheet> {
     });
   }
 
+  Future<_CutoffAction> _showSameDayCutoffDialog() async {
+    final result = await showDialog<_CutoffAction>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        title: Text(
+          _t(
+            'Same-day service may be limited',
+            'خدمة اليوم قد تكون محدودة',
+          ),
+          style: const TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        content: Text(
+          _t(
+            "It's past 4 PM. Our technicians may not be able to reach you today, especially for urgent orders. We recommend scheduling for tomorrow morning for the best experience.",
+            'لقد تجاوزت الساعة 4 مساءً. قد لا يتمكن الفنيون من الوصول إليك اليوم، خاصةً للطلبات العاجلة. ننصح بالجدولة لصباح الغد للحصول على أفضل تجربة.',
+          ),
+          style: const TextStyle(fontSize: 14, height: 1.5),
+        ),
+        actionsAlignment: MainAxisAlignment.spaceBetween,
+        actions: [
+          TextButton(
+            onPressed: () =>
+                Navigator.of(ctx).pop(_CutoffAction.continueAnyway),
+            child: Text(
+              _t('Continue anyway', 'المتابعة على أي حال'),
+              style: const TextStyle(color: Colors.black54),
+            ),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: syanatBlue,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+            onPressed: () =>
+                Navigator.of(ctx).pop(_CutoffAction.scheduleTomorrow),
+            child: Text(_t('Schedule for tomorrow', 'جدولة للغد')),
+          ),
+        ],
+      ),
+    );
+    return result ?? _CutoffAction.cancel;
+  }
+
+  Future<void> _pickScheduledTimeForTomorrow() async {
+    final tomorrow = DateTime.now().add(const Duration(days: 1));
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: DateTime(tomorrow.year, tomorrow.month, tomorrow.day, 9, 0),
+      firstDate: tomorrow,
+      lastDate: DateTime.now().add(const Duration(days: 30)),
+    );
+    if (picked == null || !mounted) return;
+    final time = await showTimePicker(
+      context: context,
+      initialTime: const TimeOfDay(hour: 9, minute: 0),
+    );
+    if (time == null || !mounted) return;
+    setState(() {
+      _scheduledTime = DateTime(
+          picked.year, picked.month, picked.day, time.hour, time.minute);
+      _scheduleError = null;
+    });
+  }
+
   Future<void> _addNewLocation() async {
     // Re-entrancy guard: parent-state `_newLocPinned` would be clobbered if
     // a rapid double-tap opened the dialog twice. The check + flag pattern
@@ -1071,6 +1149,39 @@ class _OrderRequestSheetState extends State<_OrderRequestSheet> {
       _locationError = null;
       _scheduleError = null;
     });
+
+    // Same-day 4 PM Cairo cutoff — soft nudge.
+    // shouldShowSameDayNudge returns true when (a) it is past 4 PM Cairo time
+    // AND (b) the order would execute today (urgent now, or scheduled-for-today).
+    // Inspect orders are always scheduled with a customer-picked time, so they
+    // go through the same nudge path on a same-day scheduled time.
+    // Placed before the `_submitting`/`_submitted` flags are set so a dialog
+    // dismissal never locks out a later re-submit (the line 1043 guard keys
+    // off `_submitted`).
+    if (shouldShowSameDayNudge(
+      urgencyType: widget.isInspect ? 'scheduled' : _urgencyType,
+      scheduledTime: _scheduledTime,
+    )) {
+      final action = await _showSameDayCutoffDialog();
+      if (!mounted) return;
+      if (action == _CutoffAction.cancel) {
+        // Customer dismissed the dialog by tapping outside or back — abort submit.
+        setState(() => _submitting = false);
+        return;
+      }
+      if (action == _CutoffAction.scheduleTomorrow) {
+        // Flip to scheduled, clear the existing scheduledTime, open the picker
+        // with tomorrow as the suggested initial date.
+        setState(() {
+          _urgencyType = 'scheduled';
+          _scheduledTime = null;
+          _submitting = false;
+        });
+        await _pickScheduledTimeForTomorrow();
+        return;
+      }
+      // action == _CutoffAction.continueAnyway falls through to the existing submit.
+    }
 
     final description = _descController.text.trim();
     final String phoneRaw = _phoneController.text.trim();
