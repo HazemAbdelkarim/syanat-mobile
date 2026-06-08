@@ -583,7 +583,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: kLavender,
+        color: const Color(0xFF2563EB), // blue hero surface
         borderRadius: BorderRadius.circular(24),
       ),
       child: Row(
@@ -596,7 +596,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                 Text(
                   isEn ? 'The nearest technician to you' : 'أقرب فني لموقعك',
                   style: const TextStyle(
-                    color: kPrimaryDark,
+                    color: Colors.white,
                     fontSize: 18,
                     fontWeight: FontWeight.w800,
                     height: 1.2,
@@ -608,7 +608,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                       ? 'We connect you with the closest available technician — no waiting, no appointments.'
                       : 'نوصلك بأقرب فني متاح بدون انتظار أو مواعيد.',
                   style: const TextStyle(
-                    color: kPrimaryDark,
+                    color: Colors.white,
                     fontSize: 12.5,
                     fontWeight: FontWeight.w500,
                     height: 1.4,

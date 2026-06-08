@@ -132,7 +132,10 @@
       "Bash(firebase firestore:rules:releases)",
       "Bash(firebase --help)",
       "Bash(firebase firestore *)",
-      "Bash(awk 'NR>=270 && /^[[:space:]]*\\\\\\)\\\\\\)\\\\\\)\\\\\\);[[:space:]]*$|^[[:space:]]*\\\\\\)\\\\\\)\\\\\\);[[:space:]]*$|^[[:space:]]*\\\\\\)\\\\\\)\\\\\\);$|^[[:space:]]*\\\\\\)\\\\\\)\\\\;[[:space:]]*$|^[[:space:]]*}[[:space:]]*$/{print NR\": \"$0; if\\(/^[[:space:]]*}[[:space:]]*$/\\)c++; if\\(c>=2\\)exit}' lib/technician_active_job_screen.dart)"
+      "Bash(awk 'NR>=270 && /^[[:space:]]*\\\\\\)\\\\\\)\\\\\\)\\\\\\);[[:space:]]*$|^[[:space:]]*\\\\\\)\\\\\\)\\\\\\);[[:space:]]*$|^[[:space:]]*\\\\\\)\\\\\\)\\\\\\);$|^[[:space:]]*\\\\\\)\\\\\\)\\\\;[[:space:]]*$|^[[:space:]]*}[[:space:]]*$/{print NR\": \"$0; if\\(/^[[:space:]]*}[[:space:]]*$/\\)c++; if\\(c>=2\\)exit}' lib/technician_active_job_screen.dart)",
+      "Bash(gh repo *)",
+      "Bash(gh api *)",
+      "PowerShell(git *)"
     ]
   },
   "enableAllProjectMcpServers": true,
